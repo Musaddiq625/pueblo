@@ -53,6 +53,7 @@ Future<void> main() async {
           dbPath: 'pueblo_sim.db',
         );
         PuebloGame.personaSprite = bundle.sprites;
+        PuebloGame.personaTint = bundle.tints;
         runApp(PuebloApp(bundle: bundle));
       }),
     ));
@@ -79,6 +80,7 @@ Future<void> main() async {
   );
 
   PuebloGame.personaSprite = bundle.sprites;
+  PuebloGame.personaTint = bundle.tints;
 
   runApp(PuebloApp(bundle: bundle));
 }
@@ -115,14 +117,18 @@ class _PuebloAppState extends State<PuebloApp> {
         fadedCount = f;
       }),
     );
-    // SHOT=<seconds> → dev tool: rasterize the frame to a PNG after settling.
+    // SHOT=<seconds> → rasterize a frame after settling; SHOTN=<n> captures
+    // n frames at 1s intervals (pueblo_frame.png, pueblo_frame_1.png, …).
     const shotSec = int.fromEnvironment('SHOT');
     if (shotSec > 0) {
-      Timer(Duration(seconds: shotSec), _dumpFrame);
+      const n = int.fromEnvironment('SHOTN', defaultValue: 1);
+      for (var i = 0; i < n; i++) {
+        Timer(Duration(seconds: shotSec + i), () => _dumpFrame(i));
+      }
     }
   }
 
-  Future<void> _dumpFrame() async {
+  Future<void> _dumpFrame([int idx = 0]) async {
     final boundary =
         _rb.currentContext?.findRenderObject() as RenderRepaintBoundary?;
     if (boundary == null) return;
@@ -130,7 +136,8 @@ class _PuebloAppState extends State<PuebloApp> {
     final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
     if (bytes == null) return;
     final dir = await getApplicationDocumentsDirectory();
-    final f = File('${dir.path}/pueblo_frame.png');
+    final name = idx == 0 ? 'pueblo_frame.png' : 'pueblo_frame_$idx.png';
+    final f = File('${dir.path}/$name');
     await f.writeAsBytes(bytes.buffer.asUint8List());
     debugPrint('SHOT saved: ${f.path}');
   }
