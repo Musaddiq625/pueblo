@@ -65,14 +65,14 @@ class GroundComponent extends PositionComponent {
         b,
         Paint()
           ..color = _streetEdge
-          ..strokeWidth = 46
+          ..strokeWidth = 34
           ..strokeCap = StrokeCap.round);
     c.drawLine(
         a,
         b,
         Paint()
           ..color = _streetFill
-          ..strokeWidth = 38
+          ..strokeWidth = 26
           ..strokeCap = StrokeCap.round);
     // cobble suggestion: faint ticks across the strip every ~22 units
     final dir = b - a;
@@ -80,25 +80,49 @@ class GroundComponent extends PositionComponent {
     final n = dir / len;
     final tick = Paint()
       ..color = const Color(0xFF655884)
-      ..strokeWidth = 2;
-    for (var d = 20.0; d < len; d += 22) {
+      ..strokeWidth = 1.6;
+    for (var d = 18.0; d < len; d += 24) {
       final p = a + n * d;
-      c.drawLine(p - Offset(-n.dy, n.dx) * 16, p + Offset(-n.dy, n.dx) * 16,
+      c.drawLine(p - Offset(-n.dy, n.dx) * 10, p + Offset(-n.dy, n.dx) * 10,
           tick);
     }
   }
 
   void _plaza(Canvas c, Offset center, double r) {
     c.drawCircle(center, r, Paint()..color = _streetEdge);
-    c.drawCircle(center, r - 8, Paint()..color = _streetFill);
+    c.drawCircle(center, r - 6, Paint()..color = _streetFill);
     final tick = Paint()
       ..color = const Color(0xFF655884)
-      ..strokeWidth = 2;
-    for (var i = 0; i < 14; i++) {
-      final ang = i * pi / 7;
-      final p1 = center + Offset(cos(ang), sin(ang)) * (r - 20);
-      final p2 = center + Offset(cos(ang), sin(ang)) * (r - 34);
+      ..strokeWidth = 1.6;
+    for (var i = 0; i < 12; i++) {
+      final ang = i * pi / 6;
+      final p1 = center + Offset(cos(ang), sin(ang)) * (r - 16);
+      final p2 = center + Offset(cos(ang), sin(ang)) * (r - 28);
       c.drawLine(p1, p2, tick);
+    }
+  }
+
+  /// Marigold hedge — a low border of warm bushes along the inside map
+  /// edge so the village reads enclosed rather than floating in void.
+  void _hedge(Canvas c) {
+    final leaf = Paint()..color = const Color(0xFF1F2B22);
+    final bloom = Paint()..color = const Color(0xFFEF8C1A);
+    var i = 0;
+    for (var x = 30.0; x < size.x - 20; x += 44) {
+      for (final y in [26.0, size.y - 26]) {
+        if ((i++ % 5) == 2) continue; // gaps so it isn't a wall
+        c.drawCircle(Offset(x, y), 13, leaf);
+        c.drawCircle(Offset(x - 4, y - 4), 2.4, bloom);
+        c.drawCircle(Offset(x + 5, y + 2), 2.4, bloom);
+      }
+    }
+    for (var y = 60.0; y < size.y - 40; y += 44) {
+      for (final x in [26.0, size.x - 26]) {
+        if ((i++ % 5) == 2) continue;
+        c.drawCircle(Offset(x, y), 13, leaf);
+        c.drawCircle(Offset(x - 4, y - 4), 2.4, bloom);
+        c.drawCircle(Offset(x + 5, y + 2), 2.4, bloom);
+      }
     }
   }
 
@@ -114,27 +138,7 @@ class GroundComponent extends PositionComponent {
           ..strokeWidth = 1);
   }
 
-  void _stall(Canvas c, double x, double y, Color awning) {
-    // counter
-    c.drawRRect(
-        RRect.fromRectAndRadius(Rect.fromLTWH(x - 34, y - 26, 68, 14),
-            const Radius.circular(3)),
-        Paint()..color = const Color(0xFF6B4A2E));
-    // posts
-    for (final px in [x - 30, x + 30]) {
-      c.drawRect(Rect.fromLTWH(px - 2, y - 56, 4, 30),
-          Paint()..color = const Color(0xFF4E3520));
-    }
-    // awning — alternating stripes
-    for (var i = 0; i < 6; i++) {
-      c.drawRect(
-          Rect.fromLTWH(x - 36 + i * 12, y - 62, 12, 10),
-          Paint()
-            ..color = i.isEven ? awning : const Color(0xFFEFE4CE));
-    }
-    c.drawRect(Rect.fromLTWH(x - 36, y - 52, 72, 3),
-        Paint()..color = const Color(0xFF2A1E10));
-  }
+
 
   void _candles(Canvas c, double x0, double y0, int n) {
     for (var i = 0; i < n; i++) {
@@ -173,8 +177,8 @@ class GroundComponent extends PositionComponent {
           Offset(_nodePos[e[1]][0], _nodePos[e[1]][1]));
     }
     // plaza + ofrenda landings
-    _plaza(canvas, const Offset(700, 330), 125);
-    _plaza(canvas, const Offset(700, 715), 80);
+    _plaza(canvas, const Offset(700, 330), 88);
+    _plaza(canvas, const Offset(700, 715), 62);
     // gravestone field (cemetery lane, east side)
     for (var y = 520.0; y <= 640; y += 52) {
       for (var x = 1040.0; x <= 1350; x += 56) {
@@ -182,18 +186,17 @@ class GroundComponent extends PositionComponent {
         _gravestone(canvas, x + ((y / 52).round() % 2) * 18, y);
       }
     }
-    // market stalls
-    _stall(canvas, 420, 292, const Color(0xFFEF8C1A)); // flower stall
-    _stall(canvas, 540, 272, const Color(0xFF7B4FD0)); // cantina
     // ofrenda candle field
     _candles(canvas, 624, 690, 16);
-    // spirit trees along the dark edges
-    _tree(canvas, 90, 160, 224);
-    _tree(canvas, 1240, 130, 0);
-    _tree(canvas, 80, 600, 224);
-    _tree(canvas, 1340, 330, 336);
-    _tree(canvas, 300, 770, 0);
-    _tree(canvas, 1080, 770, 224);
+    // border hedge — the village reads enclosed
+    _hedge(canvas);
+    // spirit trees — kept inside the map bounds, off the hedge line
+    _tree(canvas, 150, 190, 224);
+    _tree(canvas, 1180, 170, 0);
+    _tree(canvas, 160, 600, 224);
+    _tree(canvas, 1280, 330, 336);
+    _tree(canvas, 300, 740, 0);
+    _tree(canvas, 1080, 760, 224);
     // vignette — darken map borders
     for (final r in [
       Rect.fromLTWH(0, 0, size.x, 14),
@@ -215,7 +218,7 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
   final Agent agent;
   final String charKey;
   final String displayName;
-  final Color? spriteTint;
+  final Color? auraColor;
   final void Function(Agent) onTapped;
 
   // Movement
@@ -233,7 +236,7 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     required SpriteAnimation idle,
     required SpriteAnimation walk,
     this.displayName = '',
-    this.spriteTint,
+    this.auraColor,
   }) : super(
           animations: {SpiritAnim.idle: idle, SpiritAnim.walk: walk},
           current: SpiritAnim.idle,
@@ -301,34 +304,48 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
   }
 
   @override
-  Future<void> onLoad() async {
-    if (spriteTint != null) tint(spriteTint!);
-  }
-
-  @override
   void render(Canvas canvas) {
+    // aura ring under the feet — the persona color distinguishes spirits
+    // without painting over the sprite art itself
+    final aura = auraColor;
+    if (aura != null) {
+      final cx = size.x / 2, cy = size.y - 5;
+      canvas.drawOval(
+          Rect.fromCenter(center: Offset(cx, cy), width: 46, height: 13),
+          Paint()
+            ..color = aura.withValues(alpha: 0.32 * _opacity)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
+      canvas.drawOval(
+          Rect.fromCenter(center: Offset(cx, cy), width: 40, height: 10),
+          Paint()
+            ..color = aura.withValues(alpha: 0.85 * _opacity)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.4);
+    }
     super.render(canvas);
-    // name tag under the feet — counter-flip so text stays readable when
-    // the sprite flips horizontally to face walk direction
+    // name tag under the feet — persona color, counter-flip so text stays
+    // readable when the sprite flips to face walk direction
     if (displayName.isNotEmpty) {
       final tp = TextPainter(
         text: TextSpan(
             text: displayName,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 9,
-                color: Color(0xDDEFE4CE),
+                color: aura ?? const Color(0xDDEFE4CE),
                 fontFamily: 'monospace',
-                shadows: [Shadow(color: Color(0xFF000000), blurRadius: 3)])),
+                shadows: const [
+                  Shadow(color: Color(0xFF000000), blurRadius: 3)
+                ])),
         textDirection: TextDirection.ltr,
       )..layout();
       if (scale.x.isNegative) {
         canvas.save();
         canvas.translate(size.x, 0);
         canvas.scale(-1, 1);
-        tp.paint(canvas, Offset((size.x - tp.width) / 2, size.y + 2));
+        tp.paint(canvas, Offset((size.x - tp.width) / 2, size.y + 4));
         canvas.restore();
       } else {
-        tp.paint(canvas, Offset((size.x - tp.width) / 2, size.y + 2));
+        tp.paint(canvas, Offset((size.x - tp.width) / 2, size.y + 4));
       }
     }
   }
@@ -430,6 +447,59 @@ class PoiComponent extends PositionComponent with TapCallbacks {
 
 // ---------------------------------------------------------------------------
 
+/// A market stall — one coherent unit at the POI point: striped awning on
+/// posts, wooden counter with goods, name label attached below.
+class StallVisual extends PositionComponent {
+  StallVisual({required this.poi, required this.awning})
+      : super(size: Vector2(96, 84), anchor: Anchor.bottomCenter);
+
+  final Poi poi;
+  final Color awning;
+
+  @override
+  void render(Canvas canvas) {
+    final w = size.x;
+    // posts
+    for (final px in [w / 2 - 34, w / 2 + 34]) {
+      canvas.drawRect(Rect.fromLTWH(px - 2, 6, 4, 58),
+          Paint()..color = const Color(0xFF4E3520));
+    }
+    // awning — alternating stripes with a scalloped hem
+    for (var i = 0; i < 8; i++) {
+      canvas.drawRect(
+          Rect.fromLTWH(w / 2 - 40 + i * 10, 0, 10, 14),
+          Paint()
+            ..color = i.isEven ? awning : const Color(0xFFEFE4CE));
+    }
+    canvas.drawRect(Rect.fromLTWH(w / 2 - 40, 14, 80, 3),
+        Paint()..color = const Color(0xFF2A1E10));
+    // counter
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(Rect.fromLTWH(w / 2 - 38, 40, 76, 16),
+            const Radius.circular(3)),
+        Paint()..color = const Color(0xFF6B4A2E));
+    // goods on the counter — marigold pots / bread / trinkets
+    final goods = [const Color(0xFFEF8C1A), const Color(0xFFEFD23F),
+        const Color(0xFF2EA88A)];
+    for (var i = 0; i < 3; i++) {
+      canvas.drawCircle(Offset(w / 2 - 20 + i * 20, 38), 4.5,
+          Paint()..color = goods[i]);
+    }
+    // name label below the counter
+    final tp = TextPainter(
+      text: TextSpan(
+          text: poi.name.toLowerCase(),
+          style: const TextStyle(
+              fontSize: 9, color: Color(0xCCBDB4E0),
+              fontFamily: 'monospace')),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset((w - tp.width) / 2, size.y - 12));
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 /// Speech/emote bubble floating over a component's head.
 class BubbleComponent extends PositionComponent {
   final String text;
@@ -454,6 +524,21 @@ class BubbleComponent extends PositionComponent {
 
   @override
   void render(Canvas canvas) {
+    // parent spirit flips horizontally when walking left — counter-flip
+    // so text never renders mirrored
+    final p = parent;
+    if (p is PositionComponent && p.scale.x.isNegative) {
+      canvas.save();
+      canvas.translate(size.x, 0);
+      canvas.scale(-1, 1);
+      _draw(canvas);
+      canvas.restore();
+    } else {
+      _draw(canvas);
+    }
+  }
+
+  void _draw(Canvas canvas) {
     final style = TextStyle(
       color: const Color(0xFFFFF4DC),
       fontSize: isEmote ? 22 : 12.5,

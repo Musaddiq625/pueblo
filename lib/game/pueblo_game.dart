@@ -120,7 +120,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       idle: idle,
       walk: walk,
       displayName: a.name,
-      spriteTint:
+      auraColor:
           personaTint[a.id] != null ? Color(personaTint[a.id]!) : null,
     );
     if (a.faded) c.setFaded(true);
@@ -306,6 +306,10 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
             animation: await _anim(objects['bonfire']!),
             size: Vector2(70, 70), anchor: Anchor.bottomCenter,
             position: Vector2(0, 8));
+      case 'flower_stall':
+        visual = StallVisual(poi: p, awning: const Color(0xFFEF8C1A));
+      case 'cantina':
+        visual = StallVisual(poi: p, awning: const Color(0xFF7B4FD0));
       default:
         // small stone/marker placeholder — colored base
         visual = _PoiMarker(p);
@@ -324,7 +328,8 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     if (!s.isIdentity()) {
       camera.viewfinder.zoom = (_startZoom * s.y).clamp(0.8, 2.5);
     } else {
-      // pan
+      // pan — manual pan takes camera off follow mode
+      camera.stop();
       final zoom = camera.viewfinder.zoom;
       camera.moveBy((info.delta.global..negate()) / zoom);
     }
@@ -338,7 +343,20 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
           (camera.viewfinder.zoom * scale).clamp(0.8, 2.5);
     }
     final d = Vector2(panDelta.dx, panDelta.dy);
-    if (d.length2 > 0) camera.moveBy(-d / camera.viewfinder.zoom);
+    if (d.length2 > 0) {
+      camera.stop();
+      camera.moveBy(-d / camera.viewfinder.zoom);
+    }
+  }
+
+  /// Keep the viewport inside the map — no void past the village border.
+  /// (viewfinder.position is a computed getter — assign, don't mutate.)
+  void _clampCamera() {
+    final r = camera.visibleWorldRect;
+    final p = camera.viewfinder.position;
+    final x = r.width >= mapW ? mapW / 2 : p.x.clamp(r.width / 2, mapW - r.width / 2);
+    final y = r.height >= mapH ? mapH / 2 : p.y.clamp(r.height / 2, mapH - r.height / 2);
+    if (x != p.x || y != p.y) camera.viewfinder.position = Vector2(x, y);
   }
 
   @override
@@ -450,7 +468,10 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
 
   void _bubble(String agentId, String line) {
     final c = spirits[agentId];
-    if (c == null || line.isEmpty) return;
+    if (c == null || line.isEmpty || c.walking) return; // no speech mid-stride
+    for (final b in c.children.whereType<BubbleComponent>()) {
+      b.removeFromParent();
+    }
     c.add(BubbleComponent(line,
         size: Vector2(220, 44))
       ..position = Vector2(0, -c.size.y - 6));
@@ -474,6 +495,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   void update(double dt) {
     super.update(dt);
     engine.tick(dt);
+    _clampCamera();
     // petal pickup on walk-over
     if (player != null) {
       for (final petal in world.children.whereType<PetalComponent>().toList()) {

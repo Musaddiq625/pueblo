@@ -425,7 +425,7 @@ class SimEngine {
         }
         if (_dist2(a.x, a.y, p.x, p.y) > p.radius * p.radius) {
           // walk to the object first — the inspect visibly happens on arrival
-          _routeTo(a, p.x + 10, p.y + 16, onArrive: _doInspect(p, d.line));
+          _routeTo(a, p.x + 18, p.y + 36, onArrive: _doInspect(p, d.line));
           return;
         }
         _doInspect(p, d.line)(this, a);
@@ -441,7 +441,7 @@ class SimEngine {
       case 'goto':
         final p = pois[d.target];
         if (p != null) {
-          _routeTo(a, p.x + 10, p.y + 16);
+          _routeTo(a, p.x + 18, p.y + 36);
           return;
         }
         _fallbackStroll(a);
