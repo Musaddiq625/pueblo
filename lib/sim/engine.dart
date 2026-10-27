@@ -7,22 +7,24 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'world_map.dart';
 import 'broker.dart';
 import 'llm.dart';
 import 'models.dart';
+import 'navgrid.dart';
 import 'prompts.dart';
 import 'store.dart';
 
 // ---------------------------------------------------------------------------
 
 enum SimEventType {
-  move,      // {agent, path:[[x,y],...]} — render lerps along it
-  say,       // {agent, line, mood} — bubble over head
-  emote,     // {agent, glyph} — ? ! etc.
-  state,     // {agent, faded, engaged, x, y}
+  move, // {agent, path:[[x,y],...]} — render lerps along it
+  say, // {agent, line, mood} — bubble over head
+  emote, // {agent, glyph} — ? ! etc.
+  state, // {agent, faded, engaged, x, y}
   pairStart, // {a, b} — both locked into convo
   pairEnd,
-  poiGlow,   // {poi, on}
+  poiGlow, // {poi, on}
   petalSpawn,
   dawn,
   endRun,
@@ -47,7 +49,7 @@ class Conversation {
   String? askedAbout; // subject when convo was initiated via askAbout
 
   Conversation(this.id, this.aId, this.bId, {this.askedAbout})
-      : nextSpeaker = aId;
+    : nextSpeaker = aId;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,8 +62,7 @@ class SimEngine {
   final Map<String, Agent> agents;
   final Map<String, Secret> secrets;
   final Map<String, Poi> pois;
-  final List<List<int>> waypoints; // adjacency: waypoint i -> neighbors
-  final List<List<double>> waypointPos;
+  final NavGrid nav;
   final Random rng;
   final double timeScale; // 1.0 normal; demo mode higher
   final int dawnAt; // sim_ts of run end
@@ -83,17 +84,24 @@ class SimEngine {
   /// warmth gate (seller must have talked to the player already).
   static const shopItems = <String, Map<String, Object?>>{
     'bouquet': {
-      'name': 'Marigold Bouquet', 'price': 15, 'stall': 'flower_stall',
-      'desc': 'A bundle of cempasúchil. Gift it — spirits remember kindness.'
+      'name': 'Marigold Bouquet',
+      'price': 15,
+      'stall': 'flower_stall',
+      'desc': 'A bundle of cempasúchil. Gift it — spirits remember kindness.',
     },
     'agua_fresca': {
-      'name': 'Agua Fresca', 'price': 8, 'stall': 'cantina',
-      'desc': 'Sefa\'s brew. Gift it — loosens a spirit\'s tongue.'
+      'name': 'Agua Fresca',
+      'price': 8,
+      'stall': 'cantina',
+      'desc': 'Sefa\'s brew. Gift it — loosens a spirit\'s tongue.',
     },
     'grave_37_name': {
-      'name': 'A Name for Grave 37', 'price': 40, 'stall': 'gravedigger_hut',
-      'secret': 'grave_37_name', 'seller': 'bruno',
-      'desc': 'Bruno sells the name only to someone he has spoken with.'
+      'name': 'A Name for Grave 37',
+      'price': 40,
+      'stall': 'gravedigger_hut',
+      'secret': 'grave_37_name',
+      'seller': 'bruno',
+      'desc': 'Bruno sells the name only to someone he has spoken with.',
     },
   };
 
@@ -118,18 +126,23 @@ class SimEngine {
   final Map<String, double> _nextWanderAt = {}; // agentId -> sim_ts
   final Map<String, _Arrival> _arrivals = {}; // deferred on-arrival actions
 
+  /// Activity-slot reservations — 'poi:tx:ty' -> agentId. A spirit holds
+  /// its counter/stand spot until it leaves; nobody double-books a grave.
+  final Map<String, String> _slotReserved = {};
+  final Map<String, String> _agentSlot = {}; // agentId -> slotKey
+
   SimEngine({
     required this.store,
     required this.llm,
     required this.agents,
     required this.secrets,
     required this.pois,
-    required this.waypoints,
-    required this.waypointPos,
+    NavGrid? nav,
     Random? rng,
     this.timeScale = 1.0,
     this.dawnAt = 900, // 15 sim-minutes
-  }) : rng = rng ?? Random() {
+  }) : nav = nav ?? NavGrid.build(),
+       rng = rng ?? Random() {
     prompts = PromptBuilder(secrets);
     broker = InferenceBroker(llm, workers: 1);
     broker.decisions.listen(_onDecision);
@@ -181,17 +194,28 @@ class SimEngine {
   void startConversation(String aId, String bId, {String? askedAbout}) {
     final a = agents[aId], b = agents[bId];
     if (a == null || b == null) return;
-    if (a.engaged || b.engaged || a.inConvo || b.inConvo || a.faded || b.faded) {
+    if (a.engaged ||
+        b.engaged ||
+        a.inConvo ||
+        b.inConvo ||
+        a.faded ||
+        b.faded) {
       return;
     }
-    final convo = Conversation('c${simTs}_${aId}_$bId', aId, bId,
-        askedAbout: askedAbout);
+    final convo = Conversation(
+      'c${simTs}_${aId}_$bId',
+      aId,
+      bId,
+      askedAbout: askedAbout,
+    );
     conversations[convo.id] = convo;
-    // both stand where they are — cancel in-flight walks
+    // both stand where they are — cancel in-flight walks + release slots
     _walks.remove(aId);
     _walks.remove(bId);
     _arrivals.remove(aId);
     _arrivals.remove(bId);
+    _releaseSlot(aId);
+    _releaseSlot(bId);
     a.inConvo = b.inConvo = true;
     a.bumpVersion();
     b.bumpVersion();
@@ -226,12 +250,20 @@ class SimEngine {
       return;
     }
     c.pendingJob = true;
-    final prompt = prompts.convoTurnPrompt(speaker, partner,
-        transcript: c.transcript,
-        context: 'near ${nearestPoiName(speaker.x, speaker.y)}',
-        askedAbout: c.askedAbout);
-    broker.push(JobKind.convoTurn, speaker.id, prompt, speaker.stateVersion,
-        convoId: c.id);
+    final prompt = prompts.convoTurnPrompt(
+      speaker,
+      partner,
+      transcript: c.transcript,
+      context: 'near ${nearestPoiName(speaker.x, speaker.y)}',
+      askedAbout: c.askedAbout,
+    );
+    broker.push(
+      JobKind.convoTurn,
+      speaker.id,
+      prompt,
+      speaker.stateVersion,
+      convoId: c.id,
+    );
   }
 
   Future<void> _onTurn((Job, ConvoTurn?) rec) async {
@@ -263,32 +295,63 @@ class SimEngine {
 
     // Atomic commit: utterance event + memories + transfer in one logical unit.
     final eid = await store.logEvent(simTs, 'utterance', {
-      'convo': c.id, 'speaker': speaker.id, 'listeners': [partner.id],
-      'line': line, 'secret': shared,
+      'convo': c.id,
+      'speaker': speaker.id,
+      'listeners': [partner.id],
+      'line': line,
+      'secret': shared,
     });
     c.transcript.add('${speaker.name}: $line');
-    await store.memory(Memory(
-        agent: speaker.id, simTs: simTs, kind: 'said', source: 'self',
-        text: 'to ${partner.name}: $line', importance: 3,
-        entities: [partner.id]));
-    await store.memory(Memory(
-        agent: partner.id, simTs: simTs, kind: 'heard',
+    await store.memory(
+      Memory(
+        agent: speaker.id,
+        simTs: simTs,
+        kind: 'said',
+        source: 'self',
+        text: 'to ${partner.name}: $line',
+        importance: 3,
+        entities: [partner.id],
+      ),
+    );
+    await store.memory(
+      Memory(
+        agent: partner.id,
+        simTs: simTs,
+        kind: 'heard',
         source: 'spirit:${speaker.id}',
-        text: '${speaker.name} said: $line', importance: 4,
-        entities: [speaker.id]));
+        text: '${speaker.name} said: $line',
+        importance: 4,
+        entities: [speaker.id],
+      ),
+    );
     if (shared != null) {
       final learned = await store.transferKnowledge(
-          partner.id, shared, 'spirit:${speaker.id}', simTs, eid);
+        partner.id,
+        shared,
+        'spirit:${speaker.id}',
+        simTs,
+        eid,
+      );
       if (learned) {
         partner.knownSecrets.add(shared);
         partner.bumpVersion();
-        await store.simLog(simTs, partner.id, 'learn',
-            '$shared via ${speaker.id}');
-        await store.memory(Memory(
-            agent: partner.id, simTs: simTs, kind: 'heard',
+        await store.simLog(
+          simTs,
+          partner.id,
+          'learn',
+          '$shared via ${speaker.id}',
+        );
+        await store.memory(
+          Memory(
+            agent: partner.id,
+            simTs: simTs,
+            kind: 'heard',
             source: 'spirit:${speaker.id}',
-            text: 'learned: ${secrets[shared]!.shareText}', importance: 8,
-            entities: [speaker.id, shared]));
+            text: 'learned: ${secrets[shared]!.shareText}',
+            importance: 8,
+            entities: [speaker.id, shared],
+          ),
+        );
         _checkSolidify();
       }
     }
@@ -296,8 +359,13 @@ class SimEngine {
     speaker.battery = min(100, speaker.battery + 4);
     partner.battery = min(100, partner.battery + 6);
 
-    _events.add(SimEvent(SimEventType.say,
-        {'agent': speaker.id, 'line': line, 'mood': turn.mood}));
+    _events.add(
+      SimEvent(SimEventType.say, {
+        'agent': speaker.id,
+        'line': line,
+        'mood': turn.mood,
+      }),
+    );
 
     // Next speaker / done.
     c.nextSpeaker = partner.id;
@@ -316,9 +384,7 @@ class SimEngine {
   // ============================ decisions ==================================
 
   void _scheduleDecision() {
-    final free = agents.values
-        .where((a) => !a.engaged && !a.inConvo)
-        .toList();
+    final free = agents.values.where((a) => !a.engaged && !a.inConvo).toList();
     if (free.isEmpty) return;
     free.sort((a, b) => a.lastActedAt.compareTo(b.lastActedAt));
     final agent = free.first;
@@ -358,14 +424,21 @@ class SimEngine {
 
   final Map<String, List<String>> _memCache = {};
   Future<void> _refreshMemories(Agent a) async {
-    final ms = await store.recall(a, simTs,
-        contextEntities: _nearby(a).agentIds);
+    final ms = await store.recall(
+      a,
+      simTs,
+      contextEntities: _nearby(a).agentIds,
+    );
     _memCache[a.id] = ms.map((m) => m.text).toList();
     final st = await store.memoryStats(a.id);
     if (st.count > 40 || st.importanceSum > 60) {
       final old = await store.archiveOldest(a.id, 20);
-      broker.push(JobKind.reflection, a.id,
-          prompts.reflectionPrompt(a, old), a.stateVersion);
+      broker.push(
+        JobKind.reflection,
+        a.id,
+        prompts.reflectionPrompt(a, old),
+        a.stateVersion,
+      );
     }
   }
 
@@ -374,9 +447,16 @@ class SimEngine {
     final a = agents[job.agentId];
     if (a == null || summary == null || summary.isEmpty) return;
     if (job.stateVersion != a.stateVersion) return;
-    await store.memory(Memory(
-        agent: a.id, simTs: simTs, kind: 'reflection', source: 'self',
-        text: summary, importance: 7));
+    await store.memory(
+      Memory(
+        agent: a.id,
+        simTs: simTs,
+        kind: 'reflection',
+        source: 'self',
+        text: summary,
+        importance: 7,
+      ),
+    );
   }
 
   void _onDecision((Job, Decision?) rec) {
@@ -423,25 +503,43 @@ class SimEngine {
           _fallbackStroll(a);
           return;
         }
-        if (_dist2(a.x, a.y, p.x, p.y) > p.radius * p.radius) {
-          // walk to the object first — the inspect visibly happens on arrival
-          _routeTo(a, p.x + 18, p.y + 36, onArrive: _doInspect(p, d.line));
+        // walk to a free stand-slot at the POI, then inspect visibly
+        _visitSlot(
+          a,
+          p.id,
+          onArrive: _doInspect(p, d.line),
+          onFail: _fallbackStroll,
+        );
+      case 'shop':
+        // browsing a stall — the POI is the target, not a spirit
+        final p = pois[d.target];
+        if (p != null) {
+          _visitSlot(
+            a,
+            p.id,
+            onArrive: _browse(p, line: d.line),
+            onFail: _fallbackStroll,
+          );
           return;
         }
-        _doInspect(p, d.line)(this, a);
-      case 'shop':
+        _fallbackStroll(a);
       case 'offerSecret':
         final t = agents[d.target];
         if (t != null && !t.engaged && !t.inConvo) {
-          startConversation(a.id, t.id,
-              askedAbout: d.action == 'shop' ? 'wares' : null);
+          startConversation(a.id, t.id);
           return;
         }
         _fallbackStroll(a);
       case 'goto':
         final p = pois[d.target];
         if (p != null) {
-          _routeTo(a, p.x + 18, p.y + 36);
+          _visitSlot(
+            a,
+            p.id,
+            onArrive: (e, ag) =>
+                _nextWanderAt[ag.id] = e.simTs + 5 + e.rng.nextDouble() * 5,
+            onFail: _fallbackStroll,
+          );
           return;
         }
         _fallbackStroll(a);
@@ -456,33 +554,55 @@ class SimEngine {
 
   /// Standing at a POI → observe it. Curiosity payoff → goal to ask around.
   _Arrival _doInspect(Poi p, String line) => (e, a) {
-        _say(a, line.isEmpty ? p.surfaceText : line, 'curious');
-        _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
-        unawaited(Future.delayed(const Duration(seconds: 4), () =>
-            _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': false})));
-        unawaited(store.memory(Memory(
-            agent: a.id, simTs: simTs, kind: 'observation', source: 'world',
-            text: 'noticed: ${p.surfaceText}', importance: 6,
-            entities: [p.id])));
-        if (rng.nextDouble() < a.stats.curiosity / 5) {
-          a.goal = 'askAbout:${p.id}';
-        }
-        _nextWanderAt[a.id] = e.simTs + 5 + e.rng.nextDouble() * 4;
-      };
+    _say(a, line.isEmpty ? p.surfaceText : line, 'curious');
+    _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
+    unawaited(
+      Future.delayed(
+        const Duration(seconds: 4),
+        () => _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': false}),
+      ),
+    );
+    unawaited(
+      store.memory(
+        Memory(
+          agent: a.id,
+          simTs: simTs,
+          kind: 'observation',
+          source: 'world',
+          text: 'noticed: ${p.surfaceText}',
+          importance: 6,
+          entities: [p.id],
+        ),
+      ),
+    );
+    if (rng.nextDouble() < a.stats.curiosity / 5) {
+      a.goal = 'askAbout:${p.id}';
+    }
+    _nextWanderAt[a.id] = e.simTs + 5 + e.rng.nextDouble() * 4;
+  };
 
   /// Greeting — the named greeting is the resurrection mechanic: if the
   /// greeter knows `grave_37_name` and the target is Solorio, speaking his
   /// name recharges him hard. Otherwise a normal small recharge.
   void _greet(Agent a, Agent t, Decision d) {
-    final knowsName = t.id == 'solorio' &&
-        a.knownSecrets.contains('grave_37_name');
+    final knowsName =
+        t.id == 'solorio' && a.knownSecrets.contains('grave_37_name');
     if (knowsName) {
       _say(a, '¡Solorio! Still with us, compadre.', 'warm');
       t.battery = min(100, t.battery + 25);
-      unawaited(store.memory(Memory(
-          agent: t.id, simTs: simTs, kind: 'heard', source: 'spirit:${a.id}',
-          text: '${a.name} spoke his name: Solorio', importance: 9,
-          entities: [a.id, 'grave_37_name'])));
+      unawaited(
+        store.memory(
+          Memory(
+            agent: t.id,
+            simTs: simTs,
+            kind: 'heard',
+            source: 'spirit:${a.id}',
+            text: '${a.name} spoke his name: Solorio',
+            importance: 9,
+            entities: [a.id, 'grave_37_name'],
+          ),
+        ),
+      );
       _emit(t, SimEventType.emote, {'agent': t.id, 'glyph': '✨'});
     } else {
       _say(a, d.line.isEmpty ? 'evening.' : d.line, d.mood);
@@ -491,8 +611,9 @@ class SimEngine {
     if (t.faded && t.battery > 8) {
       t.faded = false;
       t.bumpVersion();
-      _events.add(SimEvent(
-          SimEventType.state, {'agent': t.id, 'faded': false}));
+      _events.add(
+        SimEvent(SimEventType.state, {'agent': t.id, 'faded': false}),
+      );
     }
   }
 
@@ -500,57 +621,86 @@ class SimEngine {
 
   /// Deferred action fired when an agent's path completes at a target.
   void _fallbackStroll(Agent a) {
-    final best = _nearestWaypoint(a);
-    final next = waypoints[best][rng.nextInt(waypoints[best].length)];
-    _setPath(a, [waypointPos[best], waypointPos[next]]);
-  }
-
-  /// Route via the waypoint graph: current pos → nearest node → graph hops
-  /// toward the node nearest (x,y) → final point. Spirits stay on streets.
-  void _routeTo(Agent a, double x, double y, {_Arrival? onArrive}) {
-    final from = _nearestWaypoint(a);
-    var to = 0;
-    var bd = double.infinity;
-    for (var i = 0; i < waypointPos.length; i++) {
-      final d = _dist2(x, y, waypointPos[i][0], waypointPos[i][1]);
-      if (d < bd) {
-        bd = d;
-        to = i;
-      }
-    }
-    final path = <List<double>>[];
-    var cur = from;
-    var guard = 0;
-    while (cur != to && guard++ < 8) {
-      path.add(waypointPos[cur]);
-      // greedy hop toward destination node
-      var nxt = waypoints[cur].first;
-      var nd = _dist2(waypointPos[nxt][0], waypointPos[nxt][1], x, y);
-      for (final n in waypoints[cur].skip(1)) {
-        final d = _dist2(waypointPos[n][0], waypointPos[n][1], x, y);
-        if (d < nd) {
-          nd = d;
-          nxt = n;
+    _releaseSlot(a.id); // leaving wherever they were standing
+    // stroll = hop to a nearby street/plaza tile (spirits favor roads)
+    final tx = (a.x / kTile).floor(), ty = (a.y / kTile).floor();
+    final cands = <(int, int)>[];
+    for (var dy = -6; dy <= 6; dy++) {
+      for (var dx = -6; dx <= 6; dx++) {
+        final nx = tx + dx, ny = ty + dy;
+        if (nx < 0 || nx >= kMapTilesW || ny < 0 || ny >= kMapTilesH) continue;
+        final ch = villageAscii[ny][nx];
+        if ((ch == 'd' || ch == 's' || ch == 'p') && nav.walkable(nx, ny)) {
+          cands.add((nx, ny));
         }
       }
-      cur = nxt;
     }
-    path.add(waypointPos[to]);
-    path.add([x, y]);
+    if (cands.isEmpty) return;
+    final t = cands[rng.nextInt(cands.length)];
+    _routeTo(a, t.$1, t.$2);
+  }
+
+  /// A* route on the walkable grid to a tile. Spirits stay on streets and
+  /// path around buildings — the waypoint graph is gone.
+  void _routeTo(Agent a, int tx, int ty, {_Arrival? onArrive}) {
+    final pts = nav.route(a.x, a.y, tx, ty);
+    final path = [
+      for (final p in pts) [p.x, p.y],
+    ];
     _setPath(a, path, onArrive: onArrive);
   }
 
-  int _nearestWaypoint(Agent a) {
-    var best = 0;
+  // ------------------------- activity slots -------------------------------
+
+  String _slotKey(ActivitySlot s) => '${s.poiId}:${s.tx}:${s.ty}';
+
+  /// Free slot for a POI nearest the agent, or null if all taken.
+  ActivitySlot? _freeSlot(String poiId, Agent a) {
+    ActivitySlot? best;
     var bd = double.infinity;
-    for (var i = 0; i < waypointPos.length; i++) {
-      final d = _dist2(a.x, a.y, waypointPos[i][0], waypointPos[i][1]);
+    for (final s in villageSlots) {
+      if (s.poiId != poiId) continue;
+      if (_slotReserved.containsKey(_slotKey(s))) continue;
+      final d = _dist2(a.x, a.y, tileX(s.tx), tileY(s.ty));
       if (d < bd) {
         bd = d;
-        best = i;
+        best = s;
       }
     }
     return best;
+  }
+
+  void _releaseSlot(String agentId) {
+    final key = _agentSlot.remove(agentId);
+    if (key != null) _slotReserved.remove(key);
+  }
+
+  /// Reserve + route to a POI slot. On arrival the spirit faces the
+  /// counter/grave and dwells before wandering on.
+  void _visitSlot(
+    Agent a,
+    String poiId, {
+    required _Arrival onArrive,
+    void Function(Agent)? onFail,
+  }) {
+    final s = _freeSlot(poiId, a);
+    if (s == null) {
+      onFail?.call(a);
+      return;
+    }
+    final key = _slotKey(s);
+    _releaseSlot(a.id);
+    _slotReserved[key] = a.id;
+    _agentSlot[a.id] = key;
+    _routeTo(
+      a,
+      s.tx,
+      s.ty,
+      onArrive: (e, ag) {
+        _emit(ag, SimEventType.state, {'agent': ag.id, 'fx': s.fx, 'fy': s.fy});
+        onArrive(e, ag);
+      },
+    );
   }
 
   void _setPath(Agent a, List<List<double>> pts, {_Arrival? onArrive}) {
@@ -606,38 +756,63 @@ class SimEngine {
     }
   }
 
-  /// Deterministic wander — keeps every unfaded, unengaged spirit moving
-  /// continuously between LLM decisions. ~1/3 of hops route toward a stall
-  /// or anomaly POI so spirits visibly browse/inspect objects on their own.
+  /// Deterministic ambient life — keeps every unfaded, unengaged spirit
+  /// doing something between LLM decisions. ~2/3 of trips route to a POI
+  /// activity slot (browse a stall, pay respects at a grave, sit at the
+  /// fountain) so spirits visibly DO things on their own.
   void _ambientWander() {
     for (final a in agents.values) {
       if (a.engaged || a.inConvo || a.faded) continue;
       if (_walks.containsKey(a.id)) continue;
       if (simTs < (_nextWanderAt[a.id] ?? 0)) continue;
       final r = rng.nextDouble();
-      if (r < 0.35) {
-        // visit a stall / anomaly — stop there a while like browsing
+      if (r < 0.65) {
+        // visit a POI — weight stalls & anomalies, but any POI qualifies
         final targets = pois.values
-            .where((p) => p.isStall || p.anomaly)
+            .where((p) => villageSlots.any((s) => s.poiId == p.id))
             .toList();
-        final p = targets[rng.nextInt(targets.length)];
-        _routeTo(a, p.x + 18, p.y + 36, onArrive: _browse(p));
+        if (targets.isEmpty) {
+          _fallbackStroll(a);
+          continue;
+        }
+        // persona bias: home POI draws them back occasionally
+        var p = targets[rng.nextInt(targets.length)];
+        if (r < 0.18) {
+          final homePoi = pois[a.home];
+          if (homePoi != null) p = homePoi;
+        }
+        _visitSlot(a, p.id, onArrive: _browse(p), onFail: _fallbackStroll);
       } else {
         _fallbackStroll(a);
       }
     }
   }
 
-  /// Reached a POI — linger, glow the marker, note the observation.
-  _Arrival _browse(Poi p) => (e, a) {
-        _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
-        unawaited(Future.delayed(const Duration(seconds: 3), () =>
-            _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': false})));
-        _nextWanderAt[a.id] = e.simTs + 6 + e.rng.nextDouble() * 6;
-        unawaited(store.memory(Memory(
-            agent: a.id, simTs: simTs, kind: 'observation', source: 'world',
-            text: 'stopped by ${p.name}', importance: 2, entities: [p.id])));
-      };
+  /// Reached a POI slot — face it, linger, glow the marker, remember it.
+  _Arrival _browse(Poi p, {String line = ''}) => (e, a) {
+    if (line.isNotEmpty) _say(a, line, 'warm');
+    _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
+    unawaited(
+      Future.delayed(
+        const Duration(seconds: 3),
+        () => _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': false}),
+      ),
+    );
+    _nextWanderAt[a.id] = e.simTs + 7 + e.rng.nextDouble() * 7;
+    unawaited(
+      store.memory(
+        Memory(
+          agent: a.id,
+          simTs: simTs,
+          kind: 'observation',
+          source: 'world',
+          text: 'stopped by ${p.name}',
+          importance: 2,
+          entities: [p.id],
+        ),
+      ),
+    );
+  };
 
   void _say(Agent a, String line, String mood) {
     _emit(a, SimEventType.say, {'agent': a.id, 'line': line, 'mood': mood});
@@ -659,9 +834,13 @@ class SimEngine {
       a.faded = !a.solidified && a.battery <= 8;
       if (a.faded != wasFaded) {
         a.bumpVersion();
-        _events.add(SimEvent(SimEventType.state,
-            {'agent': a.id, 'faded': a.faded}));
-        if (a.faded) _abortConvoWith(a.id);
+        _events.add(
+          SimEvent(SimEventType.state, {'agent': a.id, 'faded': a.faded}),
+        );
+        if (a.faded) {
+          _abortConvoWith(a.id);
+          _releaseSlot(a.id);
+        }
       }
     }
   }
@@ -677,6 +856,7 @@ class SimEngine {
     _abortConvoWith(agentId); // releases partner with a memory below
     _walks.remove(agentId); // freeze mid-path at current position
     _arrivals.remove(agentId);
+    _releaseSlot(agentId);
     a.engaged = true;
     a.bumpVersion();
     a.battery = min(100, a.battery + 15); // attention revives
@@ -685,8 +865,13 @@ class SimEngine {
     }
     engagedId = agentId;
     playerHist.clear();
-    _events.add(SimEvent(
-        SimEventType.state, {'agent': agentId, 'engaged': true, 'faded': a.faded}));
+    _events.add(
+      SimEvent(SimEventType.state, {
+        'agent': agentId,
+        'engaged': true,
+        'faded': a.faded,
+      }),
+    );
   }
 
   /// Release — user-driven only (End / engage another spirit).
@@ -700,8 +885,9 @@ class SimEngine {
       a.bumpVersion();
       a.lastActedAt = simTs.toDouble() - 5; // back into rotation soon
       _nextWanderAt[id] = simTs + 3; // resume strolling shortly after release
-      _events
-          .add(SimEvent(SimEventType.state, {'agent': id, 'engaged': false}));
+      _events.add(
+        SimEvent(SimEventType.state, {'agent': id, 'engaged': false}),
+      );
     }
   }
 
@@ -721,40 +907,65 @@ class SimEngine {
         if (a.faded && a.battery > 8) {
           a.faded = false;
           a.bumpVersion();
-          _events.add(SimEvent(
-              SimEventType.state, {'agent': a.id, 'faded': false}));
+          _events.add(
+            SimEvent(SimEventType.state, {'agent': a.id, 'faded': false}),
+          );
         }
       } else if (a.knownSecrets.add('grave_37_name')) {
-        final eid = await store.logEvent(simTs, 'utterance',
-            {'speaker': 'player', 'listeners': [a.id], 'line': text, 'secret': 'grave_37_name'});
-        unawaited(store.transferKnowledge(
-            a.id, 'grave_37_name', 'player', simTs, eid));
+        final eid = await store.logEvent(simTs, 'utterance', {
+          'speaker': 'player',
+          'listeners': [a.id],
+          'line': text,
+          'secret': 'grave_37_name',
+        });
+        unawaited(
+          store.transferKnowledge(a.id, 'grave_37_name', 'player', simTs, eid),
+        );
         a.bumpVersion();
         _checkSolidify();
       }
     }
-    final memories = await store.recall(a, simTs,
-        contextEntities: {'player'});
-    final prompt = prompts.playerChatPrompt(a,
-        history: playerHist.length > 8
-            ? playerHist.sublist(playerHist.length - 8)
-            : playerHist,
-        memories: memories.map((m) => m.text).toList());
+    final memories = await store.recall(a, simTs, contextEntities: {'player'});
+    final prompt = prompts.playerChatPrompt(
+      a,
+      history: playerHist.length > 8
+          ? playerHist.sublist(playerHist.length - 8)
+          : playerHist,
+      memories: memories.map((m) => m.text).toList(),
+    );
     // Player claim → memory as claim, not fact.
-    unawaited(store.memory(Memory(
-        agent: a.id, simTs: simTs, kind: 'heard', source: 'player_claim',
-        text: 'the living one said: $text', importance: 5,
-        entities: ['player'])));
+    unawaited(
+      store.memory(
+        Memory(
+          agent: a.id,
+          simTs: simTs,
+          kind: 'heard',
+          source: 'player_claim',
+          text: 'the living one said: $text',
+          importance: 5,
+          entities: ['player'],
+        ),
+      ),
+    );
     final buf = StringBuffer();
     await for (final chunk in llm.playerChat(prompt)) {
       buf.write(chunk);
       yield chunk;
     }
     playerHist.add(ChatMsg(false, buf.toString()));
-    unawaited(store.memory(Memory(
-        agent: a.id, simTs: simTs, kind: 'said', source: 'self',
-        text: 'to the living one: ${buf.toString()}', importance: 4,
-        entities: ['player'])));
+    unawaited(
+      store.memory(
+        Memory(
+          agent: a.id,
+          simTs: simTs,
+          kind: 'said',
+          source: 'self',
+          text: 'to the living one: ${buf.toString()}',
+          importance: 4,
+          entities: ['player'],
+        ),
+      ),
+    );
     a.battery = min(100, a.battery + 10);
   }
 
@@ -771,8 +982,13 @@ class SimEngine {
 
   void learnSecretAsPlayer(String secretId, String via) {
     if (playerKnown.add(secretId)) {
-      unawaited(store.logEvent(
-          simTs, 'transfer', {'to': 'player', 'secret': secretId, 'via': via}));
+      unawaited(
+        store.logEvent(simTs, 'transfer', {
+          'to': 'player',
+          'secret': secretId,
+          'via': via,
+        }),
+      );
     }
   }
 
@@ -783,15 +999,18 @@ class SimEngine {
   List<Map<String, Object?>> stallItems(String stallId) {
     return shopItems.entries
         .where((e) => e.value['stall'] == stallId)
-        .map((e) => {
-              'id': e.key,
-              'name': e.value['name'],
-              'price': e.value['price'],
-              'desc': e.value['desc'],
-              'locked': e.value['seller'] != null &&
-                  (playerChatCount[e.value['seller']] ?? 0) == 0,
-              'secret': e.value['secret'],
-            })
+        .map(
+          (e) => {
+            'id': e.key,
+            'name': e.value['name'],
+            'price': e.value['price'],
+            'desc': e.value['desc'],
+            'locked':
+                e.value['seller'] != null &&
+                (playerChatCount[e.value['seller']] ?? 0) == 0,
+            'secret': e.value['secret'],
+          },
+        )
         .toList();
   }
 
@@ -799,20 +1018,27 @@ class SimEngine {
   Future<bool> buyItem(String itemId) async {
     final item = shopItems[itemId];
     if (item == null) return false;
-    if (item['seller'] != null &&
-        (playerChatCount[item['seller']] ?? 0) == 0) {
+    if (item['seller'] != null && (playerChatCount[item['seller']] ?? 0) == 0) {
       return false; // warmth gate — seller doesn't trust the player yet
     }
-    final ok = await store.purchase('player', itemId,
-        item['price'] as int, simTs,
-        secretId: item['secret'] as String?, secretFrom: 'purchase');
+    final ok = await store.purchase(
+      'player',
+      itemId,
+      item['price'] as int,
+      simTs,
+      secretId: item['secret'] as String?,
+      secretFrom: 'purchase',
+    );
     if (ok) {
       playerPetals -= item['price'] as int;
       playerInventory[itemId] = (playerInventory[itemId] ?? 0) + 1;
       final s = item['secret'] as String?;
       if (s != null) learnSecretAsPlayer(s, 'purchase');
-      _events.add(SimEvent(SimEventType.log,
-          {'text': 'bought ${item['name']} for ${item['price']} petals'}));
+      _events.add(
+        SimEvent(SimEventType.log, {
+          'text': 'bought ${item['name']} for ${item['price']} petals',
+        }),
+      );
     }
     return ok;
   }
@@ -829,15 +1055,26 @@ class SimEngine {
       a.faded = false;
       a.bumpVersion();
       _events.add(
-          SimEvent(SimEventType.state, {'agent': a.id, 'faded': false}));
+        SimEvent(SimEventType.state, {'agent': a.id, 'faded': false}),
+      );
     }
     _emit(a, SimEventType.emote, {'agent': a.id, 'glyph': '🌼'});
-    await store.logEvent(simTs, 'gift',
-        {'from': 'player', 'to': agentId, 'item': itemId});
-    await store.memory(Memory(
-        agent: a.id, simTs: simTs, kind: 'heard', source: 'player_claim',
+    await store.logEvent(simTs, 'gift', {
+      'from': 'player',
+      'to': agentId,
+      'item': itemId,
+    });
+    await store.memory(
+      Memory(
+        agent: a.id,
+        simTs: simTs,
+        kind: 'heard',
+        source: 'player_claim',
         text: 'the living one gave me ${shopItems[itemId]?['name']}',
-        importance: 7, entities: ['player']));
+        importance: 7,
+        entities: ['player'],
+      ),
+    );
     return true;
   }
 
@@ -846,27 +1083,36 @@ class SimEngine {
     final solorio = agents['solorio'];
     if (solorio == null || solorio.solidified) return;
     final knowers = agents.values
-        .where((a) => a.id != 'solorio' &&
-            a.knownSecrets.contains('grave_37_name'))
+        .where(
+          (a) => a.id != 'solorio' && a.knownSecrets.contains('grave_37_name'),
+        )
         .length;
     if (knowers >= 3) {
       solorio.solidified = true;
       solorio.faded = false;
       solorio.battery = max(solorio.battery, 60);
       solorio.bumpVersion();
-      _events.add(SimEvent(
-          SimEventType.state, {'agent': 'solorio', 'faded': false}));
-      _events.add(SimEvent(SimEventType.log,
-          {'text': 'Solorio solidifies — the town says his name again.'}));
-      unawaited(store.logEvent(
-          simTs, 'solidify', {'agent': 'solorio', 'knowers': knowers}));
+      _events.add(
+        SimEvent(SimEventType.state, {'agent': 'solorio', 'faded': false}),
+      );
+      _events.add(
+        SimEvent(SimEventType.log, {
+          'text': 'Solorio solidifies — the town says his name again.',
+        }),
+      );
+      unawaited(
+        store.logEvent(simTs, 'solidify', {
+          'agent': 'solorio',
+          'knowers': knowers,
+        }),
+      );
     }
   }
 
   // ============================ misc =======================================
 
   ({List<Agent> agents, List<Poi> pois, Set<String> agentIds, String describe})
-      _nearby(Agent a, {double radius = 220}) {
+  _nearby(Agent a, {double radius = 220}) {
     final ag = <Agent>[];
     final ps = <Poi>[];
     for (final o in agents.values) {
@@ -925,9 +1171,11 @@ class SimEngine {
     if (_ended) return;
     _ended = true;
     final remembered = agents.values.where((a) => !a.faded).length;
-    _events.add(SimEvent(SimEventType.endRun, {
-      'remembered': remembered,
-      'faded': agents.length - remembered,
-    }));
+    _events.add(
+      SimEvent(SimEventType.endRun, {
+        'remembered': remembered,
+        'faded': agents.length - remembered,
+      }),
+    );
   }
 }

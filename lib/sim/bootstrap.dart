@@ -22,8 +22,6 @@ Future<SimBundle> bootstrap({
   required String personasJson,
   required String secretsJson,
   required List<Poi> pois,
-  required List<List<int>> waypointsIdx,
-  required List<List<double>> waypointPos,
   required Map<String, List<double>> homePos,
   LLMClient? llm,
   Random? rng,
@@ -37,7 +35,7 @@ Future<SimBundle> bootstrap({
   final secretsList = jsonDecode(secretsJson) as List<dynamic>;
 
   final secrets = <String, Secret>{
-    for (final s in secretsList) (s['id'] as String): Secret.fromJson(s)
+    for (final s in secretsList) (s['id'] as String): Secret.fromJson(s),
   };
 
   // Authoritative starting knowledge comes from secrets.json
@@ -62,7 +60,7 @@ Future<SimBundle> bootstrap({
       home: p['home'],
       battery: p['id'] == 'solorio' ? 6 : 70 + r.nextDouble() * 20,
     );
-    final home = homePos[a.home] ?? [700.0, 400.0];
+    final home = homePos[a.home] ?? [704.0, 336.0];
     a.x = home[0];
     a.y = home[1];
     a.knownSecrets.addAll(known[a.id] ?? const {});
@@ -80,8 +78,6 @@ Future<SimBundle> bootstrap({
     agents: agents,
     secrets: secrets,
     pois: {for (final p in pois) p.id: p},
-    waypoints: waypointsIdx,
-    waypointPos: waypointPos,
     rng: r,
     timeScale: timeScale,
     dawnAt: dawnAt,

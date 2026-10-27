@@ -32,13 +32,16 @@ Future<void> main() async {
   //           chat <msg> | zoom <f> | center | shot
   const driver = bool.fromEnvironment('DRIVER');
   if (driver) {
-    dev.registerExtension('ext.pueblo.cmd',
-        (method, params) async => dev.ServiceExtensionResponse.result(
-          jsonEncode({
-            'result': await (PuebloGame.activeGame?.driverCommand(
-                    params['cmd']) ??
-                Future.value('ERR game not loaded'))
-          })));
+    dev.registerExtension(
+      'ext.pueblo.cmd',
+      (method, params) async => dev.ServiceExtensionResponse.result(
+        jsonEncode({
+          'result':
+              await (PuebloGame.activeGame?.driverCommand(params['cmd']) ??
+                  Future.value('ERR game not loaded')),
+        }),
+      ),
+    );
   }
   WidgetsFlutterBinding.ensureInitialized();
   final personasJson = await rootBundle.loadString('assets/data/personas.json');
@@ -46,36 +49,40 @@ Future<void> main() async {
 
   // --dart-define switches: SIM_SEED, SIM_TIME_SCALE, LLM=model, DEMO=1
   const seed = int.fromEnvironment('SIM_SEED', defaultValue: 7);
-  const timeScaleStr =
-      String.fromEnvironment('SIM_TIME_SCALE', defaultValue: '1.0');
+  const timeScaleStr = String.fromEnvironment(
+    'SIM_TIME_SCALE',
+    defaultValue: '1.0',
+  );
   final timeScale = double.tryParse(timeScaleStr) ?? 1.0;
   const llmName = String.fromEnvironment('LLM', defaultValue: 'mock');
   const demo = bool.fromEnvironment('DEMO', defaultValue: false);
 
   // LLM=gemma → on-device path: model gate first, then GemmaLocalClient.
   if (llmName == 'gemma') {
-    runApp(MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark(),
-      home: ModelGate(onReady: () async {
-        final bundle = await bootstrap(
-          personasJson: personasJson,
-          secretsJson: secretsJson,
-          pois: poiDefs,
-          waypointsIdx: waypoints,
-          waypointPos: waypointPos,
-          homePos: homePositions({for (final p in poiDefs) p.id: p}),
-          llm: GemmaLocalClient(rng: Random(seed)),
-          rng: Random(seed),
-          timeScale: demo ? 6.0 : timeScale,
-          dawnAt: demo ? 600 : 900,
-          dbPath: 'pueblo_sim.db',
-        );
-        PuebloGame.personaSprite = bundle.sprites;
-        PuebloGame.personaTint = bundle.tints;
-        runApp(PuebloApp(bundle: bundle));
-      }),
-    ));
+    runApp(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData.dark(),
+        home: ModelGate(
+          onReady: () async {
+            final bundle = await bootstrap(
+              personasJson: personasJson,
+              secretsJson: secretsJson,
+              pois: poiDefs,
+              homePos: homePositions({for (final p in poiDefs) p.id: p}),
+              llm: GemmaLocalClient(rng: Random(seed)),
+              rng: Random(seed),
+              timeScale: demo ? 6.0 : timeScale,
+              dawnAt: demo ? 600 : 900,
+              dbPath: 'pueblo_sim.db',
+            );
+            PuebloGame.personaSprite = bundle.sprites;
+            PuebloGame.personaTint = bundle.tints;
+            runApp(PuebloApp(bundle: bundle));
+          },
+        ),
+      ),
+    );
     return;
   }
 
@@ -84,19 +91,17 @@ Future<void> main() async {
       : OllamaClient(model: llmName);
 
   Future<SimBundle> mkBundle() => bootstrap(
-        personasJson: personasJson,
-        secretsJson: secretsJson,
-        pois: poiDefs,
-        waypointsIdx: waypoints,
-        waypointPos: waypointPos,
-        homePos: homePositions({for (final p in poiDefs) p.id: p}),
-        llm: llm,
-        rng: Random(seed),
-        timeScale: demo ? 6.0 : timeScale,
-        dawnAt: demo ? 600 : 900,
-        freshDb: true,
-        dbPath: 'pueblo_sim.db',
-      );
+    personasJson: personasJson,
+    secretsJson: secretsJson,
+    pois: poiDefs,
+    homePos: homePositions({for (final p in poiDefs) p.id: p}),
+    llm: llm,
+    rng: Random(seed),
+    timeScale: demo ? 6.0 : timeScale,
+    dawnAt: demo ? 600 : 900,
+    freshDb: true,
+    dbPath: 'pueblo_sim.db',
+  );
 
   Future<void> launch() async {
     final bundle = await mkBundle();
@@ -157,8 +162,10 @@ class _PuebloAppState extends State<PuebloApp> {
       const n = int.fromEnvironment('SHOTN', defaultValue: 1);
       const each = int.fromEnvironment('SHOTEACH', defaultValue: 1000);
       for (var i = 0; i < n; i++) {
-        Timer(Duration(milliseconds: shotSec * 1000 + i * each),
-            () => _dumpFrame(i));
+        Timer(
+          Duration(milliseconds: shotSec * 1000 + i * each),
+          () => _dumpFrame(i),
+        );
       }
     }
   }
@@ -194,8 +201,9 @@ class _PuebloAppState extends State<PuebloApp> {
     }
     final text = engine.inspectPoi(p.id);
     setState(() {
-      inspectIsDeep = engine.secrets.values
-          .any((s) => s.unlocksPoiLore == p.id && engine.playerKnown.contains(s.id));
+      inspectIsDeep = engine.secrets.values.any(
+        (s) => s.unlocksPoiLore == p.id && engine.playerKnown.contains(s.id),
+      );
       inspecting = '${p.name}\n$text';
     });
     Future.delayed(const Duration(seconds: 4), () {
@@ -216,110 +224,143 @@ class _PuebloAppState extends State<PuebloApp> {
           key: _rb,
           child: Stack(
             children: [
-            // Trackpad pinch → PointerPanZoom events (Flame lacks a
-            // PanZoomDetector) — forward scale + pan to the camera.
-            Listener(
-              onPointerPanZoomUpdate: (e) =>
-                  game.trackpadPinch(e.scale, e.panDelta),
-              child: GameWidget(game: game),
-            ),
+              // Trackpad pinch → PointerPanZoom events (Flame lacks a
+              // PanZoomDetector) — forward scale + pan to the camera.
+              Listener(
+                onPointerPanZoomUpdate: (e) =>
+                    game.trackpadPinch(e.scale, e.panDelta),
+                child: GameWidget(game: game),
+              ),
 
-            // HUD: petals + dawn + model badge
-            Positioned(
-              top: 10, left: 10,
-              child: _Hud(engine: engine, petals: petals),
-            ),
-
-            // POI inspect toast
-            if (inspecting != null)
+              // HUD: petals + dawn + model badge
               Positioned(
-                top: 56, left: 0, right: 0,
-                child: Center(
-                  child: Container(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xF22A2145),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
+                top: 10,
+                left: 10,
+                child: _Hud(engine: engine, petals: petals),
+              ),
+
+              // POI inspect toast
+              if (inspecting != null)
+                Positioned(
+                  top: 56,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xF22A2145),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
                           color: inspectIsDeep
                               ? const Color(0xFFFFC233)
-                              : const Color(0xFF6A6088)),
-                    ),
-                    child: Text(inspecting!,
+                              : const Color(0xFF6A6088),
+                        ),
+                      ),
+                      child: Text(
+                        inspecting!,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 12.5, height: 1.4,
-                            color: Color(0xFFFFF4DC))),
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          height: 1.4,
+                          color: Color(0xFFFFF4DC),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
 
-            // ShopSheet — stall taps open the catalog
-            if (shoppingAt != null && engaged == null)
-              Positioned(
-                left: 0, right: 0, bottom: 0,
-                child: ShopSheet(
-                  key: const Key('shopSheet'),
-                  engine: engine,
-                  stallId: shoppingAt!.id,
-                  stallName: shoppingAt!.name,
-                  onClose: () => setState(() => shoppingAt = null),
-                  onChanged: () =>
-                      setState(() => petals = engine.playerPetals),
-                ),
-              ),
-
-            // InspectCard — user-driven release only
-            if (engaged != null)
-              Positioned(
-                left: 0, right: 0, bottom: 0,
-                child: InspectCard(
-                  key: const Key('inspectCard'),
-                  engine: engine,
-                  spiritSprite: PuebloGame.personaSprite[engaged] ?? 'sk_base',
-                  onEnd: _endInteraction,
-                ),
-              ),
-
-            // End run card — the night is over; offer a new one.
-            if (remembered != null)
-              Center(
-                child: Container(
-                  padding: const EdgeInsets.all(28),
-                  decoration: BoxDecoration(
-                    color: const Color(0xF2201A38),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFFFFC233), width: 2),
+              // ShopSheet — stall taps open the catalog
+              if (shoppingAt != null && engaged == null)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: ShopSheet(
+                    key: const Key('shopSheet'),
+                    engine: engine,
+                    stallId: shoppingAt!.id,
+                    stallName: shoppingAt!.name,
+                    onClose: () => setState(() => shoppingAt = null),
+                    onChanged: () =>
+                        setState(() => petals = engine.playerPetals),
                   ),
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    const Text('Dawn comes.',
-                        style: TextStyle(fontSize: 22, color: Color(0xFFFFC233))),
-                    const SizedBox(height: 10),
-                    Text('$remembered spirits remembered · $fadedCount faded',
-                        style: const TextStyle(color: Color(0xFFDCD4F0))),
-                    const SizedBox(height: 6),
-                    const Text(
-                        'the town forgot them — names keep the dead alive',
-                        style: TextStyle(
+                ),
+
+              // InspectCard — user-driven release only
+              if (engaged != null)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: InspectCard(
+                    key: const Key('inspectCard'),
+                    engine: engine,
+                    spiritSprite:
+                        PuebloGame.personaSprite[engaged] ?? 'sk_base',
+                    onEnd: _endInteraction,
+                  ),
+                ),
+
+              // End run card — the night is over; offer a new one.
+              if (remembered != null)
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(28),
+                    decoration: BoxDecoration(
+                      color: const Color(0xF2201A38),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: const Color(0xFFFFC233),
+                        width: 2,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Dawn comes.',
+                          style: TextStyle(
+                            fontSize: 22,
+                            color: Color(0xFFFFC233),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          '$remembered spirits remembered · $fadedCount faded',
+                          style: const TextStyle(color: Color(0xFFDCD4F0)),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'the town forgot them — names keep the dead alive',
+                          style: TextStyle(
                             fontSize: 11.5,
                             fontStyle: FontStyle.italic,
-                            color: Color(0xFF8D84B0))),
-                    const SizedBox(height: 14),
-                    if (widget.onNewNight != null)
-                      FilledButton.icon(
-                        key: const Key('newNightButton'),
-                        icon: const Icon(Icons.bedtime, size: 16),
-                        label: const Text('New night'),
-                        style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFFEF8C1A),
-                            foregroundColor: const Color(0xFF1A1430)),
-                        onPressed: () => widget.onNewNight!(),
-                      ),
-                  ]),
+                            color: Color(0xFF8D84B0),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        if (widget.onNewNight != null)
+                          FilledButton.icon(
+                            key: const Key('newNightButton'),
+                            icon: const Icon(Icons.bedtime, size: 16),
+                            label: const Text('New night'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFEF8C1A),
+                              foregroundColor: const Color(0xFF1A1430),
+                            ),
+                            onPressed: () => widget.onNewNight!(),
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-          ],
-        ),
+            ],
+          ),
         ),
       ),
     );
@@ -340,29 +381,38 @@ class _Hud extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFF3A2C50)),
       ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        const Text('🌼', style: TextStyle(fontSize: 13)),
-        const SizedBox(width: 4),
-        Text('$petals',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('🌼', style: TextStyle(fontSize: 13)),
+          const SizedBox(width: 4),
+          Text(
+            '$petals',
             key: const Key('petalCount'),
-            style: const TextStyle(fontSize: 13, color: Color(0xFFFFC233))),
-        const SizedBox(width: 12),
-        const Icon(Icons.nights_stay, size: 14, color: Color(0xFF8D84B0)),
-        const SizedBox(width: 4),
-        ValueListenableBuilder<int>(
-          valueListenable: _clockListenable(engine),
-          builder: (_, ts, _) {
-            final left = (engine.dawnAt - ts).clamp(0, 1 << 30);
-            final m = left ~/ 60, s = left % 60;
-            return Text('$m:${s.toString().padLeft(2, '0')}',
+            style: const TextStyle(fontSize: 13, color: Color(0xFFFFC233)),
+          ),
+          const SizedBox(width: 12),
+          const Icon(Icons.nights_stay, size: 14, color: Color(0xFF8D84B0)),
+          const SizedBox(width: 4),
+          ValueListenableBuilder<int>(
+            valueListenable: _clockListenable(engine),
+            builder: (_, ts, _) {
+              final left = (engine.dawnAt - ts).clamp(0, 1 << 30);
+              final m = left ~/ 60, s = left % 60;
+              return Text(
+                '$m:${s.toString().padLeft(2, '0')}',
                 key: const Key('dawnTimer'),
-                style: const TextStyle(fontSize: 12, color: Color(0xFF8D84B0)));
-          },
-        ),
-        const SizedBox(width: 12),
-        Text(engine.llm.name,
-            style: const TextStyle(fontSize: 10, color: Color(0xFF5A5078))),
-      ]),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF8D84B0)),
+              );
+            },
+          ),
+          const SizedBox(width: 12),
+          Text(
+            engine.llm.name,
+            style: const TextStyle(fontSize: 10, color: Color(0xFF5A5078)),
+          ),
+        ],
+      ),
     );
   }
 

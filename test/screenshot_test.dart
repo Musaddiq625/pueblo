@@ -26,8 +26,6 @@ void main() {
       personasJson: personasJson,
       secretsJson: secretsJson,
       pois: poiDefs,
-      waypointsIdx: waypoints,
-      waypointPos: waypointPos,
       homePos: homePositions({for (final p in poiDefs) p.id: p}),
       llm: MockLLMClient(seed: 7),
       rng: Random(7),

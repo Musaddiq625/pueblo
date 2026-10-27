@@ -32,17 +32,9 @@ Future<SimBundle> _boot() async {
       Poi(id: 'p1', name: 'P1', surfaceText: 'just a lane', x: 0, y: 0),
       Poi(id: 'p2', name: 'P2', surfaceText: 'just a stall', x: 10, y: 10),
     ],
-    waypointsIdx: const [
-      [1],
-      [0]
-    ],
-    waypointPos: const [
-      [0, 0],
-      [10, 10]
-    ],
     homePos: const {
       'p1': [0, 0],
-      'p2': [10, 10]
+      'p2': [10, 10],
     },
     llm: MockLLMClient(seed: 1),
     rng: Random(1),

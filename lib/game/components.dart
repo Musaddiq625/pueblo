@@ -4,7 +4,6 @@ library;
 
 import 'dart:async';
 import 'dart:math';
-import 'dart:ui' show Image;
 
 import 'package:flame/components.dart';
 import 'package:flame/events.dart';
@@ -14,204 +13,7 @@ import '../sim/models.dart';
 
 // ---------------------------------------------------------------------------
 
-final _nightPaint = Paint()..color = const Color(0xFF14101F);
-
-/// Tiled ground — a readable village: dark earth base, cobble streets one
-/// tile wide along the waypoint graph, a plaza disc, and painted decor
-/// (gravestones, stall counters, spirit trees, ofrenda candles).
-class GroundComponent extends PositionComponent {
-  GroundComponent({required Vector2 size, required this.floors,
-      this.treeImg})
-      : super(size: size, position: Vector2.zero(), priority: -10000);
-
-  final Image floors;
-  final Image? treeImg;
-
-  static const _streetEdge = Color(0xFF443A5E); // curb/outer band
-  static const _streetFill = Color(0xFF554870); // walkable strip
-  static const _tintTree = Color(0xFF9A88D8);
-
-  /// Waypoint graph edges to paint as streets — mirrors world_def.
-  static const _nodePos = <List<double>>[
-    [700, 90], [700, 220], [700, 330], [520, 330], [420, 330],
-    [880, 330], [1030, 350], [820, 450], [1120, 450], [1120, 560],
-    [1230, 660], [700, 560], [700, 700], [420, 560],
-  ];
-  static const _edges = <List<int>>[
-    [0, 1], [1, 2], [2, 3], [3, 4], [2, 5], [5, 6], [2, 7], [5, 7],
-    [7, 8], [6, 8], [8, 9], [9, 10], [2, 11], [7, 11], [11, 12],
-    [11, 13], [3, 13],
-  ];
-
-  /// Flat earth base — solid dark fill + a faint deterministic speckle so
-  /// the ground reads as night soil, not a wall or a checkerboard.
-  void _baseFill(Canvas c, Rect r) {
-    c.drawRect(r, Paint()..color = const Color(0xFF241B34));
-    final dot = Paint()..color = const Color(0xFF2E2540);
-    for (var y = r.top + 8; y < r.bottom; y += 18) {
-      for (var x = r.left + 8; x < r.right; x += 18) {
-        if (((x * 31 + y * 17).toInt() & 7) == 0) {
-          c.drawRect(Rect.fromLTWH(x, y, 2, 2), dot);
-        }
-      }
-    }
-  }
-
-  /// Street — dark curb band + lighter fill + subtle cross-ticks, drawn as
-  /// strokes so the walkable strip reads cleanly on the dark earth.
-  void _street(Canvas c, Offset a, Offset b) {
-    c.drawLine(
-        a,
-        b,
-        Paint()
-          ..color = _streetEdge
-          ..strokeWidth = 34
-          ..strokeCap = StrokeCap.round);
-    c.drawLine(
-        a,
-        b,
-        Paint()
-          ..color = _streetFill
-          ..strokeWidth = 26
-          ..strokeCap = StrokeCap.round);
-    // cobble suggestion: faint ticks across the strip every ~22 units
-    final dir = b - a;
-    final len = dir.distance;
-    final n = dir / len;
-    final tick = Paint()
-      ..color = const Color(0xFF655884)
-      ..strokeWidth = 1.6;
-    for (var d = 18.0; d < len; d += 24) {
-      final p = a + n * d;
-      c.drawLine(p - Offset(-n.dy, n.dx) * 10, p + Offset(-n.dy, n.dx) * 10,
-          tick);
-    }
-  }
-
-  void _plaza(Canvas c, Offset center, double r) {
-    c.drawCircle(center, r, Paint()..color = _streetEdge);
-    c.drawCircle(center, r - 6, Paint()..color = _streetFill);
-    final tick = Paint()
-      ..color = const Color(0xFF655884)
-      ..strokeWidth = 1.6;
-    for (var i = 0; i < 12; i++) {
-      final ang = i * pi / 6;
-      final p1 = center + Offset(cos(ang), sin(ang)) * (r - 16);
-      final p2 = center + Offset(cos(ang), sin(ang)) * (r - 28);
-      c.drawLine(p1, p2, tick);
-    }
-  }
-
-  /// Marigold hedge — a low border of warm bushes along the inside map
-  /// edge so the village reads enclosed rather than floating in void.
-  void _hedge(Canvas c) {
-    final leaf = Paint()..color = const Color(0xFF1F2B22);
-    final bloom = Paint()..color = const Color(0xFFEF8C1A);
-    var i = 0;
-    for (var x = 30.0; x < size.x - 20; x += 44) {
-      for (final y in [26.0, size.y - 26]) {
-        if ((i++ % 5) == 2) continue; // gaps so it isn't a wall
-        c.drawCircle(Offset(x, y), 13, leaf);
-        c.drawCircle(Offset(x - 4, y - 4), 2.4, bloom);
-        c.drawCircle(Offset(x + 5, y + 2), 2.4, bloom);
-      }
-    }
-    for (var y = 60.0; y < size.y - 40; y += 44) {
-      for (final x in [26.0, size.x - 26]) {
-        if ((i++ % 5) == 2) continue;
-        c.drawCircle(Offset(x, y), 13, leaf);
-        c.drawCircle(Offset(x - 4, y - 4), 2.4, bloom);
-        c.drawCircle(Offset(x + 5, y + 2), 2.4, bloom);
-      }
-    }
-  }
-
-  void _gravestone(Canvas c, double x, double y) {
-    final slab = RRect.fromRectAndRadius(
-        Rect.fromLTWH(x - 8, y - 20, 16, 22), const Radius.circular(6));
-    c.drawRRect(slab, Paint()..color = const Color(0xFF3A2F55));
-    c.drawRRect(
-        slab,
-        Paint()
-          ..color = const Color(0xFF71629B)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1);
-  }
-
-
-
-  void _candles(Canvas c, double x0, double y0, int n) {
-    for (var i = 0; i < n; i++) {
-      final x = x0 + (i % 8) * 22, y = y0 + (i ~/ 8) * 20;
-      c.drawCircle(Offset(x, y), 4,
-          Paint()
-            ..color = const Color(0x55FFC233)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
-      c.drawRect(Rect.fromLTWH(x - 1.5, y - 4, 3, 8),
-          Paint()..color = const Color(0xFFEFE4CE));
-      c.drawCircle(Offset(x, y - 5), 1.6,
-          Paint()..color = const Color(0xFFFFC233));
-    }
-  }
-
-  void _tree(Canvas c, double x, double y, double srcX) {
-    final img = treeImg;
-    if (img == null) return;
-    c.drawImageRect(
-        img,
-        Rect.fromLTWH(srcX, 0, 112, 160),
-        Rect.fromLTWH(x - 42, y - 96, 84, 120),
-        Paint()
-          ..colorFilter =
-              const ColorFilter.mode(_tintTree, BlendMode.modulate));
-  }
-
-  @override
-  void render(Canvas canvas) {
-    canvas.drawRect(size.toRect(), _nightPaint);
-    // base: flat dark earth — stones sit on this like set paving
-    _baseFill(canvas, size.toRect());
-    // streets — clean walkable strips along the waypoint edges
-    for (final e in _edges) {
-      _street(canvas, Offset(_nodePos[e[0]][0], _nodePos[e[0]][1]),
-          Offset(_nodePos[e[1]][0], _nodePos[e[1]][1]));
-    }
-    // plaza + ofrenda landings
-    _plaza(canvas, const Offset(700, 330), 88);
-    _plaza(canvas, const Offset(700, 715), 62);
-    // gravestone field (cemetery lane, east side)
-    for (var y = 520.0; y <= 640; y += 52) {
-      for (var x = 1040.0; x <= 1350; x += 56) {
-        if ((x - 1180).abs() < 34 && (y - 590).abs() < 40) continue; // grave 37
-        _gravestone(canvas, x + ((y / 52).round() % 2) * 18, y);
-      }
-    }
-    // ofrenda candle field
-    _candles(canvas, 624, 690, 16);
-    // border hedge — the village reads enclosed
-    _hedge(canvas);
-    // spirit trees — kept inside the map bounds, off the hedge line
-    _tree(canvas, 150, 190, 224);
-    _tree(canvas, 1180, 170, 0);
-    _tree(canvas, 160, 600, 224);
-    _tree(canvas, 1280, 330, 336);
-    _tree(canvas, 300, 740, 0);
-    _tree(canvas, 1080, 760, 224);
-    // vignette — darken map borders
-    for (final r in [
-      Rect.fromLTWH(0, 0, size.x, 14),
-      Rect.fromLTWH(0, size.y - 14, size.x, 14),
-      Rect.fromLTWH(0, 0, 14, size.y),
-      Rect.fromLTWH(size.x - 14, 0, 14, size.y),
-    ]) {
-      canvas.drawRect(r, Paint()..color = const Color(0x660A0714));
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-
-enum SpiritAnim { idle, walk }
+enum SpiritAnim { idle, walk, death }
 
 class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     with TapCallbacks {
@@ -228,6 +30,7 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
   // Visual state
   double _opacity = 1.0;
   bool _engaged = false;
+  bool _faded = false;
 
   SpiritComponent({
     required this.agent,
@@ -235,16 +38,22 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     required this.onTapped,
     required SpriteAnimation idle,
     required SpriteAnimation walk,
+    required Vector2 displaySize,
+    SpriteAnimation? death,
     this.displayName = '',
     this.auraColor,
   }) : super(
-          animations: {SpiritAnim.idle: idle, SpiritAnim.walk: walk},
-          current: SpiritAnim.idle,
-          size: Vector2.all(56),
-          anchor: Anchor.bottomCenter,
-          position: Vector2(agent.x, agent.y),
-          priority: -agent.y.round(),
-        );
+         animations: {
+           SpiritAnim.idle: idle,
+           SpiritAnim.walk: walk,
+           SpiritAnim.death: ?death,
+         },
+         current: SpiritAnim.idle,
+         size: displaySize,
+         anchor: Anchor.bottomCenter,
+         position: Vector2(agent.x, agent.y),
+         priority: agent.y.round(),
+       );
 
   @override
   bool onTapUp(TapUpEvent event) {
@@ -275,12 +84,23 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     }
   }
 
-  void setFaded(bool faded) => _opacity = faded ? 0.35 : 1.0;
+  void setFaded(bool faded) {
+    _faded = faded;
+    _opacity = faded ? 0.35 : 1.0;
+    // play the death anim once when the spirit is forgotten — the sheets
+    // exist for all sk_* chars; loop:false parks on the last frame
+    if (faded && animations?.containsKey(SpiritAnim.death) == true) {
+      current = SpiritAnim.death;
+    } else if (!faded && current == SpiritAnim.death) {
+      current = SpiritAnim.idle;
+      _opacity = 1.0;
+    }
+  }
 
   @override
   void update(double dt) {
     super.update(dt);
-    if (walking && _path.isNotEmpty) {
+    if (walking && _path.isNotEmpty && !_faded) {
       current = SpiritAnim.walk;
       final target = _path.first;
       final delta = target - position;
@@ -298,7 +118,7 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
       }
     }
     // depth sort by foot y; engaged pins nothing visually
-    priority = -position.y.round();
+    priority = position.y.round();
     // engaged → gentle glow tint pulse
     opacity = _engaged ? min(1.0, _opacity + 0.15) : _opacity;
   }
@@ -311,16 +131,18 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     if (aura != null) {
       final cx = size.x / 2, cy = size.y - 5;
       canvas.drawOval(
-          Rect.fromCenter(center: Offset(cx, cy), width: 46, height: 13),
-          Paint()
-            ..color = aura.withValues(alpha: 0.32 * _opacity)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
+        Rect.fromCenter(center: Offset(cx, cy), width: 46, height: 13),
+        Paint()
+          ..color = aura.withValues(alpha: 0.32 * _opacity)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+      );
       canvas.drawOval(
-          Rect.fromCenter(center: Offset(cx, cy), width: 40, height: 10),
-          Paint()
-            ..color = aura.withValues(alpha: 0.85 * _opacity)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.4);
+        Rect.fromCenter(center: Offset(cx, cy), width: 40, height: 10),
+        Paint()
+          ..color = aura.withValues(alpha: 0.85 * _opacity)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.4,
+      );
     }
     super.render(canvas);
     // name tag under the feet — persona color, counter-flip so text stays
@@ -328,14 +150,14 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     if (displayName.isNotEmpty) {
       final tp = TextPainter(
         text: TextSpan(
-            text: displayName,
-            style: TextStyle(
-                fontSize: 9,
-                color: aura ?? const Color(0xDDEFE4CE),
-                fontFamily: 'monospace',
-                shadows: const [
-                  Shadow(color: Color(0xFF000000), blurRadius: 3)
-                ])),
+          text: displayName,
+          style: TextStyle(
+            fontSize: 9,
+            color: aura ?? const Color(0xDDEFE4CE),
+            fontFamily: 'monospace',
+            shadows: const [Shadow(color: Color(0xFF000000), blurRadius: 3)],
+          ),
+        ),
         textDirection: TextDirection.ltr,
       )..layout();
       if (scale.x.isNegative) {
@@ -362,14 +184,15 @@ class PlayerComponent extends SpriteAnimationGroupComponent<SpiritAnim> {
     required Vector2 pos,
     required SpriteAnimation idle,
     required SpriteAnimation walk,
+    required Vector2 displaySize,
   }) : super(
-          animations: {SpiritAnim.idle: idle, SpiritAnim.walk: walk},
-          current: SpiritAnim.idle,
-          size: Vector2.all(56),
-          anchor: Anchor.bottomCenter,
-          position: pos,
-          priority: -pos.y.round(),
-        );
+         animations: {SpiritAnim.idle: idle, SpiritAnim.walk: walk},
+         current: SpiritAnim.idle,
+         size: displaySize,
+         anchor: Anchor.bottomCenter,
+         position: pos,
+         priority: pos.y.round(),
+       );
 
   void walkTo(Vector2 target) {
     _path
@@ -397,7 +220,7 @@ class PlayerComponent extends SpriteAnimationGroupComponent<SpiritAnim> {
         if (faceLeft != scale.x.isNegative) flipHorizontallyAroundCenter();
       }
     }
-    priority = -position.y.round();
+    priority = position.y.round();
   }
 }
 
@@ -416,11 +239,11 @@ class PoiComponent extends PositionComponent with TapCallbacks {
     Vector2? size,
     Vector2? pos,
   }) : super(
-          position: pos ?? Vector2(poi.x, poi.y),
-          size: size ?? Vector2.all(90),
-          anchor: Anchor.bottomCenter,
-          priority: -poi.y.round(),
-        );
+         position: pos ?? Vector2(poi.x, poi.y),
+         size: size ?? Vector2.all(90),
+         anchor: Anchor.bottomCenter,
+         priority: poi.y.round(),
+       );
 
   @override
   Future<void> onLoad() async {
@@ -437,66 +260,17 @@ class PoiComponent extends PositionComponent with TapCallbacks {
   void render(Canvas canvas) {
     if (glowing) {
       canvas.drawCircle(
-          Offset(size.x / 2, size.y / 2), size.x * 0.62,
-          Paint()
-            ..color = const Color(0x66FFC233)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18));
+        Offset(size.x / 2, size.y / 2),
+        size.x * 0.62,
+        Paint()
+          ..color = const Color(0x66FFC233)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
+      );
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-
-/// A market stall — one coherent unit at the POI point: striped awning on
-/// posts, wooden counter with goods, name label attached below.
-class StallVisual extends PositionComponent {
-  StallVisual({required this.poi, required this.awning})
-      : super(size: Vector2(96, 84), anchor: Anchor.bottomCenter);
-
-  final Poi poi;
-  final Color awning;
-
-  @override
-  void render(Canvas canvas) {
-    final w = size.x;
-    // posts
-    for (final px in [w / 2 - 34, w / 2 + 34]) {
-      canvas.drawRect(Rect.fromLTWH(px - 2, 6, 4, 58),
-          Paint()..color = const Color(0xFF4E3520));
-    }
-    // awning — alternating stripes with a scalloped hem
-    for (var i = 0; i < 8; i++) {
-      canvas.drawRect(
-          Rect.fromLTWH(w / 2 - 40 + i * 10, 0, 10, 14),
-          Paint()
-            ..color = i.isEven ? awning : const Color(0xFFEFE4CE));
-    }
-    canvas.drawRect(Rect.fromLTWH(w / 2 - 40, 14, 80, 3),
-        Paint()..color = const Color(0xFF2A1E10));
-    // counter
-    canvas.drawRRect(
-        RRect.fromRectAndRadius(Rect.fromLTWH(w / 2 - 38, 40, 76, 16),
-            const Radius.circular(3)),
-        Paint()..color = const Color(0xFF6B4A2E));
-    // goods on the counter — marigold pots / bread / trinkets
-    final goods = [const Color(0xFFEF8C1A), const Color(0xFFEFD23F),
-        const Color(0xFF2EA88A)];
-    for (var i = 0; i < 3; i++) {
-      canvas.drawCircle(Offset(w / 2 - 20 + i * 20, 38), 4.5,
-          Paint()..color = goods[i]);
-    }
-    // name label below the counter
-    final tp = TextPainter(
-      text: TextSpan(
-          text: poi.name.toLowerCase(),
-          style: const TextStyle(
-              fontSize: 9, color: Color(0xCCBDB4E0),
-              fontFamily: 'monospace')),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, Offset((w - tp.width) / 2, size.y - 12));
-  }
-}
 
 // ---------------------------------------------------------------------------
 
@@ -507,12 +281,12 @@ class BubbleComponent extends PositionComponent {
   double _ttl;
 
   BubbleComponent(this.text, {this.isEmote = false, Vector2? size})
-      : _ttl = isEmote ? 1.8 : 3.6,
-        super(
-          size: size ?? Vector2(220, 44),
-          anchor: Anchor.bottomCenter,
-          priority: 9999,
-        );
+    : _ttl = isEmote ? 1.8 : 3.6,
+      super(
+        size: size ?? Vector2(220, 44),
+        anchor: Anchor.bottomCenter,
+        priority: 9999,
+      );
 
   @override
   void update(double dt) {
@@ -558,15 +332,17 @@ class BubbleComponent extends PositionComponent {
     }
     final w = tp.width + 16, h = tp.height + 10;
     final rect = RRect.fromRectAndRadius(
-        Rect.fromLTWH((size.x - w) / 2, 0, w, h), const Radius.circular(8));
+      Rect.fromLTWH((size.x - w) / 2, 0, w, h),
+      const Radius.circular(8),
+    );
+    canvas.drawRRect(rect, Paint()..color = const Color(0xE62B2145));
     canvas.drawRRect(
-        rect, Paint()..color = const Color(0xE62B2145));
-    canvas.drawRRect(
-        rect,
-        Paint()
-          ..color = const Color(0xFFFFC233)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2);
+      rect,
+      Paint()
+        ..color = const Color(0xFFFFC233)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
+    );
     tp.paint(canvas, Offset((size.x - tp.width) / 2, 5));
   }
 }
@@ -575,14 +351,17 @@ class BubbleComponent extends PositionComponent {
 
 class PetalComponent extends PositionComponent {
   PetalComponent({required Vector2 pos})
-      : super(position: pos, size: Vector2.all(14), priority: -pos.y.round());
+    : super(position: pos, size: Vector2.all(14), priority: -50);
 
   @override
   void render(Canvas canvas) {
     final c = Offset(size.x / 2, size.y / 2);
     canvas.drawCircle(c, 5, Paint()..color = const Color(0xFFFF8C1A));
-    canvas.drawCircle(c + const Offset(3, -2), 2.5,
-        Paint()..color = const Color(0xFFFFC233));
+    canvas.drawCircle(
+      c + const Offset(3, -2),
+      2.5,
+      Paint()..color = const Color(0xFFFFC233),
+    );
   }
 }
 
@@ -596,9 +375,11 @@ class PetalDriftComponent extends PositionComponent {
   final Vector2 bounds;
 
   PetalDriftComponent(this.bounds, {int count = 26})
-      : super(size: bounds, priority: -1) {
+    : super(size: bounds, priority: 50000) {
     for (var i = 0; i < count; i++) {
-      _mot.add(Vector2(_rng.nextDouble() * bounds.x, _rng.nextDouble() * bounds.y));
+      _mot.add(
+        Vector2(_rng.nextDouble() * bounds.x, _rng.nextDouble() * bounds.y),
+      );
     }
   }
 
@@ -615,8 +396,11 @@ class PetalDriftComponent extends PositionComponent {
   @override
   void render(Canvas canvas) {
     for (final m in _mot) {
-      canvas.drawCircle(m.toOffset(), 1.6,
-          Paint()..color = const Color(0x55FF8C1A));
+      canvas.drawCircle(
+        m.toOffset(),
+        1.6,
+        Paint()..color = const Color(0x55FF8C1A),
+      );
     }
   }
 }
@@ -626,12 +410,18 @@ class PapelPicadoComponent extends PositionComponent {
   double _t = 0;
   final int flags;
 
-  PapelPicadoComponent({required Vector2 pos, required Vector2 size, this.flags = 9})
-      : super(position: pos, size: size, priority: -pos.y.round() + 1);
+  PapelPicadoComponent({
+    required Vector2 pos,
+    required Vector2 size,
+    this.flags = 9,
+  }) : super(position: pos, size: size, priority: 60000);
 
   static const _colors = [
-    Color(0xFFE83D5C), Color(0xFF2EA88A), Color(0xFFEF8C1A),
-    Color(0xFF7B4FD0), Color(0xFFEFD23F),
+    Color(0xFFE83D5C),
+    Color(0xFF2EA88A),
+    Color(0xFFEF8C1A),
+    Color(0xFF7B4FD0),
+    Color(0xFFEFD23F),
   ];
 
   @override
@@ -641,19 +431,27 @@ class PapelPicadoComponent extends PositionComponent {
   void render(Canvas canvas) {
     final sag = size.y * 0.5;
     // string
-    canvas.drawLine(Offset.zero, Offset(size.x, 0),
-        Paint()..color = const Color(0xFF584A6E)..strokeWidth = 1);
+    canvas.drawLine(
+      Offset.zero,
+      Offset(size.x, 0),
+      Paint()
+        ..color = const Color(0xFF584A6E)
+        ..strokeWidth = 1,
+    );
     for (var i = 0; i < flags; i++) {
       final fx = (i + 0.5) * (size.x / flags);
       final flutter = sin(_t * 3 + i * 0.9) * 3;
       final fw = size.x / flags * 0.6;
       final fh = sag + flutter;
-      final paint = Paint()..color = _colors[i % _colors.length].withValues(alpha: 0.92);
+      final paint = Paint()
+        ..color = _colors[i % _colors.length].withValues(alpha: 0.92);
       final r = Rect.fromLTWH(fx - fw / 2, 0, fw, fh.clamp(8, 30));
       canvas.drawRect(r, paint);
       // cut-outs
-      canvas.drawRect(Rect.fromLTWH(fx - 2, fh * 0.5, 4, 4),
-          Paint()..color = const Color(0xFF1A1430));
+      canvas.drawRect(
+        Rect.fromLTWH(fx - 2, fh * 0.5, 4, 4),
+        Paint()..color = const Color(0xFF1A1430),
+      );
     }
   }
 }
@@ -662,7 +460,7 @@ class PapelPicadoComponent extends PositionComponent {
 /// Zero inference: it only shows canned tutorial lines fed by the game.
 class ChispaComponent extends PositionComponent {
   ChispaComponent({required this.follow})
-      : super(size: Vector2(14, 14), anchor: Anchor.center);
+    : super(size: Vector2(14, 14), anchor: Anchor.center);
 
   final PositionComponent follow;
   double _t = 0;
@@ -679,13 +477,17 @@ class ChispaComponent extends PositionComponent {
   void render(Canvas canvas) {
     final flicker = 0.75 + 0.25 * sin(_t * 9);
     canvas.drawCircle(
-        Offset(size.x / 2, size.y / 2), size.x / 2,
-        Paint()
-          ..color = const Color(0xFF7BE0C3).withValues(alpha: flicker)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
+      Offset(size.x / 2, size.y / 2),
+      size.x / 2,
+      Paint()
+        ..color = const Color(0xFF7BE0C3).withValues(alpha: flicker)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
     canvas.drawCircle(
-        Offset(size.x / 2, size.y / 2), size.x / 4,
-        Paint()..color = const Color(0xFFE8FFF6).withValues(alpha: flicker));
+      Offset(size.x / 2, size.y / 2),
+      size.x / 4,
+      Paint()..color = const Color(0xFFE8FFF6).withValues(alpha: flicker),
+    );
   }
 
   /// Canned tutorial line in a bubble over Chispa.
@@ -693,7 +495,9 @@ class ChispaComponent extends PositionComponent {
     for (final b in children.whereType<BubbleComponent>()) {
       b.removeFromParent();
     }
-    add(BubbleComponent(line, size: Vector2(210, 44))
-      ..position = Vector2(-size.x - 190, -34));
+    add(
+      BubbleComponent(line, size: Vector2(210, 44))
+        ..position = Vector2(-size.x - 190, -34),
+    );
   }
 }

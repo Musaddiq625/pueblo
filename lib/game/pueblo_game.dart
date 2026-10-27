@@ -15,7 +15,9 @@ import '../sim/engine.dart';
 import '../sim/models.dart';
 import 'components.dart';
 import 'sprites_manifest.dart';
+import 'tilemap.dart';
 import 'world_def.dart';
+import '../sim/world_map.dart';
 
 class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   final SimEngine engine;
@@ -29,6 +31,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   ChispaComponent? chispa;
   bool sheetOpen = false;
   final Set<String> _chispaSeen = {};
+  List<(int, int)> _walkTiles = [];
 
   PuebloGame({
     required this.engine,
@@ -45,19 +48,37 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     activeGame = this;
     images.prefix = 'assets/sprites/';
 
-    // ---- world ----
-    final floors = await images.load('town/floors.png');
-    final treeImg = await images.load(objects['ancient_tree']!.path);
-    await world.add(GroundComponent(
-        size: Vector2(mapW, mapH), floors: floors, treeImg: treeImg));
+    // ---- world (authored tilemap) ----
+    final tileAssets = await TileAssets.load(images);
+    final groundImg = await bakeGround(tileAssets);
+    await world.add(
+      SpriteComponent(
+        sprite: Sprite(groundImg),
+        size: Vector2(mapW, mapH),
+        priority: -999999999,
+      ),
+    );
+    await world.add(RiverComponent());
+    for (final p in buildProps(tileAssets)) {
+      await world.add(p);
+    }
+    // collect walkable tiles once — petal scatter + spawn checks use them
+    _walkTiles = [
+      for (var y = 0; y < kMapTilesH; y++)
+        for (var x = 0; x < kMapTilesW; x++)
+          if (engine.nav.walkable(x, y)) (x, y),
+    ];
     await world.add(PetalDriftComponent(Vector2(mapW, mapH)));
 
-    // papel picado strings across plaza + market
+    // papel picado strings across the market street
     for (final p in const [
-      [560.0, 240.0, 280.0], [400.0, 268.0, 260.0], [900.0, 268.0, 260.0]
+      [330.0, 308.0, 230.0],
+      [620.0, 308.0, 240.0],
+      [890.0, 308.0, 230.0],
     ]) {
-      await world.add(PapelPicadoComponent(
-          pos: Vector2(p[0], p[1]), size: Vector2(p[2], 26)));
+      await world.add(
+        PapelPicadoComponent(pos: Vector2(p[0], p[1]), size: Vector2(p[2], 26)),
+      );
     }
 
     // ---- POIs ----
@@ -65,8 +86,12 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       await world.add(await _buildPoi(poi));
     }
 
-    // ---- player ----
-    player = await _char(kPlayerChar, Vector2(700, 140), PlayerComponent.new);
+    // ---- player — spawns on the bridge landing, walking south ----
+    player = await _char(
+      kPlayerChar,
+      Vector2(tileX(21), tileY(3)),
+      PlayerComponent.new,
+    );
     await world.add(player!);
 
     // ---- spirits ----
@@ -79,7 +104,9 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     // ---- chispa guide ----
     chispa = ChispaComponent(follow: player!);
     await world.add(chispa!);
-    _chispa('¡Ay — a living one! Spirits fade when forgotten. Talk to them, mijo.');
+    _chispa(
+      '¡Ay — a living one! Spirits fade when forgotten. Talk to them, mijo.',
+    );
 
     // ---- camera ----
     camera.viewfinder.zoom = 1.15;
@@ -97,14 +124,25 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   static const kPlayerChar = 'knight';
 
   Future<PlayerComponent> _char(
-      String key, Vector2 pos,
-      PlayerComponent Function({required Vector2 pos,
-          required SpriteAnimation idle,
-          required SpriteAnimation walk}) ctor) async {
+    String key,
+    Vector2 pos,
+    PlayerComponent Function({
+      required Vector2 pos,
+      required SpriteAnimation idle,
+      required SpriteAnimation walk,
+      required Vector2 displaySize,
+    })
+    ctor,
+  ) async {
     final def = chars[key]!;
     final idle = await _anim(def.idle);
     final walk = await _anim(def.walk);
-    return ctor(pos: pos, idle: idle, walk: walk);
+    return ctor(
+      pos: pos,
+      idle: idle,
+      walk: walk,
+      displaySize: Vector2(def.displayW, def.displayH),
+    );
   }
 
   Future<SpiritComponent> _spirit(Agent a) async {
@@ -113,15 +151,19 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     final def = chars[key]!;
     final idle = await _anim(def.idle);
     final walk = await _anim(def.walk);
+    final death = def.death == null
+        ? null
+        : await _anim(def.death!, loop: false);
     final c = SpiritComponent(
       agent: a,
       charKey: key,
       onTapped: onEngage,
       idle: idle,
       walk: walk,
+      death: death,
+      displaySize: Vector2(def.displayW, def.displayH),
       displayName: a.name,
-      auraColor:
-          personaTint[a.id] != null ? Color(personaTint[a.id]!) : null,
+      auraColor: personaTint[a.id] != null ? Color(personaTint[a.id]!) : null,
     );
     if (a.faded) c.setFaded(true);
     return c;
@@ -155,7 +197,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         'zoom': camera.viewfinder.zoom,
         'center': [
           camera.viewfinder.position.x.round(),
-          camera.viewfinder.position.y.round()
+          camera.viewfinder.position.y.round(),
         ],
       },
       'spirits': [
@@ -173,7 +215,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
             'faded': a.faded,
             'solidified': a.solidified,
             'battery': a.battery.round(),
-          }
+          },
       ],
       'pois': [
         for (final p in engine.pois.values)
@@ -185,7 +227,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
             'screen': screen(Vector2(p.x, p.y))
                 .toString()
                 .replaceAll('Vector2', 's'),
-          }
+          },
       ],
     };
   }
@@ -257,18 +299,27 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     }
   }
 
-  Future<SpriteAnimation> _anim(SheetDef s) async {
+  Future<SpriteAnimation> _anim(SheetDef s, {bool loop = true}) async {
     final img = await images.load(s.path);
     // Vertical sheets (frameW == img.width, frames > 1) are sliced manually —
     // sequenced+amountPerRow mis-slices them into a horizontal filmstrip.
-    if (s.frames > 1 && s.frameW >= img.width) {
+    final vertical = s.frames > 1 && s.frameW >= img.width;
+    if (vertical || !loop) {
       final sprites = List.generate(
-          s.frames,
-          (i) => Sprite(img,
-              srcPosition: Vector2(0, i * s.frameH),
-              srcSize: Vector2(s.frameW, s.frameH)));
-      return SpriteAnimation.spriteList(sprites,
-          stepTime: s.stepTime, loop: true);
+        s.frames,
+        (i) => Sprite(
+          img,
+          srcPosition: vertical
+              ? Vector2(0, i * s.frameH)
+              : Vector2(i * s.frameW, 0),
+          srcSize: Vector2(s.frameW, s.frameH),
+        ),
+      );
+      return SpriteAnimation.spriteList(
+        sprites,
+        stepTime: s.stepTime,
+        loop: loop,
+      );
     }
     return SpriteAnimation.fromFrameData(
       img,
@@ -281,40 +332,12 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     );
   }
 
-  int _perRow(int sheetW, double frameW) =>
-      max(1, (sheetW / frameW).floor());
+  int _perRow(int sheetW, double frameW) => max(1, (sheetW / frameW).floor());
 
+  /// POIs: the tilemap props draw the structures — the component adds
+  /// just a floating name label + the inspect glow + tap target.
   Future<PoiComponent> _buildPoi(Poi p) async {
-    PositionComponent? visual;
-    switch (p.id) {
-      case 'ancient_tree':
-        // variant sheet: 4 cols × variants — the bare dead tree (col 2, row 0)
-        // is the spirit-world ceiba. Crop just that frame, not the sheet.
-        final img = await images.load(objects['ancient_tree']!.path);
-        visual = SpriteComponent(
-            sprite: Sprite(img,
-                srcPosition: Vector2(224, 0), srcSize: Vector2(112, 160)),
-            size: Vector2(140, 200),
-            anchor: Anchor.bottomCenter, position: Vector2(0, 14));
-      case 'curiosity_shop':
-        visual = SpriteAnimationComponent(
-            animation: await _anim(objects['alchemy_table']!),
-            size: Vector2(40, 80), anchor: Anchor.bottomCenter,
-            position: Vector2(0, 8));
-      case 'ofrenda':
-        visual = SpriteAnimationComponent(
-            animation: await _anim(objects['bonfire']!),
-            size: Vector2(70, 70), anchor: Anchor.bottomCenter,
-            position: Vector2(0, 8));
-      case 'flower_stall':
-        visual = StallVisual(poi: p, awning: const Color(0xFFEF8C1A));
-      case 'cantina':
-        visual = StallVisual(poi: p, awning: const Color(0xFF7B4FD0));
-      default:
-        // small stone/marker placeholder — colored base
-        visual = _PoiMarker(p);
-    }
-    return PoiComponent(poi: p, onInspect: onPoiInspect, visual: visual);
+    return PoiComponent(poi: p, onInspect: onPoiInspect, visual: _PoiLabel(p));
   }
 
   // ---------------------------- gestures -----------------------------------
@@ -339,8 +362,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   // Flame 1.38 has no PanZoomDetector, so main.dart's Listener forwards here.
   void trackpadPinch(double scale, Offset panDelta) {
     if (scale != 1.0) {
-      camera.viewfinder.zoom =
-          (camera.viewfinder.zoom * scale).clamp(0.8, 2.5);
+      camera.viewfinder.zoom = (camera.viewfinder.zoom * scale).clamp(0.8, 2.5);
     }
     final d = Vector2(panDelta.dx, panDelta.dy);
     if (d.length2 > 0) {
@@ -354,8 +376,12 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   void _clampCamera() {
     final r = camera.visibleWorldRect;
     final p = camera.viewfinder.position;
-    final x = r.width >= mapW ? mapW / 2 : p.x.clamp(r.width / 2, mapW - r.width / 2);
-    final y = r.height >= mapH ? mapH / 2 : p.y.clamp(r.height / 2, mapH - r.height / 2);
+    final x = r.width >= mapW
+        ? mapW / 2
+        : p.x.clamp(r.width / 2, mapW - r.width / 2);
+    final y = r.height >= mapH
+        ? mapH / 2
+        : p.y.clamp(r.height / 2, mapH - r.height / 2);
     if (x != p.x || y != p.y) camera.viewfinder.position = Vector2(x, y);
   }
 
@@ -421,17 +447,26 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
           if (e.data['engaged'] as bool) {
             c.faceToward(player!.position.x);
             _chispa(
-                'That\'s ${a.name}. They\'ll stay as long as you listen.',
-                key: 'first_engage');
+              'That\'s ${a.name}. They\'ll stay as long as you listen.',
+              key: 'first_engage',
+            );
           }
         }
         if (e.data.containsKey('faded')) {
           c.setFaded(e.data['faded'] as bool);
           if (e.data['faded'] as bool) {
             _chispa(
-                '${a.name} is fading — forgotten things go translucent. Say their name.',
-                key: 'first_fade');
+              '${a.name} is fading — forgotten things go translucent. Say their name.',
+              key: 'first_fade',
+            );
           }
+        }
+        // arrival facing — spirit turns toward its activity target.
+        // Side-view sprites only have left/right; pure vertical facing
+        // (fountain rim, ofrenda) keeps the last horizontal heading.
+        if (e.data.containsKey('fx')) {
+          final fx = (e.data['fx'] as num).toDouble();
+          if (fx != 0) c.faceToward(c.position.x + fx);
         }
       case SimEventType.pairStart:
         for (final id in [e.data['a'], e.data['b']]) {
@@ -448,7 +483,9 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         _spawnPetal();
       case SimEventType.log:
         final t = e.data['text'] as String;
-        if (t.startsWith('bought')) _chispa('A gift goes further than a question, mijo.');
+        if (t.startsWith('bought')) {
+          _chispa('A gift goes further than a question, mijo.');
+        }
         if (t.contains('solidifies')) {
           _chispa('Look — the town remembered. That\'s resurrection.');
         }
@@ -472,23 +509,33 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     for (final b in c.children.whereType<BubbleComponent>()) {
       b.removeFromParent();
     }
-    c.add(BubbleComponent(line,
-        size: Vector2(220, 44))
-      ..position = Vector2(0, -c.size.y - 6));
+    c.add(
+      BubbleComponent(line, size: Vector2(220, 44))
+        ..position = Vector2(0, -c.size.y - 6),
+    );
   }
 
   void _emote(String agentId, String glyph) {
     final c = spirits[agentId];
     if (c == null) return;
-    c.add(BubbleComponent(glyph, isEmote: true, size: Vector2(60, 40))
-      ..position = Vector2(0, -c.size.y - 4));
+    c.add(
+      BubbleComponent(glyph, isEmote: true, size: Vector2(60, 40))
+        ..position = Vector2(0, -c.size.y - 4),
+    );
   }
 
   void _spawnPetal() {
     final r = engine.rng;
-    final x = 300 + r.nextDouble() * 800;
-    final y = 200 + r.nextDouble() * 450;
-    world.add(PetalComponent(pos: Vector2(x, y)));
+    if (_walkTiles.isEmpty) return;
+    final t = _walkTiles[r.nextInt(_walkTiles.length)];
+    world.add(
+      PetalComponent(
+        pos: Vector2(
+          tileX(t.$1) + r.nextDouble() * 16 - 8,
+          tileY(t.$2) + r.nextDouble() * 16 - 8,
+        ),
+      ),
+    );
   }
 
   @override
@@ -509,35 +556,30 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   }
 }
 
-/// A small shrine-stone marker + name label for POIs without custom art.
-class _PoiMarker extends PositionComponent {
-  _PoiMarker(this._p)
-      : super(size: Vector2(48, 40), anchor: Anchor.bottomCenter);
+/// Floating name label for a POI — the tilemap prop is the visual.
+class _PoiLabel extends PositionComponent {
+  _PoiLabel(this._p)
+    : super(
+        size: Vector2(140, 20),
+        anchor: Anchor.bottomCenter,
+        position: Vector2(0, -56),
+      );
   final Poi _p;
 
   @override
   void render(Canvas canvas) {
-    // stone — rounded upright slab
-    final slab = RRect.fromRectAndRadius(
-        Rect.fromLTWH(14, 2, 20, 34), const Radius.circular(8));
-    canvas.drawRRect(slab, Paint()..color = const Color(0xFF2E2450));
-    canvas.drawRRect(
-        slab,
-        Paint()
-          ..color = const Color(0xFF6A5A98)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2);
-    // candle glow dot
-    canvas.drawCircle(
-        Offset(24, 12), 3.5, Paint()..color = const Color(0xFFFFC233));
-    // name label below the stone
     final tp = TextPainter(
       text: TextSpan(
-          text: _p.name.toLowerCase(),
-          style: const TextStyle(
-              fontSize: 9, color: Color(0xCCBDB4E0), fontFamily: 'monospace')),
+        text: _p.name.toLowerCase(),
+        style: const TextStyle(
+          fontSize: 10,
+          color: Color(0xE6D9D2C8),
+          fontFamily: 'monospace',
+          shadows: [Shadow(color: Color(0xFF000000), blurRadius: 3)],
+        ),
+      ),
       textDirection: TextDirection.ltr,
     )..layout();
-    tp.paint(canvas, Offset((size.x - tp.width) / 2, size.y - 6));
+    tp.paint(canvas, Offset((size.x - tp.width) / 2, 0));
   }
 }
