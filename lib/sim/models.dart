@@ -1,6 +1,11 @@
 /// Core sim data types — pure Dart, no Flutter imports.
 library;
 
+/// Shared locomotion speed (world units / real second). The sim advances
+/// positions at this rate and the renderer lerps at the same rate, so the
+/// two never diverge — no teleport-on-arrival.
+const kSpiritSpeed = 55.0;
+
 class Stats {
   final int curiosity;
   final int wit;

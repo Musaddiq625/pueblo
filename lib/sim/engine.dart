@@ -52,6 +52,8 @@ class Conversation {
 
 // ---------------------------------------------------------------------------
 
+typedef _Arrival = void Function(SimEngine engine, Agent agent);
+
 class SimEngine {
   final SimStore store;
   final LLMClient llm;
@@ -69,6 +71,7 @@ class SimEngine {
   final Map<String, Conversation> conversations = {};
 
   int simTs = 0;
+  double _simAcc = 0; // fractional sim-second accumulator
   int playerPetals = 0;
   final Set<String> playerKnown = {};
   final Map<String, int> playerInventory = {}; // itemId -> count
@@ -101,10 +104,19 @@ class SimEngine {
   double _convoTimer = 0;
   double _batteryTimer = 0;
   double _autosaveTimer = 0;
-  static const decisionEvery = 20.0; // sim seconds (base tick)
+  double _ambientTimer = 0;
+  static const decisionEvery = 12.0; // sim seconds (base tick)
   static const convoEvery = 5.0; // bubble pacing
   static const batteryEvery = 10.0;
   static const autosaveEvery = 30.0;
+  static const ambientEvery = 1.0; // real seconds between wander checks
+
+  /// Ambient locomotion layer — deterministic, zero inference. The LLM
+  /// steers interesting choices; this layer keeps the town ALIVE between
+  /// decisions (generative-agents style: bodies always doing something).
+  final Map<String, List<List<double>>> _walks = {};
+  final Map<String, double> _nextWanderAt = {}; // agentId -> sim_ts
+  final Map<String, _Arrival> _arrivals = {}; // deferred on-arrival actions
 
   SimEngine({
     required this.store,
@@ -128,15 +140,26 @@ class SimEngine {
   // ============================ world clock ================================
 
   void tick(double dt) {
-    simTs += (dt * timeScale).round().clamp(1, 999);
+    _advanceWalks(dt); // real-time locomotion — matches render lerp speed
+    _simAcc += dt * timeScale;
+    final whole = _simAcc.floor();
+    if (whole > 0) {
+      simTs += whole;
+      _simAcc -= whole;
+    }
     _decisionTimer += dt * timeScale;
     _convoTimer += dt * timeScale;
     _batteryTimer += dt * timeScale;
     _autosaveTimer += dt * timeScale;
+    _ambientTimer += dt;
 
     if (_convoTimer >= convoEvery) {
       _convoTimer = 0;
       _advanceConversations();
+    }
+    if (_ambientTimer >= ambientEvery) {
+      _ambientTimer = 0;
+      _ambientWander();
     }
     if (_decisionTimer >= decisionEvery) {
       _decisionTimer = 0;
@@ -164,6 +187,11 @@ class SimEngine {
     final convo = Conversation('c${simTs}_${aId}_$bId', aId, bId,
         askedAbout: askedAbout);
     conversations[convo.id] = convo;
+    // both stand where they are — cancel in-flight walks
+    _walks.remove(aId);
+    _walks.remove(bId);
+    _arrivals.remove(aId);
+    _arrivals.remove(bId);
     a.inConvo = b.inConvo = true;
     a.bumpVersion();
     b.bumpVersion();
@@ -391,21 +419,16 @@ class SimEngine {
         _fallbackStroll(a);
       case 'inspect':
         final p = pois[d.target];
-        if (p != null && _dist2(a.x, a.y, p.x, p.y) < p.radius * p.radius * 4) {
-          _say(a, d.line.isEmpty ? p.surfaceText : d.line,
-              'curious');
-          _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
-          unawaited(store.memory(Memory(
-              agent: a.id, simTs: simTs, kind: 'observation', source: 'world',
-              text: 'noticed: ${p.surfaceText}', importance: 6,
-              entities: [p.id])));
-          // Curiosity payoff → goal to ask around.
-          if (rng.nextDouble() < a.stats.curiosity / 5) {
-            a.goal = 'askAbout:${p.id}';
-          }
+        if (p == null) {
+          _fallbackStroll(a);
           return;
         }
-        _fallbackStroll(a);
+        if (_dist2(a.x, a.y, p.x, p.y) > p.radius * p.radius) {
+          // walk to the object first — the inspect visibly happens on arrival
+          _routeTo(a, p.x + 10, p.y + 16, onArrive: _doInspect(p, d.line));
+          return;
+        }
+        _doInspect(p, d.line)(this, a);
       case 'shop':
       case 'offerSecret':
         final t = agents[d.target];
@@ -418,7 +441,7 @@ class SimEngine {
       case 'goto':
         final p = pois[d.target];
         if (p != null) {
-          _walkTo(a, p.x, p.y);
+          _routeTo(a, p.x + 10, p.y + 16);
           return;
         }
         _fallbackStroll(a);
@@ -430,6 +453,22 @@ class SimEngine {
         if (d.line.isNotEmpty) _say(a, d.line, d.mood);
     }
   }
+
+  /// Standing at a POI → observe it. Curiosity payoff → goal to ask around.
+  _Arrival _doInspect(Poi p, String line) => (e, a) {
+        _say(a, line.isEmpty ? p.surfaceText : line, 'curious');
+        _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
+        unawaited(Future.delayed(const Duration(seconds: 4), () =>
+            _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': false})));
+        unawaited(store.memory(Memory(
+            agent: a.id, simTs: simTs, kind: 'observation', source: 'world',
+            text: 'noticed: ${p.surfaceText}', importance: 6,
+            entities: [p.id])));
+        if (rng.nextDouble() < a.stats.curiosity / 5) {
+          a.goal = 'askAbout:${p.id}';
+        }
+        _nextWanderAt[a.id] = e.simTs + 5 + e.rng.nextDouble() * 4;
+      };
 
   /// Greeting — the named greeting is the resurrection mechanic: if the
   /// greeter knows `grave_37_name` and the target is Solorio, speaking his
@@ -457,8 +496,51 @@ class SimEngine {
     }
   }
 
+  // ============================ locomotion =================================
+
+  /// Deferred action fired when an agent's path completes at a target.
   void _fallbackStroll(Agent a) {
-    // Nearest waypoint → random neighbor.
+    final best = _nearestWaypoint(a);
+    final next = waypoints[best][rng.nextInt(waypoints[best].length)];
+    _setPath(a, [waypointPos[best], waypointPos[next]]);
+  }
+
+  /// Route via the waypoint graph: current pos → nearest node → graph hops
+  /// toward the node nearest (x,y) → final point. Spirits stay on streets.
+  void _routeTo(Agent a, double x, double y, {_Arrival? onArrive}) {
+    final from = _nearestWaypoint(a);
+    var to = 0;
+    var bd = double.infinity;
+    for (var i = 0; i < waypointPos.length; i++) {
+      final d = _dist2(x, y, waypointPos[i][0], waypointPos[i][1]);
+      if (d < bd) {
+        bd = d;
+        to = i;
+      }
+    }
+    final path = <List<double>>[];
+    var cur = from;
+    var guard = 0;
+    while (cur != to && guard++ < 8) {
+      path.add(waypointPos[cur]);
+      // greedy hop toward destination node
+      var nxt = waypoints[cur].first;
+      var nd = _dist2(waypointPos[nxt][0], waypointPos[nxt][1], x, y);
+      for (final n in waypoints[cur].skip(1)) {
+        final d = _dist2(waypointPos[n][0], waypointPos[n][1], x, y);
+        if (d < nd) {
+          nd = d;
+          nxt = n;
+        }
+      }
+      cur = nxt;
+    }
+    path.add(waypointPos[to]);
+    path.add([x, y]);
+    _setPath(a, path, onArrive: onArrive);
+  }
+
+  int _nearestWaypoint(Agent a) {
     var best = 0;
     var bd = double.infinity;
     for (var i = 0; i < waypointPos.length; i++) {
@@ -468,26 +550,94 @@ class SimEngine {
         best = i;
       }
     }
-    final next = waypoints[best][rng.nextInt(waypoints[best].length)];
-    _events.add(SimEvent(SimEventType.move, {
-      'agent': a.id,
-      'path': [waypointPos[best], waypointPos[next]],
-    }));
-    // Move sim position instantly (render lerps to it).
-    a.x = waypointPos[next][0];
-    a.y = waypointPos[next][1];
+    return best;
   }
 
-  void _walkTo(Agent a, double x, double y) {
-    _events.add(SimEvent(SimEventType.move, {
-      'agent': a.id,
-      'path': [
-        [x, y]
-      ],
-    }));
-    a.x = x;
-    a.y = y;
+  void _setPath(Agent a, List<List<double>> pts, {_Arrival? onArrive}) {
+    // Drop the first leg if the agent is already essentially on it.
+    if (pts.length > 1 && _dist2(a.x, a.y, pts[0][0], pts[0][1]) < 400) {
+      pts = pts.sublist(1);
+    }
+    if (pts.isEmpty) {
+      onArrive?.call(this, a);
+      return;
+    }
+    _walks[a.id] = pts;
+    if (onArrive != null) _arrivals[a.id] = onArrive;
+    _events.add(SimEvent(SimEventType.move, {'agent': a.id, 'path': pts}));
   }
+
+  /// Advance every walking agent along its path at the SAME rate the
+  /// renderer lerps (real dt × kSpiritSpeed) — sim and pixels stay in sync.
+  void _advanceWalks(double dt) {
+    for (final id in _walks.keys.toList()) {
+      final a = agents[id];
+      final path = _walks[id];
+      if (a == null || path == null || a.engaged) {
+        _walks.remove(id);
+        continue;
+      }
+      var budget = kSpiritSpeed * dt;
+      while (budget > 0 && path.isNotEmpty) {
+        final t = path.first;
+        final dx = t[0] - a.x, dy = t[1] - a.y;
+        final dist = sqrt(dx * dx + dy * dy);
+        if (dist <= budget) {
+          a.x = t[0];
+          a.y = t[1];
+          path.removeAt(0);
+          budget -= dist;
+        } else {
+          a.x += dx / dist * budget;
+          a.y += dy / dist * budget;
+          budget = 0;
+        }
+      }
+      if (path.isEmpty) {
+        _walks.remove(id);
+        final arrive = _arrivals.remove(id);
+        if (arrive != null) {
+          arrive(this, a);
+        } else {
+          // dwell a beat, then the ambient brain picks the next hop
+          _nextWanderAt[id] = simTs + 2.5 + rng.nextDouble() * 5;
+        }
+      }
+    }
+  }
+
+  /// Deterministic wander — keeps every unfaded, unengaged spirit moving
+  /// continuously between LLM decisions. ~1/3 of hops route toward a stall
+  /// or anomaly POI so spirits visibly browse/inspect objects on their own.
+  void _ambientWander() {
+    for (final a in agents.values) {
+      if (a.engaged || a.inConvo || a.faded) continue;
+      if (_walks.containsKey(a.id)) continue;
+      if (simTs < (_nextWanderAt[a.id] ?? 0)) continue;
+      final r = rng.nextDouble();
+      if (r < 0.35) {
+        // visit a stall / anomaly — stop there a while like browsing
+        final targets = pois.values
+            .where((p) => p.isStall || p.anomaly)
+            .toList();
+        final p = targets[rng.nextInt(targets.length)];
+        _routeTo(a, p.x + 18, p.y + 36, onArrive: _browse(p));
+      } else {
+        _fallbackStroll(a);
+      }
+    }
+  }
+
+  /// Reached a POI — linger, glow the marker, note the observation.
+  _Arrival _browse(Poi p) => (e, a) {
+        _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
+        unawaited(Future.delayed(const Duration(seconds: 3), () =>
+            _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': false})));
+        _nextWanderAt[a.id] = e.simTs + 6 + e.rng.nextDouble() * 6;
+        unawaited(store.memory(Memory(
+            agent: a.id, simTs: simTs, kind: 'observation', source: 'world',
+            text: 'stopped by ${p.name}', importance: 2, entities: [p.id])));
+      };
 
   void _say(Agent a, String line, String mood) {
     _emit(a, SimEventType.say, {'agent': a.id, 'line': line, 'mood': mood});
@@ -525,6 +675,8 @@ class SimEngine {
     final a = agents[agentId];
     if (a == null) return;
     _abortConvoWith(agentId); // releases partner with a memory below
+    _walks.remove(agentId); // freeze mid-path at current position
+    _arrivals.remove(agentId);
     a.engaged = true;
     a.bumpVersion();
     a.battery = min(100, a.battery + 15); // attention revives
@@ -547,6 +699,7 @@ class SimEngine {
       a.engaged = false;
       a.bumpVersion();
       a.lastActedAt = simTs.toDouble() - 5; // back into rotation soon
+      _nextWanderAt[id] = simTs + 3; // resume strolling shortly after release
       _events
           .add(SimEvent(SimEventType.state, {'agent': id, 'engaged': false}));
     }
