@@ -1,0 +1,193 @@
+/// sqlite persistence — memories, knowledge, event log, agent state, world kv.
+/// Pure Dart (sqflite). Every domain write is an idempotent events row.
+library;
+
+import 'dart:convert';
+import 'dart:math';
+
+import 'package:sqflite/sqflite.dart';
+
+import 'models.dart';
+
+class SimStore {
+  final Database db;
+  int _eventSeq = 0;
+  final Random _rng = Random();
+
+  SimStore._(this.db);
+
+  static Future<SimStore> open({String path = 'pueblo_sim.db', bool fresh = false}) async {
+    if (fresh) await deleteDatabase(path);
+    final db = await openDatabase(path, version: 1, onCreate: (d, v) async {
+      await d.execute('''CREATE TABLE memories(
+        id INTEGER PRIMARY KEY, agent TEXT, sim_ts INTEGER,
+        kind TEXT, source TEXT, text TEXT, importance INTEGER, entities TEXT)''');
+      await d.execute('''CREATE TABLE knowledge(agent TEXT, secret TEXT,
+        learned_via TEXT, sim_ts INTEGER, event_id TEXT UNIQUE,
+        PRIMARY KEY(agent, secret))''');
+      await d.execute('''CREATE TABLE events(id TEXT PRIMARY KEY, sim_ts INTEGER,
+        kind TEXT, payload TEXT)''');
+      await d.execute('''CREATE TABLE agents(id TEXT PRIMARY KEY, stats TEXT,
+        battery REAL, x REAL, y REAL, state_version INTEGER)''');
+      await d.execute('''CREATE TABLE world(key TEXT PRIMARY KEY, value TEXT)''');
+      await d.execute('''CREATE TABLE sim_log(id INTEGER PRIMARY KEY, sim_ts INTEGER,
+        agent TEXT, kind TEXT, payload TEXT)''');
+    });
+    return SimStore._(db);
+  }
+
+  String _eid() => 'e${DateTime.now().microsecondsSinceEpoch}_${_eventSeq++}_${_rng.nextInt(999)}';
+
+  /// Append a domain event; returns its id. Idempotent apply = callers write
+  /// effects with INSERT OR IGNORE keyed on this id where applicable.
+  Future<String> logEvent(int simTs, String kind, Map<String, dynamic> payload) async {
+    final id = _eid();
+    await db.insert('events',
+        {'id': id, 'sim_ts': simTs, 'kind': kind, 'payload': jsonEncode(payload)});
+    return id;
+  }
+
+  Future<void> memory(Memory m) async {
+    await db.insert('memories', {
+      'agent': m.agent,
+      'sim_ts': m.simTs,
+      'kind': m.kind,
+      'source': m.source,
+      'text': m.text,
+      'importance': m.importance,
+      'entities': jsonEncode(m.entities),
+    });
+  }
+
+  /// Atomic knowledge transfer — the utterance IS the proof. Caller passes the
+  /// utterance's event id so replay is a no-op.
+  Future<bool> transferKnowledge(String agent, String secret, String learnedVia,
+      int simTs, String eventId) async {
+    final n = await db.insert(
+        'knowledge',
+        {
+          'agent': agent,
+          'secret': secret,
+          'learned_via': learnedVia,
+          'sim_ts': simTs,
+          'event_id': 'k_$eventId',
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore);
+    return n > 0;
+  }
+
+  /// Atomic purchase: petals -= price, item → inventory (world kv), optional
+  /// secret → knowledge, in ONE transaction.
+  Future<bool> purchase(String agent, String itemId, int price, int simTs,
+      {String? secretId, String? secretFrom}) async {
+    return db.transaction((txn) async {
+      final rows = await txn.query('world', where: 'key = ?', whereArgs: ['petals']);
+      final petals = int.tryParse(rows.isEmpty ? '0' : '${rows.first['value']}') ?? 0;
+      if (petals < price) return false;
+      final eid = _eid();
+      await txn.insert('events',
+          {'id': eid, 'sim_ts': simTs, 'kind': 'purchase', 'payload': jsonEncode({
+            'agent': agent, 'item': itemId, 'price': price,
+          })});
+      await txn.insert('world', {'key': 'petals', 'value': '${petals - price}'},
+          conflictAlgorithm: ConflictAlgorithm.replace);
+      await txn.insert('world', {'key': 'inv_$itemId', 'value': '1'},
+          conflictAlgorithm: ConflictAlgorithm.replace);
+      if (secretId != null) {
+        await txn.insert(
+            'knowledge',
+            {
+              'agent': agent,
+              'secret': secretId,
+              'learned_via': secretFrom ?? 'purchase',
+              'sim_ts': simTs,
+              'event_id': 'k_$eid',
+            },
+            conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+      return true;
+    });
+  }
+
+  Future<void> simLog(int simTs, String agent, String kind, String payload) async {
+    await db.insert('sim_log',
+        {'sim_ts': simTs, 'agent': agent, 'kind': kind, 'payload': payload});
+  }
+
+  Future<void> saveAgent(Agent a) async {
+    await db.insert(
+        'agents',
+        {
+          'id': a.id,
+          'stats': jsonEncode({
+            'curiosity': a.stats.curiosity, 'wit': a.stats.wit,
+            'warmth': a.stats.warmth, 'spirit_sight': a.stats.spiritSight,
+            'mischief': a.stats.mischief, 'grump': a.stats.grump,
+          }),
+          'battery': a.battery,
+          'x': a.x,
+          'y': a.y,
+          'state_version': a.stateVersion,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> setWorld(String key, String value) async {
+    await db.insert('world', {'key': key, 'value': value},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<String?> getWorld(String key) async {
+    final r = await db.query('world', where: 'key = ?', whereArgs: [key]);
+    return r.isEmpty ? null : r.first['value'] as String;
+  }
+
+  Future<List<Memory>> recall(Agent a, int nowTs, {int limit = 5,
+      Set<String> contextEntities = const {}}) async {
+    final rows = await db.query('memories',
+        where: 'agent = ?', whereArgs: [a.id], orderBy: 'sim_ts DESC', limit: 60);
+    final tau = 600.0; // sim-seconds decay constant
+    final scored = <({double s, Memory m})>[];
+    for (final r in rows) {
+      final ents = List<String>.from(jsonDecode(r['entities'] as String));
+      final shared = ents.where(contextEntities.contains).length;
+      final imp = (r['importance'] as int).toDouble();
+      final age = (nowTs - (r['sim_ts'] as int)).clamp(0, 1 << 30).toDouble();
+      final s = 0.5 * imp + 0.3 * 10 * exp(-age / tau) + 0.2 * 10 * shared;
+      scored.add((s: s, m: Memory(
+        agent: a.id, simTs: r['sim_ts'] as int, kind: r['kind'] as String,
+        source: r['source'] as String, text: r['text'] as String,
+        importance: r['importance'] as int, entities: ents)));
+    }
+    scored.sort((x, y) => y.s.compareTo(x.s));
+    return scored.take(limit).map((e) => e.m).toList();
+  }
+
+  Future<int> memoryCount(String agent) async {
+    final r = await db.rawQuery(
+        'SELECT COUNT(*) c, COALESCE(SUM(importance),0) s FROM memories WHERE agent = ?',
+        [agent]);
+    return (r.first['c'] as int) + 0; // count; caller also reads importance sum below
+  }
+
+  Future<({int count, int importanceSum})> memoryStats(String agent) async {
+    final r = await db.rawQuery(
+        'SELECT COUNT(*) c, COALESCE(SUM(importance),0) s FROM memories WHERE agent = ?',
+        [agent]);
+    return (count: r.first['c'] as int, importanceSum: (r.first['s'] as num).toInt());
+  }
+
+  /// Archive oldest `n` memories into `archive`, return their texts.
+  Future<List<String>> archiveOldest(String agent, int n) async {
+    final rows = await db.query('memories',
+        where: 'agent = ?', whereArgs: [agent],
+        orderBy: 'sim_ts ASC', limit: n);
+    if (rows.isEmpty) return [];
+    final texts = rows.map((r) => r['text'] as String).toList();
+    final ids = rows.map((r) => r['id'] as int).toList();
+    await db.delete('memories',
+        where: 'id IN (${List.filled(ids.length, '?').join(',')})',
+        whereArgs: ids);
+    return texts;
+  }
+}

@@ -1,0 +1,224 @@
+/// LLM client abstraction + Ollama impl + deterministic mock.
+/// Pure Dart — usable from the app and the headless eval harness (bin/eval.dart).
+library;
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
+
+import 'package:http/http.dart' as http;
+
+/// One validated decision from the model.
+class Decision {
+  final String? thought;
+  final String action;
+  final String? target;
+  final String? subject;
+  final String line;
+  final String mood;
+  const Decision(this.action, this.target, this.line,
+      {this.thought, this.subject, this.mood = 'neutral'});
+}
+
+/// One generated turn inside an NPC↔NPC conversation (single speaker).
+class ConvoTurn {
+  final String line;
+  final String? sharesSecret;
+  final bool end;
+  final String mood;
+  const ConvoTurn(this.line, {this.sharesSecret, this.end = false, this.mood = 'neutral'});
+}
+
+abstract class LLMClient {
+  String get name;
+  Future<Decision?> decide(String prompt);
+  Future<ConvoTurn?> convoTurn(String prompt);
+  Stream<String> playerChat(String prompt);
+  Future<String?> reflect(String prompt);
+}
+
+// ---------------------------------------------------------------------------
+
+class OllamaClient implements LLMClient {
+  final String model;
+  final Uri base;
+  final http.Client _http = http.Client();
+  final Random rng;
+
+  OllamaClient({this.model = 'gemma3:4b', Uri? base, Random? rng})
+      : base = base ?? Uri.parse('http://localhost:11434'),
+        rng = rng ?? Random(42);
+
+  @override
+  String get name => 'ollama:$model';
+
+  Future<String?> _chat(String prompt,
+      {double temperature = 0.7,
+      int numCtx = 2048,
+      int numPredict = 160,
+      bool think = false,
+      Duration timeout = const Duration(seconds: 60)}) async {
+    try {
+      final res = await _http
+          .post(
+            base.resolve('/api/chat'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'model': model,
+              'messages': [
+                {'role': 'user', 'content': prompt}
+              ],
+              'stream': false,
+              'format': 'json',
+              'think': think,
+              'keep_alive': '30m',
+              'options': {
+                'temperature': temperature,
+                'num_ctx': numCtx,
+                'num_predict': numPredict,
+              },
+            }),
+          )
+          .timeout(timeout);
+      if (res.statusCode != 200) return null;
+      final j = jsonDecode(res.body) as Map<String, dynamic>;
+      final content = (j['message']?['content'] ?? j['response']) as String?;
+      if (content == null || content.trim().isEmpty) return null;
+      return content;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Map<String, dynamic>? _json(String? raw) {
+    if (raw == null) return null;
+    var s = raw.trim();
+    final a = s.indexOf('{'), b = s.lastIndexOf('}');
+    if (a < 0 || b <= a) return null;
+    s = s.substring(a, b + 1);
+    try {
+      final j = jsonDecode(s);
+      return j is Map<String, dynamic> ? j : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<Decision?> decide(String prompt) async {
+    final j = _json(await _chat(prompt, temperature: 0.7, numPredict: 140));
+    if (j == null) return null;
+    return Decision(
+      (j['action'] ?? '').toString(),
+      j['target']?.toString(),
+      (j['line'] ?? '').toString(),
+      thought: j['thought']?.toString(),
+      subject: j['subject']?.toString(),
+      mood: (j['mood'] ?? 'neutral').toString(),
+    );
+  }
+
+  @override
+  Future<ConvoTurn?> convoTurn(String prompt) async {
+    final j = _json(await _chat(prompt, temperature: 0.85, numPredict: 90));
+    if (j == null) return null;
+    return ConvoTurn(
+      (j['line'] ?? '').toString(),
+      sharesSecret: j['shares_secret']?.toString(),
+      end: j['end'] == true,
+      mood: (j['mood'] ?? 'neutral').toString(),
+    );
+  }
+
+  @override
+  Stream<String> playerChat(String prompt) async* {
+    // Non-streaming for simplicity; chunked yield keeps the same API.
+    final j = _json(await _chat(prompt, temperature: 0.85, numPredict: 150));
+    final line = (j?['line'] ?? j?['reply'] ?? '...').toString();
+    for (var i = 0; i < line.length; i += 12) {
+      yield line.substring(i, min(i + 12, line.length));
+      await Future.delayed(const Duration(milliseconds: 25));
+    }
+  }
+
+  @override
+  Future<String?> reflect(String prompt) async {
+    final j = _json(await _chat(prompt, temperature: 0.5, numPredict: 200));
+    return j?['summary']?.toString() ?? j?['line']?.toString();
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+/// Deterministic canned client — town stays alive without a model; also the
+/// test double. Replies are persona-aware via small token substitutions.
+class MockLLMClient implements LLMClient {
+  final Random rng;
+  MockLLMClient({int seed = 7}) : rng = Random(seed);
+
+  @override
+  String get name => 'mock';
+
+  static const _idleLines = [
+    'the candles keep me company.',
+    'another night, another walk.',
+    'the marigolds smell like home.',
+    'quiet tonight, compadre.',
+  ];
+
+  @override
+  Future<Decision?> decide(String prompt) async {
+    // Cheap intent inference from the offered action list in the prompt.
+    final r = rng.nextDouble();
+    if (prompt.contains('converse') && r < 0.45) {
+      final m = RegExp(r'converse\((\w+)\)').firstMatch(prompt);
+      if (m != null) {
+        return Decision('converse', m.group(1), _pick(_idleLines),
+            thought: 'someone to talk to', mood: 'warm');
+      }
+    }
+    if (prompt.contains('inspect') && r < 0.25) {
+      final m = RegExp(r'inspect\((\w+)\)').firstMatch(prompt);
+      if (m != null) {
+        return Decision('inspect', m.group(1), 'something feels off here…',
+            thought: 'that thing looks odd', mood: 'curious');
+      }
+    }
+    return Decision('stroll', null, _pick(_idleLines), thought: 'wander', mood: 'neutral');
+  }
+
+  @override
+  Future<ConvoTurn?> convoTurn(String prompt) async {
+    // If the prompt offers a shareable secret id, sometimes take it.
+    final m = RegExp(r'Secrets you know: \[(\w+):').firstMatch(prompt);
+    final share = (m != null && rng.nextDouble() < 0.4) ? m.group(1) : null;
+    final end = rng.nextDouble() < 0.3;
+    return ConvoTurn(
+      _pick(const [
+        'you heard anything new tonight?',
+        'the dead talk slower than the living think.',
+        'i saw the strangest thing near the fountain.',
+        'keep your candle lit, friend.',
+      ]),
+      sharesSecret: share,
+      end: end,
+      mood: 'warm',
+    );
+  }
+
+  @override
+  Stream<String> playerChat(String prompt) async* {
+    yield _pick(const [
+      'the living ask such urgent questions.',
+      'you smell of sunlight, mijo.',
+      'ask the gravedigger — he keeps every story.',
+      'i remember more than the town thinks.',
+    ]);
+  }
+
+  @override
+  Future<String?> reflect(String prompt) async =>
+      'the town keeps turning; i keep watching.';
+
+  String _pick(List<String> l) => l[rng.nextInt(l.length)];
+}

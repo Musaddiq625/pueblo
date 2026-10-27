@@ -1,0 +1,125 @@
+/// InferenceBroker — priority queue over the single (or N) inference worker(s).
+/// Every job carries {agentId, convoId, stateVersion}; results are validated
+/// against CURRENT state before commit — stale results drop silently.
+library;
+
+import 'dart:async';
+
+import 'llm.dart';
+
+enum JobKind { player, convoTurn, decision, reflection }
+
+int _prio(JobKind k) => switch (k) {
+      JobKind.player => 0,
+      JobKind.convoTurn => 1,
+      JobKind.decision => 2,
+      JobKind.reflection => 3,
+    };
+
+class Job {
+  final JobKind kind;
+  final String agentId;
+  final String? convoId;
+  final int stateVersion; // agent version at enqueue
+  final String prompt;
+  final int enqSeq;
+  Job(this.kind, this.agentId, this.prompt, this.stateVersion,
+      {this.convoId, required this.enqSeq});
+}
+
+class InferenceBroker {
+  final LLMClient llm;
+  final int workers;
+  final PriorityQueue<Job> _q = PriorityQueue<Job>(
+      (a, b) => _prio(a.kind) != _prio(b.kind)
+          ? _prio(a.kind) - _prio(b.kind)
+          : a.enqSeq - b.enqSeq);
+  int _seq = 0;
+  int _busy = 0;
+  bool _playerInFlight = false;
+
+  // Results routed back to the engine via these streams.
+  final _decisions = StreamController<(Job, Decision?)>.broadcast();
+  final _turns = StreamController<(Job, ConvoTurn?)>.broadcast();
+  final _chats = StreamController<String>.broadcast();
+  final _reflections = StreamController<(Job, String?)>.broadcast();
+
+  Stream<(Job, Decision?)> get decisions => _decisions.stream;
+  Stream<(Job, ConvoTurn?)> get turns => _turns.stream;
+  Stream<String> get chats => _chats.stream;
+  Stream<(Job, String?)> get reflections => _reflections.stream;
+
+  bool get playerInFlight => _playerInFlight;
+  int get queueLength => _q.length;
+
+  InferenceBroker(this.llm, {this.workers = 1});
+
+  /// Cancel a playerChat stream early — next queued job starts once the
+  /// current generation drains (model may not interrupt native inference).
+  void push(JobKind kind, String agentId, String prompt, int stateVersion,
+      {String? convoId}) {
+    _q.add(Job(kind, agentId, prompt, stateVersion, convoId: convoId, enqSeq: _seq++));
+    _pump();
+  }
+
+  /// Fire-and-forget player chat — streamed through [chats].
+  Future<void> playerChat(String agentId, String prompt) async {
+    _playerInFlight = true;
+    try {
+      await for (final chunk in llm.playerChat(prompt)) {
+        _chats.add(chunk);
+      }
+    } finally {
+      _playerInFlight = false;
+      _pump();
+    }
+  }
+
+  void _pump() {
+    while (_busy < workers && _q.isNotEmpty) {
+      // Player messages have real priority only while a player generation is
+      // actually in flight; sheet-open alone never freezes the sim.
+      if (_playerInFlight) return;
+      final job = _q.removeFirst();
+      _busy++;
+      unawaited(_run(job));
+    }
+  }
+
+  Future<void> _run(Job job) async {
+    try {
+      switch (job.kind) {
+        case JobKind.decision:
+          _decisions.add((job, await llm.decide(job.prompt)));
+        case JobKind.convoTurn:
+          _turns.add((job, await llm.convoTurn(job.prompt)));
+        case JobKind.reflection:
+          _reflections.add((job, await llm.reflect(job.prompt)));
+        case JobKind.player:
+          break; // handled by playerChat()
+      }
+    } finally {
+      _busy--;
+      _pump();
+    }
+  }
+}
+
+/// Minimal priority queue on a sorted list — small N, no heap needed.
+class PriorityQueue<T> {
+  final List<T> _items = [];
+  final int Function(T, T) _cmp;
+  PriorityQueue(this._cmp);
+  bool get isEmpty => _items.isEmpty;
+  bool get isNotEmpty => _items.isNotEmpty;
+  int get length => _items.length;
+  void add(T item) {
+    var i = _items.length;
+    while (i > 0 && _cmp(_items[i - 1], item) > 0) {
+      i--;
+    }
+    _items.insert(i, item);
+  }
+
+  T removeFirst() => _items.removeAt(0);
+}
