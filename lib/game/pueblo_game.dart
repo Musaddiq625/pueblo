@@ -3,6 +3,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flame/components.dart';
@@ -41,6 +42,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
 
   @override
   Future<void> onLoad() async {
+    activeGame = this;
     images.prefix = 'assets/sprites/';
 
     // ---- world ----
@@ -127,6 +129,133 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
 
   static Map<String, String> personaSprite = {};
   static Map<String, int> personaTint = {};
+
+  /// Set in onLoad — lets the driver extension reach the live game.
+  static PuebloGame? activeGame;
+
+  /// DRIVER 'shot' command → writes a frame PNG, returns its path.
+  /// Wired to _PuebloAppState._dumpFrame in main.dart.
+  static Future<String> Function()? shotHook;
+
+  // ---------------- driver bridge (DRIVER=true runs only) ----------------
+  //
+  // The game world's "element keys": every entity is addressable by
+  // name/id — no coordinate guessing. Wired by main.dart to both the
+  // flutter_driver requestData channel and an `ext.pueblo.cmd` VM
+  // service extension.
+
+  Map<String, dynamic> driverState() {
+    Vector2 screen(Vector2 w) => camera.localToGlobal(Vector2.copy(w));
+    return {
+      'simTs': engine.simTs,
+      'petals': engine.playerPetals,
+      'engaged': engine.engagedId,
+      'llm': engine.llm.name,
+      'camera': {
+        'zoom': camera.viewfinder.zoom,
+        'center': [
+          camera.viewfinder.position.x.round(),
+          camera.viewfinder.position.y.round()
+        ],
+      },
+      'spirits': [
+        for (final a in engine.agents.values)
+          {
+            'id': a.id,
+            'name': a.name,
+            'x': a.x.round(),
+            'y': a.y.round(),
+            'screen': screen(Vector2(a.x, a.y))
+                .toString()
+                .replaceAll('Vector2', 's'),
+            'engaged': a.engaged,
+            'inConvo': a.inConvo,
+            'faded': a.faded,
+            'solidified': a.solidified,
+            'battery': a.battery.round(),
+          }
+      ],
+      'pois': [
+        for (final p in engine.pois.values)
+          {
+            'id': p.id,
+            'name': p.name,
+            'x': p.x.round(),
+            'y': p.y.round(),
+            'screen': screen(Vector2(p.x, p.y))
+                .toString()
+                .replaceAll('Vector2', 's'),
+          }
+      ],
+    };
+  }
+
+  String? _agentIdFor(String nameOrId) {
+    final q = nameOrId.toLowerCase();
+    for (final a in engine.agents.values) {
+      if (a.id.toLowerCase() == q || a.name.toLowerCase().contains(q)) {
+        return a.id;
+      }
+    }
+    return null;
+  }
+
+  String? _poiIdFor(String nameOrId) {
+    final q = nameOrId.toLowerCase();
+    for (final p in engine.pois.values) {
+      if (p.id.toLowerCase() == q || p.name.toLowerCase().contains(q)) {
+        return p.id;
+      }
+    }
+    return null;
+  }
+
+  /// String command → string response. Commands mirror real user input
+  /// paths (engage uses the same callback a real tap does).
+  Future<String> driverCommand(String? raw) async {
+    final cmd = (raw ?? '').trim();
+    final parts = cmd.split(RegExp(r'\s+'));
+    final arg = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+    switch (parts.first) {
+      case 'state':
+        return jsonEncode(driverState());
+      case 'tap_spirit':
+        final id = _agentIdFor(arg);
+        if (id == null) return 'ERR no spirit "$arg"';
+        onEngage(engine.agents[id]!);
+        return 'ok engaged $id';
+      case 'tap_poi':
+        final id = _poiIdFor(arg);
+        if (id == null) return 'ERR no poi "$arg"';
+        onPoiInspect(engine.pois[id]!);
+        return 'ok poi $id';
+      case 'release':
+        engine.disengage();
+        return 'ok released';
+      case 'chat':
+        if (engine.engagedId == null) return 'ERR nobody engaged';
+        final sb = StringBuffer();
+        await for (final c in engine.sendPlayerMessage(arg)) {
+          sb.write(c);
+        }
+        return 'reply: ${sb.toString()}';
+      case 'zoom':
+        final z = double.tryParse(arg);
+        if (z == null) return 'ERR bad zoom';
+        camera.viewfinder.zoom = z.clamp(0.8, 2.5);
+        return 'ok zoom ${camera.viewfinder.zoom}';
+      case 'center':
+        if (player != null) camera.follow(player!);
+        return 'ok centered';
+      case 'shot':
+        final hook = shotHook;
+        if (hook == null) return 'ERR shot hook not wired';
+        return 'ok ${await hook()}';
+      default:
+        return 'ERR unknown command: $cmd '
+            '(state|tap_spirit|tap_poi|release|chat|zoom|center)';
+    }
+  }
 
   Future<SpriteAnimation> _anim(SheetDef s) async {
     final img = await images.load(s.path);

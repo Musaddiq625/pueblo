@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:developer' as dev;
 import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
@@ -21,6 +23,23 @@ import 'ui/model_gate.dart';
 import 'ui/shop_sheet.dart';
 
 Future<void> main() async {
+  // DRIVER=true → Playwright-style control for test tooling via the
+  // ext.pueblo.cmd VM service extension (Dart MCP vm_service tool).
+  // NB: flutter_driver's enableFlutterDriverExtension is NOT used — its
+  // DriverBinding wraps the binary messenger and the Flame world's asset
+  // loads never complete under it (black screen, dead world).
+  // Commands: state | tap_spirit <name> | tap_poi <id> | release |
+  //           chat <msg> | zoom <f> | center | shot
+  const driver = bool.fromEnvironment('DRIVER');
+  if (driver) {
+    dev.registerExtension('ext.pueblo.cmd',
+        (method, params) async => dev.ServiceExtensionResponse.result(
+          jsonEncode({
+            'result': await (PuebloGame.activeGame?.driverCommand(
+                    params['cmd']) ??
+                Future.value('ERR game not loaded'))
+          })));
+  }
   WidgetsFlutterBinding.ensureInitialized();
   final personasJson = await rootBundle.loadString('assets/data/personas.json');
   final secretsJson = await rootBundle.loadString('assets/data/secrets.json');
@@ -115,8 +134,15 @@ class _PuebloAppState extends State<PuebloApp> {
       onEndRun: (r, f) => setState(() {
         remembered = r;
         fadedCount = f;
+        engine.disengage(); // close any open InspectCard under the dawn card
       }),
     );
+    // DRIVER 'shot' command → capture the RepaintBoundary, return the path.
+    PuebloGame.shotHook = () async {
+      await _dumpFrame();
+      final dir = await getApplicationDocumentsDirectory();
+      return '${dir.path}/pueblo_frame.png';
+    };
     // SHOT=<sec> → first capture delay. SHOTN=<n> frames, SHOTEACH=<ms>
     // spacing (default 1000). Files: pueblo_frame.png, pueblo_frame_1.png…
     const shotSec = int.fromEnvironment('SHOT');
