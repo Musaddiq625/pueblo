@@ -164,6 +164,9 @@ class MockLLMClient implements LLMClient {
     'another night, another walk.',
     'the marigolds smell like home.',
     'quiet tonight, compadre.',
+    'someone left pan de muerto at the ofrenda.',
+    'the fountain remembers every coin, you know.',
+    'i keep meaning to visit the old ceiba.',
   ];
 
   @override
@@ -199,6 +202,8 @@ class MockLLMClient implements LLMClient {
         'the dead talk slower than the living think.',
         'i saw the strangest thing near the fountain.',
         'keep your candle lit, friend.',
+        'the market was busier when i was alive.',
+        'someone on grave lane hums an old song.',
       ]),
       sharesSecret: share,
       end: end,
