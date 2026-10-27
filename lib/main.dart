@@ -1,17 +1,23 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:path_provider/path_provider.dart';
 
 import 'game/pueblo_game.dart';
 import 'game/world_def.dart';
 import 'sim/bootstrap.dart';
 import 'sim/engine.dart';
+import 'sim/gemma_client.dart';
 import 'sim/llm.dart';
 import 'sim/models.dart';
 import 'ui/inspect_card.dart';
+import 'ui/model_gate.dart';
 import 'ui/shop_sheet.dart';
 
 Future<void> main() async {
@@ -26,6 +32,32 @@ Future<void> main() async {
   final timeScale = double.tryParse(timeScaleStr) ?? 1.0;
   const llmName = String.fromEnvironment('LLM', defaultValue: 'mock');
   const demo = bool.fromEnvironment('DEMO', defaultValue: false);
+
+  // LLM=gemma → on-device path: model gate first, then GemmaLocalClient.
+  if (llmName == 'gemma') {
+    runApp(MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData.dark(),
+      home: ModelGate(onReady: () async {
+        final bundle = await bootstrap(
+          personasJson: personasJson,
+          secretsJson: secretsJson,
+          pois: poiDefs,
+          waypointsIdx: waypoints,
+          waypointPos: waypointPos,
+          homePos: homePositions({for (final p in poiDefs) p.id: p}),
+          llm: GemmaLocalClient(rng: Random(seed)),
+          rng: Random(seed),
+          timeScale: demo ? 6.0 : timeScale,
+          dawnAt: demo ? 600 : 900,
+          dbPath: 'pueblo_sim.db',
+        );
+        PuebloGame.personaSprite = bundle.sprites;
+        runApp(PuebloApp(bundle: bundle));
+      }),
+    ));
+    return;
+  }
 
   final LLMClient llm = llmName == 'mock'
       ? MockLLMClient(seed: seed)
@@ -60,6 +92,7 @@ class PuebloApp extends StatefulWidget {
 
 class _PuebloAppState extends State<PuebloApp> {
   late final PuebloGame game;
+  final _rb = GlobalKey();
   String? inspecting;
   bool inspectIsDeep = false;
   Poi? shoppingAt;
@@ -82,6 +115,24 @@ class _PuebloAppState extends State<PuebloApp> {
         fadedCount = f;
       }),
     );
+    // SHOT=<seconds> → dev tool: rasterize the frame to a PNG after settling.
+    const shotSec = int.fromEnvironment('SHOT');
+    if (shotSec > 0) {
+      Timer(Duration(seconds: shotSec), _dumpFrame);
+    }
+  }
+
+  Future<void> _dumpFrame() async {
+    final boundary =
+        _rb.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) return;
+    final img = await boundary.toImage(pixelRatio: 2.0);
+    final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+    if (bytes == null) return;
+    final dir = await getApplicationDocumentsDirectory();
+    final f = File('${dir.path}/pueblo_frame.png');
+    await f.writeAsBytes(bytes.buffer.asUint8List());
+    debugPrint('SHOT saved: ${f.path}');
   }
 
   void _engage(Agent a) {
@@ -119,9 +170,17 @@ class _PuebloAppState extends State<PuebloApp> {
       theme: ThemeData.dark(),
       home: Scaffold(
         backgroundColor: const Color(0xFF120E20),
-        body: Stack(
-          children: [
-            GameWidget(game: game),
+        body: RepaintBoundary(
+          key: _rb,
+          child: Stack(
+            children: [
+            // Trackpad pinch → PointerPanZoom events (Flame lacks a
+            // PanZoomDetector) — forward scale + pan to the camera.
+            Listener(
+              onPointerPanZoomUpdate: (e) =>
+                  game.trackpadPinch(e.scale, e.panDelta),
+              child: GameWidget(game: game),
+            ),
 
             // HUD: petals + dawn + model badge
             Positioned(
@@ -200,6 +259,7 @@ class _PuebloAppState extends State<PuebloApp> {
                 ),
               ),
           ],
+        ),
         ),
       ),
     );
