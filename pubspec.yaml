@@ -71,6 +71,8 @@ flutter:
     - assets/sprites/chars/
     - assets/sprites/objects/
     - assets/sprites/town/
+    - assets/sprites/village/ninja_adventure/
+    - assets/sprites/village/tiny_town/Tiles/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
