@@ -368,3 +368,43 @@ class PapelPicadoComponent extends PositionComponent {
     }
   }
 }
+
+/// Chispa — the alebrije guide. A tiny ember that floats near the player.
+/// Zero inference: it only shows canned tutorial lines fed by the game.
+class ChispaComponent extends PositionComponent {
+  ChispaComponent({required this.follow})
+      : super(size: Vector2(14, 14), anchor: Anchor.center);
+
+  final PositionComponent follow;
+  double _t = 0;
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _t += dt;
+    // hover slightly above-right of the player with a gentle bob
+    position = follow.position + Vector2(26, -30 + 4 * sin(_t * 3));
+  }
+
+  @override
+  void render(Canvas canvas) {
+    final flicker = 0.75 + 0.25 * sin(_t * 9);
+    canvas.drawCircle(
+        Offset(size.x / 2, size.y / 2), size.x / 2,
+        Paint()
+          ..color = const Color(0xFF7BE0C3).withValues(alpha: flicker)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
+    canvas.drawCircle(
+        Offset(size.x / 2, size.y / 2), size.x / 4,
+        Paint()..color = const Color(0xFFE8FFF6).withValues(alpha: flicker));
+  }
+
+  /// Canned tutorial line in a bubble over Chispa.
+  void say(String line) {
+    for (final b in children.whereType<BubbleComponent>()) {
+      b.removeFromParent();
+    }
+    add(BubbleComponent(line, size: Vector2(210, 44))
+      ..position = Vector2(-size.x - 190, -34));
+  }
+}

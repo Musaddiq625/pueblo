@@ -25,7 +25,9 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
 
   final Map<String, SpiritComponent> spirits = {};
   PlayerComponent? player;
+  ChispaComponent? chispa;
   bool sheetOpen = false;
+  final Set<String> _chispaSeen = {};
 
   PuebloGame({
     required this.engine,
@@ -68,6 +70,11 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       spirits[agent.id] = comp;
       await world.add(comp);
     }
+
+    // ---- chispa guide ----
+    chispa = ChispaComponent(follow: player!);
+    await world.add(chispa!);
+    _chispa('¡Ay — a living one! Spirits fade when forgotten. Talk to them, mijo.');
 
     // ---- camera ----
     camera.viewfinder.zoom = 1.15;
@@ -231,9 +238,21 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         if (c == null) return;
         if (e.data.containsKey('engaged')) {
           c.setEngaged(e.data['engaged'] as bool);
-          if (e.data['engaged'] as bool) c.faceToward(player!.position.x);
+          if (e.data['engaged'] as bool) {
+            c.faceToward(player!.position.x);
+            _chispa(
+                'That\'s ${a.name}. They\'ll stay as long as you listen.',
+                key: 'first_engage');
+          }
         }
-        if (e.data.containsKey('faded')) c.setFaded(e.data['faded'] as bool);
+        if (e.data.containsKey('faded')) {
+          c.setFaded(e.data['faded'] as bool);
+          if (e.data['faded'] as bool) {
+            _chispa(
+                '${a.name} is fading — forgotten things go translucent. Say their name.',
+                key: 'first_fade');
+          }
+        }
       case SimEventType.pairStart:
         for (final id in [e.data['a'], e.data['b']]) {
           spirits[id]?.walking = false;
@@ -247,11 +266,24 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         }
       case SimEventType.petalSpawn:
         _spawnPetal();
+      case SimEventType.log:
+        final t = e.data['text'] as String;
+        if (t.startsWith('bought')) _chispa('A gift goes further than a question, mijo.');
+        if (t.contains('solidifies')) {
+          _chispa('Look — the town remembered. That\'s resurrection.');
+        }
       case SimEventType.endRun:
         onEndRun(e.data['remembered'], e.data['faded']);
       default:
         break;
     }
+  }
+
+  /// Chispa speaks — each trigger fires once per run (canned, zero inference).
+  void _chispa(String line, {String? key}) {
+    final k = key ?? line;
+    if (!_chispaSeen.add(k)) return;
+    chispa?.say(line);
   }
 
   void _bubble(String agentId, String line) {
