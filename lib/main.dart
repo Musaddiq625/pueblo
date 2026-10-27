@@ -83,30 +83,37 @@ Future<void> main() async {
       ? MockLLMClient(seed: seed)
       : OllamaClient(model: llmName);
 
-  final bundle = await bootstrap(
-    personasJson: personasJson,
-    secretsJson: secretsJson,
-    pois: poiDefs,
-    waypointsIdx: waypoints,
-    waypointPos: waypointPos,
-    homePos: homePositions({for (final p in poiDefs) p.id: p}),
-    llm: llm,
-    rng: Random(seed),
-    timeScale: demo ? 6.0 : timeScale,
-    dawnAt: demo ? 600 : 900,
-    freshDb: true,
-    dbPath: 'pueblo_sim.db',
-  );
+  Future<SimBundle> mkBundle() => bootstrap(
+        personasJson: personasJson,
+        secretsJson: secretsJson,
+        pois: poiDefs,
+        waypointsIdx: waypoints,
+        waypointPos: waypointPos,
+        homePos: homePositions({for (final p in poiDefs) p.id: p}),
+        llm: llm,
+        rng: Random(seed),
+        timeScale: demo ? 6.0 : timeScale,
+        dawnAt: demo ? 600 : 900,
+        freshDb: true,
+        dbPath: 'pueblo_sim.db',
+      );
 
-  PuebloGame.personaSprite = bundle.sprites;
-  PuebloGame.personaTint = bundle.tints;
+  Future<void> launch() async {
+    final bundle = await mkBundle();
+    PuebloGame.personaSprite = bundle.sprites;
+    PuebloGame.personaTint = bundle.tints;
+    runApp(PuebloApp(bundle: bundle, onNewNight: launch));
+  }
 
-  runApp(PuebloApp(bundle: bundle));
+  await launch();
 }
 
 class PuebloApp extends StatefulWidget {
   final SimBundle bundle;
-  const PuebloApp({super.key, required this.bundle});
+
+  /// Dawn card → rebuild the whole sim + app for another night.
+  final Future<void> Function()? onNewNight;
+  const PuebloApp({super.key, required this.bundle, this.onNewNight});
   @override
   State<PuebloApp> createState() => _PuebloAppState();
 }
@@ -274,7 +281,7 @@ class _PuebloAppState extends State<PuebloApp> {
                 ),
               ),
 
-            // End run card
+            // End run card — the night is over; offer a new one.
             if (remembered != null)
               Center(
                 child: Container(
@@ -290,6 +297,24 @@ class _PuebloAppState extends State<PuebloApp> {
                     const SizedBox(height: 10),
                     Text('$remembered spirits remembered · $fadedCount faded',
                         style: const TextStyle(color: Color(0xFFDCD4F0))),
+                    const SizedBox(height: 6),
+                    const Text(
+                        'the town forgot them — names keep the dead alive',
+                        style: TextStyle(
+                            fontSize: 11.5,
+                            fontStyle: FontStyle.italic,
+                            color: Color(0xFF8D84B0))),
+                    const SizedBox(height: 14),
+                    if (widget.onNewNight != null)
+                      FilledButton.icon(
+                        key: const Key('newNightButton'),
+                        icon: const Icon(Icons.bedtime, size: 16),
+                        label: const Text('New night'),
+                        style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFEF8C1A),
+                            foregroundColor: const Color(0xFF1A1430)),
+                        onPressed: () => widget.onNewNight!(),
+                      ),
                   ]),
                 ),
               ),
