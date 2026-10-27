@@ -12,6 +12,7 @@ import 'sim/engine.dart';
 import 'sim/llm.dart';
 import 'sim/models.dart';
 import 'ui/inspect_card.dart';
+import 'ui/shop_sheet.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,6 +62,7 @@ class _PuebloAppState extends State<PuebloApp> {
   late final PuebloGame game;
   String? inspecting;
   bool inspectIsDeep = false;
+  Poi? shoppingAt;
   int petals = 0;
   int? remembered, fadedCount;
 
@@ -93,6 +95,10 @@ class _PuebloAppState extends State<PuebloApp> {
   }
 
   void _inspect(Poi p) {
+    if (p.isStall) {
+      setState(() => shoppingAt = p);
+      return;
+    }
     final text = engine.inspectPoi(p.id);
     setState(() {
       inspectIsDeep = engine.secrets.values
@@ -144,6 +150,21 @@ class _PuebloAppState extends State<PuebloApp> {
                         style: const TextStyle(fontSize: 12.5, height: 1.4,
                             color: Color(0xFFFFF4DC))),
                   ),
+                ),
+              ),
+
+            // ShopSheet — stall taps open the catalog
+            if (shoppingAt != null && engaged == null)
+              Positioned(
+                left: 0, right: 0, bottom: 0,
+                child: ShopSheet(
+                  key: const Key('shopSheet'),
+                  engine: engine,
+                  stallId: shoppingAt!.id,
+                  stallName: shoppingAt!.name,
+                  onClose: () => setState(() => shoppingAt = null),
+                  onChanged: () =>
+                      setState(() => petals = engine.playerPetals),
                 ),
               ),
 

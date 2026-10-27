@@ -54,6 +54,7 @@ class Agent {
   bool engaged = false;
   bool inConvo = false;
   bool faded = false;
+  bool solidified = false; // nameless-grave arc: can't re-fade once true
   String? goal; // e.g. 'askAbout:ancient_tree'
   double lastActedAt = 0;
   int lastTalkedToPlayer = -1; // sim_ts

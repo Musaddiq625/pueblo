@@ -127,6 +127,33 @@ class _InspectCardState extends State<InspectCard> {
             ],
           ),
           const Divider(color: Color(0xFF3A2C50), height: 18),
+          // gifts — owned consumables the player can hand over
+          Builder(builder: (context) {
+            final gifts = widget.engine.playerInventory.entries
+                .where((e) => e.value > 0 &&
+                    SimEngine.shopItems[e.key]?['secret'] == null)
+                .toList();
+            if (gifts.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Wrap(spacing: 6, children: [
+                for (final g in gifts)
+                  ActionChip(
+                    key: Key('gift_${g.key}'),
+                    label: Text(
+                        '${SimEngine.shopItems[g.key]?['name']} ×${g.value}',
+                        style: const TextStyle(fontSize: 11)),
+                    backgroundColor: const Color(0xFF2A2145),
+                    side: const BorderSide(color: Color(0xFF8A6FC0)),
+                    labelStyle: const TextStyle(color: Color(0xFFFFC233)),
+                    onPressed: () async {
+                      await widget.engine.giveGift(a.id, g.key);
+                      if (mounted) setState(() {});
+                    },
+                  ),
+              ]),
+            );
+          }),
           // chat
           SizedBox(
             height: 130,

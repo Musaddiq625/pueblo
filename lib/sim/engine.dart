@@ -71,8 +71,28 @@ class SimEngine {
   int simTs = 0;
   int playerPetals = 0;
   final Set<String> playerKnown = {};
+  final Map<String, int> playerInventory = {}; // itemId -> count
+  final Map<String, int> playerChatCount = {}; // agentId -> msgs (warmth)
   String? engagedId;
   final List<ChatMsg> playerHist = [];
+
+  /// shop catalog — deterministic, zero inference. secret items carry a
+  /// warmth gate (seller must have talked to the player already).
+  static const shopItems = <String, Map<String, Object?>>{
+    'bouquet': {
+      'name': 'Marigold Bouquet', 'price': 15, 'stall': 'flower_stall',
+      'desc': 'A bundle of cempasúchil. Gift it — spirits remember kindness.'
+    },
+    'agua_fresca': {
+      'name': 'Agua Fresca', 'price': 8, 'stall': 'cantina',
+      'desc': 'Sefa\'s brew. Gift it — loosens a spirit\'s tongue.'
+    },
+    'grave_37_name': {
+      'name': 'A Name for Grave 37', 'price': 40, 'stall': 'gravedigger_hut',
+      'secret': 'grave_37_name', 'seller': 'bruno',
+      'desc': 'Bruno sells the name only to someone he has spoken with.'
+    },
+  };
 
   final _events = StreamController<SimEvent>.broadcast();
   Stream<SimEvent> get events => _events.stream;
@@ -241,6 +261,7 @@ class SimEngine {
             source: 'spirit:${speaker.id}',
             text: 'learned: ${secrets[shared]!.shareText}', importance: 8,
             entities: [speaker.id, shared]));
+        _checkSolidify();
       }
     }
     // Batteries: any social contact recharges.
@@ -348,10 +369,11 @@ class SimEngine {
       case 'converse':
       case 'greet':
         final t = agents[d.target];
-        if (t != null && !t.engaged && !t.inConvo && !t.faded) {
-          if (d.action == 'greet') {
-            _say(a, d.line.isEmpty ? 'evening.' : d.line, d.mood);
-            t.battery = min(100, t.battery + 5);
+        if (t != null && !t.engaged && !t.inConvo) {
+          // faded spirits can't be conversed with but CAN be greeted —
+          // exclusion is from initiating, not from being approached.
+          if (d.action == 'greet' || t.faded) {
+            _greet(a, t, d);
           } else {
             startConversation(a.id, t.id);
           }
@@ -409,6 +431,32 @@ class SimEngine {
     }
   }
 
+  /// Greeting — the named greeting is the resurrection mechanic: if the
+  /// greeter knows `grave_37_name` and the target is Solorio, speaking his
+  /// name recharges him hard. Otherwise a normal small recharge.
+  void _greet(Agent a, Agent t, Decision d) {
+    final knowsName = t.id == 'solorio' &&
+        a.knownSecrets.contains('grave_37_name');
+    if (knowsName) {
+      _say(a, '¡Solorio! Still with us, compadre.', 'warm');
+      t.battery = min(100, t.battery + 25);
+      unawaited(store.memory(Memory(
+          agent: t.id, simTs: simTs, kind: 'heard', source: 'spirit:${a.id}',
+          text: '${a.name} spoke his name: Solorio', importance: 9,
+          entities: [a.id, 'grave_37_name'])));
+      _emit(t, SimEventType.emote, {'agent': t.id, 'glyph': '✨'});
+    } else {
+      _say(a, d.line.isEmpty ? 'evening.' : d.line, d.mood);
+      t.battery = min(100, t.battery + 5);
+    }
+    if (t.faded && t.battery > 8) {
+      t.faded = false;
+      t.bumpVersion();
+      _events.add(SimEvent(
+          SimEventType.state, {'agent': t.id, 'faded': false}));
+    }
+  }
+
   void _fallbackStroll(Agent a) {
     // Nearest waypoint → random neighbor.
     var best = 0;
@@ -456,8 +504,9 @@ class SimEngine {
     for (final a in agents.values) {
       if (a.engaged) continue; // player's attention recharges, doesn't drain
       a.battery = max(0, a.battery - 0.6);
+      if (a.solidified) a.battery = max(a.battery, 20);
       final wasFaded = a.faded;
-      a.faded = a.battery <= 8;
+      a.faded = !a.solidified && a.battery <= 8;
       if (a.faded != wasFaded) {
         a.bumpVersion();
         _events.add(SimEvent(SimEventType.state,
@@ -509,6 +558,28 @@ class SimEngine {
     final a = agents[engagedId];
     if (a == null) return;
     playerHist.add(ChatMsg(true, text));
+    playerChatCount[a.id] = (playerChatCount[a.id] ?? 0) + 1;
+    // Player teaching a name: if the player knows `grave_37_name` and speaks
+    // "solorio", the engaged spirit learns it. Saying it TO Solorio revives.
+    if (playerKnown.contains('grave_37_name') &&
+        text.toLowerCase().contains('solorio')) {
+      if (a.id == 'solorio') {
+        a.battery = min(100, a.battery + 40);
+        if (a.faded && a.battery > 8) {
+          a.faded = false;
+          a.bumpVersion();
+          _events.add(SimEvent(
+              SimEventType.state, {'agent': a.id, 'faded': false}));
+        }
+      } else if (a.knownSecrets.add('grave_37_name')) {
+        final eid = await store.logEvent(simTs, 'utterance',
+            {'speaker': 'player', 'listeners': [a.id], 'line': text, 'secret': 'grave_37_name'});
+        unawaited(store.transferKnowledge(
+            a.id, 'grave_37_name', 'player', simTs, eid));
+        a.bumpVersion();
+        _checkSolidify();
+      }
+    }
     final memories = await store.recall(a, simTs,
         contextEntities: {'player'});
     final prompt = prompts.playerChatPrompt(a,
@@ -549,6 +620,93 @@ class SimEngine {
     if (playerKnown.add(secretId)) {
       unawaited(store.logEvent(
           simTs, 'transfer', {'to': 'player', 'secret': secretId, 'via': via}));
+    }
+  }
+
+  // ============================ shop / gifts ===============================
+
+  /// Items a stall offers the player. `grave_37_name` is warmth-gated:
+  /// Bruno must have spoken with the player at least once.
+  List<Map<String, Object?>> stallItems(String stallId) {
+    return shopItems.entries
+        .where((e) => e.value['stall'] == stallId)
+        .map((e) => {
+              'id': e.key,
+              'name': e.value['name'],
+              'price': e.value['price'],
+              'desc': e.value['desc'],
+              'locked': e.value['seller'] != null &&
+                  (playerChatCount[e.value['seller']] ?? 0) == 0,
+              'secret': e.value['secret'],
+            })
+        .toList();
+  }
+
+  /// Atomic purchase via store.transaction. Returns true on commit.
+  Future<bool> buyItem(String itemId) async {
+    final item = shopItems[itemId];
+    if (item == null) return false;
+    if (item['seller'] != null &&
+        (playerChatCount[item['seller']] ?? 0) == 0) {
+      return false; // warmth gate — seller doesn't trust the player yet
+    }
+    final ok = await store.purchase('player', itemId,
+        item['price'] as int, simTs,
+        secretId: item['secret'] as String?, secretFrom: 'purchase');
+    if (ok) {
+      playerPetals -= item['price'] as int;
+      playerInventory[itemId] = (playerInventory[itemId] ?? 0) + 1;
+      final s = item['secret'] as String?;
+      if (s != null) learnSecretAsPlayer(s, 'purchase');
+      _events.add(SimEvent(SimEventType.log,
+          {'text': 'bought ${item['name']} for ${item['price']} petals'}));
+    }
+    return ok;
+  }
+
+  /// Give an inventory item to the engaged/nearby spirit — battery + warmth.
+  Future<bool> giveGift(String agentId, String itemId) async {
+    if ((playerInventory[itemId] ?? 0) <= 0) return false;
+    final a = agents[agentId];
+    if (a == null) return false;
+    playerInventory[itemId] = playerInventory[itemId]! - 1;
+    final boost = itemId == 'bouquet' ? 25.0 : 12.0;
+    a.battery = min(100, a.battery + boost);
+    if (a.faded && a.battery > 8) {
+      a.faded = false;
+      a.bumpVersion();
+      _events.add(
+          SimEvent(SimEventType.state, {'agent': a.id, 'faded': false}));
+    }
+    _emit(a, SimEventType.emote, {'agent': a.id, 'glyph': '🌼'});
+    await store.logEvent(simTs, 'gift',
+        {'from': 'player', 'to': agentId, 'item': itemId});
+    await store.memory(Memory(
+        agent: a.id, simTs: simTs, kind: 'heard', source: 'player_claim',
+        text: 'the living one gave me ${shopItems[itemId]?['name']}',
+        importance: 7, entities: ['player']));
+    return true;
+  }
+
+  /// Solorio solidifies once 3+ spirits know his name — memory = resurrection.
+  void _checkSolidify() {
+    final solorio = agents['solorio'];
+    if (solorio == null || solorio.solidified) return;
+    final knowers = agents.values
+        .where((a) => a.id != 'solorio' &&
+            a.knownSecrets.contains('grave_37_name'))
+        .length;
+    if (knowers >= 3) {
+      solorio.solidified = true;
+      solorio.faded = false;
+      solorio.battery = max(solorio.battery, 60);
+      solorio.bumpVersion();
+      _events.add(SimEvent(
+          SimEventType.state, {'agent': 'solorio', 'faded': false}));
+      _events.add(SimEvent(SimEventType.log,
+          {'text': 'Solorio solidifies — the town says his name again.'}));
+      unawaited(store.logEvent(
+          simTs, 'solidify', {'agent': 'solorio', 'knowers': knowers}));
     }
   }
 
