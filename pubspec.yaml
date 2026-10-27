@@ -53,6 +53,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   sqflite_common_ffi: ^2.4.5
+  image: ^4.5.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -69,6 +70,7 @@ flutter:
   assets:
     - assets/data/
     - assets/sprites/chars/
+    - assets/sprites/chars_norm/
     - assets/sprites/objects/
     - assets/sprites/town/
     - assets/sprites/village/ninja_adventure/
