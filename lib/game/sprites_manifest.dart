@@ -55,7 +55,7 @@ const chars = <String, CharDef>{
 
 const objects = <String, SheetDef>{
   'ancient_tree': SheetDef('objects/ancient_tree.png', 1, 448, 368),
-  'alchemy_table': SheetDef('objects/alchemy_table.png', 11, 192, 64, stepTime: 0.15),
+  'alchemy_table': SheetDef('objects/alchemy_table.png', 66, 32, 64, stepTime: 0.15),
   'bonfire': SheetDef('objects/bonfire.png', 6, 64, 64, stepTime: 0.18),
   'fire': SheetDef('objects/fire_01.png', 4, 32, 48, stepTime: 0.12),
   'smoke': SheetDef('objects/smoke.png', 4, 32, 48, stepTime: 0.25),

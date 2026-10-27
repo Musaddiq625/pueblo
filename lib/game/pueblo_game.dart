@@ -44,7 +44,9 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     images.prefix = 'assets/sprites/';
 
     // ---- world ----
-    await world.add(GroundComponent(size: Vector2(mapW, mapH)));
+    final floors = await images.load('town/floors.png');
+    await world.add(
+        GroundComponent(size: Vector2(mapW, mapH), floors: floors));
     await world.add(PetalDriftComponent(Vector2(mapW, mapH)));
 
     // papel picado strings across plaza + market
@@ -123,6 +125,17 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
 
   Future<SpriteAnimation> _anim(SheetDef s) async {
     final img = await images.load(s.path);
+    // Vertical sheets (frameW == img.width, frames > 1) are sliced manually —
+    // sequenced+amountPerRow mis-slices them into a horizontal filmstrip.
+    if (s.frames > 1 && s.frameW >= img.width) {
+      final sprites = List.generate(
+          s.frames,
+          (i) => Sprite(img,
+              srcPosition: Vector2(0, i * s.frameH),
+              srcSize: Vector2(s.frameW, s.frameH)));
+      return SpriteAnimation.spriteList(sprites,
+          stepTime: s.stepTime, loop: true);
+    }
     return SpriteAnimation.fromFrameData(
       img,
       SpriteAnimationData.sequenced(
@@ -141,14 +154,18 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     PositionComponent? visual;
     switch (p.id) {
       case 'ancient_tree':
+        // variant sheet: 4 cols × variants — the bare dead tree (col 2, row 0)
+        // is the spirit-world ceiba. Crop just that frame, not the sheet.
         final img = await images.load(objects['ancient_tree']!.path);
         visual = SpriteComponent(
-            sprite: Sprite(img), size: Vector2(190, 156),
-            anchor: Anchor.bottomCenter, position: Vector2(0, 8));
+            sprite: Sprite(img,
+                srcPosition: Vector2(224, 0), srcSize: Vector2(112, 160)),
+            size: Vector2(140, 200),
+            anchor: Anchor.bottomCenter, position: Vector2(0, 14));
       case 'curiosity_shop':
         visual = SpriteAnimationComponent(
             animation: await _anim(objects['alchemy_table']!),
-            size: Vector2(110, 40), anchor: Anchor.bottomCenter,
+            size: Vector2(40, 80), anchor: Anchor.bottomCenter,
             position: Vector2(0, 8));
       case 'ofrenda':
         visual = SpriteAnimationComponent(
@@ -177,6 +194,17 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       final zoom = camera.viewfinder.zoom;
       camera.moveBy((info.delta.global..negate()) / zoom);
     }
+  }
+
+  // Trackpad pinch arrives as PointerPanZoom events at the widget layer —
+  // Flame 1.38 has no PanZoomDetector, so main.dart's Listener forwards here.
+  void trackpadPinch(double scale, Offset panDelta) {
+    if (scale != 1.0) {
+      camera.viewfinder.zoom =
+          (camera.viewfinder.zoom * scale).clamp(0.8, 2.5);
+    }
+    final d = Vector2(panDelta.dx, panDelta.dy);
+    if (d.length2 > 0) camera.moveBy(-d / camera.viewfinder.zoom);
   }
 
   @override
@@ -325,20 +353,35 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   }
 }
 
-/// Simple colored marker for POIs without custom art yet.
+/// A small shrine-stone marker + name label for POIs without custom art.
 class _PoiMarker extends PositionComponent {
-  _PoiMarker(Poi p) : super(size: Vector2(56, 34), anchor: Anchor.bottomCenter);
+  _PoiMarker(this._p)
+      : super(size: Vector2(48, 40), anchor: Anchor.bottomCenter);
+  final Poi _p;
 
   @override
   void render(Canvas canvas) {
+    // stone — rounded upright slab
+    final slab = RRect.fromRectAndRadius(
+        Rect.fromLTWH(14, 2, 20, 34), const Radius.circular(8));
+    canvas.drawRRect(slab, Paint()..color = const Color(0xFF2E2450));
     canvas.drawRRect(
-        RRect.fromRectAndRadius(size.toRect(), const Radius.circular(6)),
-        Paint()..color = const Color(0xFF3A2C50));
-    canvas.drawRRect(
-        RRect.fromRectAndRadius(size.toRect(), const Radius.circular(6)),
+        slab,
         Paint()
-          ..color = const Color(0xFF8A6FC0)
+          ..color = const Color(0xFF6A5A98)
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5);
+          ..strokeWidth = 1.2);
+    // candle glow dot
+    canvas.drawCircle(
+        Offset(24, 12), 3.5, Paint()..color = const Color(0xFFFFC233));
+    // name label below the stone
+    final tp = TextPainter(
+      text: TextSpan(
+          text: _p.name.toLowerCase(),
+          style: const TextStyle(
+              fontSize: 9, color: Color(0xCCBDB4E0), fontFamily: 'monospace')),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset((size.x - tp.width) / 2, size.y - 6));
   }
 }

@@ -4,6 +4,7 @@ library;
 
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui' show Image;
 
 import 'package:flame/components.dart';
 import 'package:flame/events.dart';
@@ -13,29 +14,102 @@ import '../sim/models.dart';
 
 // ---------------------------------------------------------------------------
 
-final _nightPaint = Paint()..color = const Color(0xFF1A1430);
-final _plazaPaint = Paint()..color = const Color(0xFF241B3E);
-final _pathPaint = Paint()..color = const Color(0xFF3A2C50);
+final _nightPaint = Paint()..color = const Color(0xFF14101F);
 
-/// Painted ground — night bands + plaza circle + rough path blobs.
+/// Solid tile regions inside floors.png (verified by crop-inspection).
+const _brickRect = Rect.fromLTWH(245, 50, 32, 32); // gray cobblestone
+const _tileSize = 44.0;
+
+/// Tiled ground — the floors.png cobble tile tinted to night shades.
+/// Base = darkest tint; waypoint edges and plaza get lighter tints so the
+/// walkable network reads as streets under the sprites' feet.
 class GroundComponent extends PositionComponent {
-  GroundComponent({required Vector2 size})
+  GroundComponent({required Vector2 size, required this.floors})
       : super(size: size, position: Vector2.zero(), priority: -10000);
+
+  final Image floors;
+
+  static const _tintGround = Color(0xFF35294E);
+  static const _tintPath = Color(0xFF584A78);
+  static const _tintPlaza = Color(0xFF483A66);
+
+  /// Waypoint graph edges to paint as streets — mirrors world_def.
+  static const _nodePos = <List<double>>[
+    [700, 90], [700, 220], [700, 330], [520, 330], [420, 330],
+    [880, 330], [1030, 350], [820, 450], [1120, 450], [1120, 560],
+    [1230, 660], [700, 560], [700, 700], [420, 560],
+  ];
+  static const _edges = <List<int>>[
+    [0, 1], [1, 2], [2, 3], [3, 4], [2, 5], [5, 6], [2, 7], [5, 7],
+    [7, 8], [6, 8], [8, 9], [9, 10], [2, 11], [7, 11], [11, 12],
+    [11, 13], [3, 13],
+  ];
+
+  void _tileRect(Canvas c, Rect r, Color tint) {
+    final paint = Paint()
+      ..colorFilter = ColorFilter.mode(tint, BlendMode.modulate);
+    for (var y = r.top; y < r.bottom; y += _tileSize) {
+      for (var x = r.left; x < r.right; x += _tileSize) {
+        c.drawImageRect(floors, _brickRect, Rect.fromLTWH(x, y, _tileSize, _tileSize), paint);
+      }
+    }
+  }
+
+  void _tileCircle(Canvas c, Offset center, double radius, Color tint) {
+    final paint = Paint()
+      ..colorFilter = ColorFilter.mode(tint, BlendMode.modulate);
+    final step = _tileSize;
+    for (var y = center.dy - radius; y < center.dy + radius; y += step) {
+      for (var x = center.dx - radius; x < center.dx + radius; x += step) {
+        final cx = x + step / 2, cy = y + step / 2;
+        if ((cx - center.dx) * (cx - center.dx) +
+                (cy - center.dy) * (cy - center.dy) <=
+            radius * radius) {
+          c.drawImageRect(floors, _brickRect,
+              Rect.fromLTWH(x, y, step, step), paint);
+        }
+      }
+    }
+  }
+
+  /// Paint a street: tiles along the segment between two waypoints,
+  /// half-tile overlap both directions so corners don't show seams.
+  void _tilePath(Canvas c, Offset a, Offset b, Color tint) {
+    final paint = Paint()
+      ..colorFilter = ColorFilter.mode(tint, BlendMode.modulate);
+    final dir = b - a;
+    final len = dir.distance;
+    final n = dir / len;
+    final w = 44.0; // street width in world units
+    for (var d = 0.0; d < len; d += _tileSize / 2) {
+      final p = a + n * d;
+      // two tiles across the path width
+      for (final off in const [-0.5, 0.5]) {
+        final q = p + Offset(-n.dy, n.dx) * (off * w);
+        c.drawImageRect(
+            floors,
+            _brickRect,
+            Rect.fromCenter(
+                center: q, width: _tileSize, height: _tileSize),
+            paint);
+      }
+    }
+  }
 
   @override
   void render(Canvas canvas) {
     canvas.drawRect(size.toRect(), _nightPaint);
-    // plaza
-    canvas.drawCircle(Offset(700, 330), 150, _plazaPaint);
-    // crude path blobs along waypoint links
-    for (final p in const [
-      Offset(700, 160), Offset(620, 330), Offset(800, 330),
-      Offset(960, 360), Offset(820, 420), Offset(1050, 480),
-      Offset(1150, 560), Offset(700, 480), Offset(700, 640),
-      Offset(500, 470),
-    ]) {
-      canvas.drawCircle(p, 60, _pathPaint);
+    // base: whole map tiled in the darkest night-cobble tint
+    _tileRect(canvas, size.toRect(), _tintGround);
+    // streets along waypoint edges
+    for (final e in _edges) {
+      _tilePath(canvas, Offset(_nodePos[e[0]][0], _nodePos[e[0]][1]),
+          Offset(_nodePos[e[1]][0], _nodePos[e[1]][1]), _tintPath);
     }
+    // plaza — big lighter cobble disc
+    _tileCircle(canvas, const Offset(700, 330), 170, _tintPlaza);
+    // ofrenda landing
+    _tileCircle(canvas, const Offset(700, 700), 90, _tintPlaza);
   }
 }
 
@@ -253,8 +327,9 @@ class BubbleComponent extends PositionComponent {
   void render(Canvas canvas) {
     final style = TextStyle(
       color: const Color(0xFFFFF4DC),
-      fontSize: isEmote ? 26 : 12.5,
-      fontFamily: 'monospace',
+      fontSize: isEmote ? 22 : 12.5,
+      // default font for emotes — monospace lacks emoji glyphs (blank box)
+      fontFamily: isEmote ? null : 'monospace',
       height: 1.25,
     );
     final tp = TextPainter(
