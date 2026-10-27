@@ -135,6 +135,19 @@ const villageProps = <Prop>[
   Prop('boulder', 29, 13), Prop('pot', 30, 12),
   Prop('log', 5, 18), Prop('mushroom', 8, 20), Prop('boulder', 10, 23),
   Prop('bone', 29, 17), Prop('boulder', 33, 21),
+
+  // ---- west marigold field — where Luz's flowers come from ----
+  // non-blocking scatter: spirits drift through the rows like ghosts do
+  Prop('marigold', 3, 12), Prop('marigold', 4, 12), Prop('marigold', 5, 12),
+  Prop('marigold', 6, 12), Prop('marigold', 7, 12),
+  Prop('marigold', 3, 14), Prop('marigold', 4, 14), Prop('marigold', 5, 14),
+  Prop('marigold', 6, 14), Prop('marigold', 7, 14),
+  Prop('marigold', 3, 16), Prop('marigold', 4, 16), Prop('marigold', 5, 16),
+  Prop('marigold', 6, 16), Prop('marigold', 7, 16),
+  Prop('marigold', 3, 18), Prop('marigold', 4, 18), Prop('marigold', 5, 18),
+  Prop('marigold', 6, 18), Prop('marigold', 7, 18),
+  Prop('hay', 2, 13), Prop('hay', 8, 19), Prop('hay', 9, 15),
+  Prop('boulder', 2, 20), Prop('log', 8, 21), Prop('autumn', 11, 20),
 ];
 
 /// Activity slots — standable tiles in front of POIs, with facing.
@@ -201,7 +214,7 @@ const poiTiles = <String, (int, int)>{
   'grave_37': (39, 17),
   'ancient_tree': (39, 22),
   'ofrenda': (22, 22),
-  'plaza': (22, 12),
+  'plaza': (22, 15),
 };
 
 double tileX(int tx) => tx * kTile + kTile / 2;

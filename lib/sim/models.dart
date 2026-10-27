@@ -58,6 +58,8 @@ class Agent {
   int stateVersion = 0;
   bool engaged = false;
   bool inConvo = false;
+  String? heldBy; // spirit approaching to talk — stand still till they arrive
+  double heldUntil = -1; // sim_ts — holds expire so nobody freezes forever
   bool faded = false;
   bool solidified = false; // nameless-grave arc: can't re-fade once true
   String? goal; // e.g. 'askAbout:ancient_tree'

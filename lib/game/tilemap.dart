@@ -10,7 +10,7 @@ import 'dart:ui' as ui;
 import 'package:flame/cache.dart';
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart'
-    show Canvas, Color, Offset, Paint, Rect, RRect, Radius;
+    show BlendMode, Canvas, Color, Offset, Paint, Rect, RRect, Radius;
 
 import 'tile_index.dart';
 import '../sim/world_map.dart';
@@ -39,6 +39,7 @@ class TileAssets {
     ...Tt.winTan, ...Tt.doorTan, ...Tt.winGray, ...Tt.doorGray,
     Tt.archDark, Tt.urnPot, Tt.signRed,
     ...Tt.stoneWall, Tt.boulder, ...Tt.logs, Tt.potTerra,
+    ...Tt.fencePicket, Tt.crate,
     ...Tt.stoneArchBarred, Tt.pickaxe, Tt.pitchfork,
     Tt.keyItem, Tt.bowItem, Tt.bone,
     ...Tt.stonePath, ...Tt.stoneBlocks, Tt.winStone,
@@ -327,6 +328,48 @@ class RiverComponent extends PositionComponent {
   }
 }
 
+/// Candle glow — a row of additive warm halos that breathe/flicker.
+/// Screen blend brightens whatever's beneath; spirits passing through
+/// catch the light instead of being hidden by it.
+class CandleFlickerComponent extends PositionComponent {
+  final int count;
+  double _t = 0;
+  CandleFlickerComponent(Vector2 pos, {this.count = 5})
+    : super(position: pos, priority: 2000000);
+
+  @override
+  void update(double dt) {
+    _t += dt;
+  }
+
+  @override
+  void render(Canvas canvas) {
+    for (var i = 0; i < count; i++) {
+      final x = i * 46.0 + (i.isOdd ? 8 : 0);
+      final flick = 1 + 0.35 * sin(_t * 7 + i * 2.1) +
+          0.15 * sin(_t * 13 + i * 4.7);
+      canvas.drawCircle(
+        Offset(x, 0),
+        14 * flick,
+        Paint()
+          ..color = const Color(0x44ffb45e)
+          ..blendMode = BlendMode.plus,
+      );
+      canvas.drawCircle(
+        Offset(x, 0),
+        4.5,
+        Paint()..color = const Color(0xFFffd98a),
+      );
+      // tiny flame tip
+      canvas.drawCircle(
+        Offset(x, -6 - 2 * sin(_t * 9 + i)),
+        2,
+        Paint()..color = const Color(0xFFffe9b0),
+      );
+    }
+  }
+}
+
 // ---------- props ----------
 
 /// A prop component: paints [paint] inside its own bounds; [priority] is
@@ -448,9 +491,18 @@ List<PropComponent> buildProps(TileAssets a) {
         comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[Tt.potTerra], 0, 0));
       case 'barrel':
       case 'log':
-        comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[101], 0, 0));
+        comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[Tt.crate], 0, 0));
       case 'bone':
         comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[Tt.bone], 0, 0));
+      case 'hay':
+        comp(
+          p.tx,
+          p.ty,
+          1,
+          1,
+          (c, s) =>
+              tile(c, a.tt[Tt.hayPiles[(p.tx + p.ty) % 3]], 0, 0),
+        );
       case 'pickaxe':
         comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[Tt.pickaxe], 0, 0));
       case 'sign':

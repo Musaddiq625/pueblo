@@ -33,6 +33,15 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   final Set<String> _chispaSeen = {};
   List<(int, int)> _walkTiles = [];
 
+  /// Recent spirit speech — (speakerName, line), newest last, capped.
+  /// The Flutter overlay renders this as the town log so dialogue is
+  /// never lost when a bubble is missed.
+  final townLog = ValueNotifier<List<(String, String)>>([]);
+
+  /// Lines that arrived while the spirit was mid-stride — delivered
+  /// once they stop walking (speech never drops silently).
+  final _speechQueue = <String, List<String>>{};
+
   PuebloGame({
     required this.engine,
     required this.onEngage,
@@ -43,10 +52,22 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
 
   double _startZoom = 1;
 
+  bool worldLoaded = false;
+
   @override
   Future<void> onLoad() async {
     activeGame = this;
     images.prefix = 'assets/sprites/';
+    try {
+      await _loadAll();
+      worldLoaded = true;
+    } catch (e, st) {
+      debugPrint('PUEBLO onLoad FAILED: $e\n$st');
+      rethrow;
+    }
+  }
+
+  Future<void> _loadAll() async {
 
     // ---- world (authored tilemap) ----
     final tileAssets = await TileAssets.load(images);
@@ -59,6 +80,11 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       ),
     );
     await world.add(RiverComponent());
+    // candles breathing on the great ofrenda + the nameless grave
+    await world.add(CandleFlickerComponent(Vector2(tileX(20), tileY(22))));
+    await world.add(
+      CandleFlickerComponent(Vector2(tileX(40), tileY(19)), count: 2),
+    );
     for (final p in buildProps(tileAssets)) {
       await world.add(p);
     }
@@ -162,7 +188,9 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       walk: walk,
       death: death,
       displaySize: Vector2(def.displayW, def.displayH),
-      displayName: a.name,
+      // short name under the feet — "Ramón el Trovador" reads as "Ramón"
+      // in-world; the full name lives in the inspect card + town log
+      displayName: a.name.split(' ').first,
       auraColor: personaTint[a.id] != null ? Color(personaTint[a.id]!) : null,
     );
     if (a.faded) c.setFaded(true);
@@ -261,6 +289,12 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     switch (parts.first) {
       case 'state':
         return jsonEncode(driverState());
+      case 'world':
+        final lc = WidgetsBinding.instance.lifecycleState;
+        return 'loaded=$worldLoaded children=${world.children.length} '
+            'mounts=${world.children.where((c) => c.isMounted).length} '
+            'spirits=${spirits.length} player=${player != null} '
+            'paused=$paused lifecycle=$lc ticks=$_tickCount';
       case 'tap_spirit':
         final id = _agentIdFor(arg);
         if (id == null) return 'ERR no spirit "$arg"';
@@ -435,7 +469,25 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
           c.movePath(List<List<double>>.from(e.data['path']));
         }
       case SimEventType.say:
-        _bubble(e.data['agent'], e.data['line']);
+        // town log — every line lands here even if a bubble can't show
+        final id = e.data['agent'] as String;
+        final line = e.data['line'] as String;
+        if (line.isNotEmpty) {
+          final name = engine.agents[id]?.name ?? id;
+          final log = townLog.value;
+          // skip consecutive duplicates — the same line said twice in a
+          // row reads as a bug, not emphasis
+          if (log.isEmpty ||
+              log.last != (name, line)) {
+            townLog.value = [...log, (name, line)]
+                .reversed
+                .take(5)
+                .toList()
+                .reversed
+                .toList();
+          }
+        }
+        _bubble(id, line);
       case SimEventType.emote:
         _emote(e.data['agent'], e.data['glyph']);
       case SimEventType.state:
@@ -505,7 +557,14 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
 
   void _bubble(String agentId, String line) {
     final c = spirits[agentId];
-    if (c == null || line.isEmpty || c.walking) return; // no speech mid-stride
+    if (c == null || line.isEmpty) return;
+    if (c.walking) {
+      // hold the line — delivered in update() when they stop
+      final q = _speechQueue[agentId] ??= [];
+      q.add(line);
+      if (q.length > 2) q.removeAt(0);
+      return;
+    }
     for (final b in c.children.whereType<BubbleComponent>()) {
       b.removeFromParent();
     }
@@ -538,11 +597,27 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     );
   }
 
+  int _tickCount = 0;
+
   @override
   void update(double dt) {
     super.update(dt);
-    engine.tick(dt);
+    _tickCount++;
+    try {
+      engine.tick(dt);
+    } catch (e, st) {
+      debugPrint('PUEBLO tick FAILED: $e\n$st');
+    }
     _clampCamera();
+    // deliver speech held while the spirit was walking
+    for (final id in _speechQueue.keys.toList()) {
+      final c = spirits[id];
+      final q = _speechQueue[id]!;
+      if (c == null || c.walking || q.isEmpty) continue;
+      final line = q.removeAt(0);
+      if (q.isEmpty) _speechQueue.remove(id);
+      _bubble(id, line);
+    }
     // petal pickup on walk-over
     if (player != null) {
       for (final petal in world.children.whereType<PetalComponent>().toList()) {

@@ -154,6 +154,9 @@ class SimEngine {
 
   void tick(double dt) {
     _advanceWalks(dt); // real-time locomotion — matches render lerp speed
+    for (final a in agents.values) {
+      if (a.heldBy != null && simTs >= a.heldUntil) a.heldBy = null;
+    }
     _simAcc += dt * timeScale;
     final whole = _simAcc.floor();
     if (whole > 0) {
@@ -199,7 +202,9 @@ class SimEngine {
         a.inConvo ||
         b.inConvo ||
         a.faded ||
-        b.faded) {
+        b.faded ||
+        a.heldBy != null ||
+        (b.heldBy != null && b.heldBy != aId)) {
       return;
     }
     final convo = Conversation(
@@ -216,9 +221,21 @@ class SimEngine {
     _arrivals.remove(bId);
     _releaseSlot(aId);
     _releaseSlot(bId);
+    a.heldBy = b.heldBy = null;
     a.inConvo = b.inConvo = true;
     a.bumpVersion();
     b.bumpVersion();
+    // face each other
+    _emit(
+      a,
+      SimEventType.state,
+      {'agent': aId, 'fx': (b.x - a.x).sign, 'fy': (b.y - a.y).sign},
+    );
+    _emit(
+      b,
+      SimEventType.state,
+      {'agent': bId, 'fx': (a.x - b.x).sign, 'fy': (a.y - b.y).sign},
+    );
     _events.add(SimEvent(SimEventType.pairStart, {'a': aId, 'b': bId}));
     _requestTurn(convo);
   }
@@ -384,7 +401,9 @@ class SimEngine {
   // ============================ decisions ==================================
 
   void _scheduleDecision() {
-    final free = agents.values.where((a) => !a.engaged && !a.inConvo).toList();
+    final free = agents.values
+        .where((a) => !a.engaged && !a.inConvo && a.heldBy == null)
+        .toList();
     if (free.isEmpty) return;
     free.sort((a, b) => a.lastActedAt.compareTo(b.lastActedAt));
     final agent = free.first;
@@ -481,9 +500,13 @@ class SimEngine {
           // faded spirits can't be conversed with but CAN be greeted —
           // exclusion is from initiating, not from being approached.
           if (d.action == 'greet' || t.faded) {
-            _greet(a, t, d);
+            _approachForConvo(a, t, onNear: (ag, tt) => _greet(ag, tt, d));
           } else {
-            startConversation(a.id, t.id);
+            _approachForConvo(
+              a,
+              t,
+              onNear: (ag, tt) => startConversation(ag.id, tt.id),
+            );
           }
           return;
         }
@@ -492,8 +515,14 @@ class SimEngine {
         final t = agents[d.target];
         final subject = a.goal?.split(':').last ?? d.subject;
         if (t != null && !t.engaged && !t.inConvo && subject != null) {
-          startConversation(a.id, t.id, askedAbout: subject);
-          a.goal = null;
+          _approachForConvo(
+            a,
+            t,
+            onNear: (ag, tt) {
+              startConversation(ag.id, tt.id, askedAbout: subject);
+              ag.goal = null;
+            },
+          );
           return;
         }
         _fallbackStroll(a);
@@ -526,7 +555,11 @@ class SimEngine {
       case 'offerSecret':
         final t = agents[d.target];
         if (t != null && !t.engaged && !t.inConvo) {
-          startConversation(a.id, t.id);
+          _approachForConvo(
+            a,
+            t,
+            onNear: (ag, tt) => startConversation(ag.id, tt.id),
+          );
           return;
         }
         _fallbackStroll(a);
@@ -618,6 +651,85 @@ class SimEngine {
   }
 
   // ============================ locomotion =================================
+
+  /// Renderer-side stop — sim walks and visual lerps are separate; when
+  /// the sim cancels a path the component must be told to stand down.
+  void _stopVisual(Agent a) {
+    _events.add(
+      SimEvent(SimEventType.move, {'agent': a.id, 'path': const []}),
+    );
+  }
+
+  /// Walk to a spirit, then run [onNear]. The target is "held" — stops
+  /// wandering while the initiator approaches (they see it coming) — so
+  /// conversations always happen face to face, never across the plaza.
+  void _approachForConvo(
+    Agent a,
+    Agent t, {
+    required void Function(Agent, Agent) onNear,
+    void Function(Agent)? onFail,
+  }) {
+    void fail() {
+      if (onFail != null) {
+        onFail(a);
+      } else {
+        _fallbackStroll(a);
+      }
+    }
+    if (t.heldBy != null || t.engaged || t.inConvo) {
+      fail();
+      return;
+    }
+    t.heldBy = a.id;
+    t.heldUntil = simTs + 14;
+    _walks.remove(t.id); // pause mid-path — someone is coming to talk
+    _arrivals.remove(t.id);
+    _releaseSlot(t.id);
+    _stopVisual(t);
+
+    // stand on a walkable tile adjacent to the target
+    final tx = (t.x / kTile).floor(), ty = (t.y / kTile).floor();
+    (int, int)? best;
+    var bd = double.infinity;
+    for (final d in const [
+      (0, -1), (0, 1), (-1, 0), (1, 0),
+      (-1, -1), (1, -1), (-1, 1), (1, 1),
+    ]) {
+      final nx = tx + d.$1, ny = ty + d.$2;
+      if (!nav.walkable(nx, ny)) continue;
+      final dd = _dist2(a.x, a.y, tileX(nx), tileY(ny));
+      if (dd < bd) {
+        bd = dd;
+        best = (nx, ny);
+      }
+    }
+    if (best == null) {
+      t.heldBy = null;
+      fail();
+      return;
+    }
+    _routeTo(
+      a,
+      best.$1,
+      best.$2,
+      onArrive: (e, ag) {
+        if (t.heldBy != ag.id || t.engaged || t.inConvo) return;
+        t.heldBy = null;
+        // face each other
+        _emit(ag, SimEventType.state, {
+          'agent': ag.id,
+          'fx': (t.x - ag.x).sign,
+          'fy': (t.y - ag.y).sign,
+        });
+        _emit(t, SimEventType.state, {
+          'agent': t.id,
+          'fx': (ag.x - t.x).sign,
+          'fy': (ag.y - t.y).sign,
+        });
+        onNear(ag, t);
+      },
+    );
+  }
 
   /// Deferred action fired when an agent's path completes at a target.
   void _fallbackStroll(Agent a) {
@@ -762,7 +874,7 @@ class SimEngine {
   /// fountain) so spirits visibly DO things on their own.
   void _ambientWander() {
     for (final a in agents.values) {
-      if (a.engaged || a.inConvo || a.faded) continue;
+      if (a.engaged || a.inConvo || a.faded || a.heldBy != null) continue;
       if (_walks.containsKey(a.id)) continue;
       if (simTs < (_nextWanderAt[a.id] ?? 0)) continue;
       final r = rng.nextDouble();
@@ -857,6 +969,10 @@ class SimEngine {
     _walks.remove(agentId); // freeze mid-path at current position
     _arrivals.remove(agentId);
     _releaseSlot(agentId);
+    a.heldBy = null; // being held no longer applies — the player wins
+    for (final o in agents.values) {
+      if (o.heldBy == agentId) o.heldBy = null; // drop any approach hold
+    }
     a.engaged = true;
     a.bumpVersion();
     a.battery = min(100, a.battery + 15); // attention revives

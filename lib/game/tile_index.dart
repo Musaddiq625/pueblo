@@ -36,9 +36,11 @@ abstract final class Tt {
 
   // stone kit
   static const stoneWall = [96, 97, 98];
-  static const boulder = 100;
-  static const logs = [101, 102];
-  static const potTerra = 103;
+  static const fencePicket = [99, 100];
+  static const crate = 105; // wooden chest — reads as crate/barrel stand-in
+  static const boulder = 103;
+  static const logs = [101, 102]; // furniture pieces — interiors only
+  static const potTerra = 104;
   static const stoneArchBarred = [112, 113]; // crypt gate w/ iron bars
   static const pickaxe = 114;
   static const pitchfork = 115;

@@ -66,7 +66,8 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     _path
       ..clear()
       ..addAll(pts.map((p) => Vector2(p[0], p[1])));
-    if (_path.isNotEmpty) walking = true;
+    walking = _path.isNotEmpty;
+    if (!walking) current = SpiritAnim.idle;
   }
 
   void faceToward(double x) {
