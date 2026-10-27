@@ -117,13 +117,15 @@ class _PuebloAppState extends State<PuebloApp> {
         fadedCount = f;
       }),
     );
-    // SHOT=<seconds> → rasterize a frame after settling; SHOTN=<n> captures
-    // n frames at 1s intervals (pueblo_frame.png, pueblo_frame_1.png, …).
+    // SHOT=<sec> → first capture delay. SHOTN=<n> frames, SHOTEACH=<ms>
+    // spacing (default 1000). Files: pueblo_frame.png, pueblo_frame_1.png…
     const shotSec = int.fromEnvironment('SHOT');
     if (shotSec > 0) {
       const n = int.fromEnvironment('SHOTN', defaultValue: 1);
+      const each = int.fromEnvironment('SHOTEACH', defaultValue: 1000);
       for (var i = 0; i < n; i++) {
-        Timer(Duration(seconds: shotSec + i), () => _dumpFrame(i));
+        Timer(Duration(milliseconds: shotSec * 1000 + i * each),
+            () => _dumpFrame(i));
       }
     }
   }
