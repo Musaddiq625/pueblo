@@ -4,59 +4,115 @@
     "name": "Tía Luz",
     "role": "flower_seller",
     "persona": "Warm, nosy, speaks in proverbs. Misses her kitchen and feeds everyone gossip like tortillas.",
-    "stats": {"curiosity": 4, "wit": 2, "warmth": 5, "spirit_sight": 1, "mischief": 2, "grump": 1},
+    "stats": {
+      "curiosity": 4,
+      "wit": 2,
+      "warmth": 5,
+      "spirit_sight": 1,
+      "mischief": 2,
+      "grump": 1
+    },
     "home": "flower_stall",
-    "sprite": "tavern_b",
-    "initial_secrets": []
+    "sprite": "sk_mage",
+    "initial_secrets": [],
+    "tint": "#F5A95B"
   },
   {
     "id": "bruno",
     "name": "Bruno el Sepulturero",
     "role": "gravedigger",
     "persona": "Gruff, slow to trust, talks to graves more than people. Knows where every story is buried.",
-    "stats": {"curiosity": 2, "wit": 4, "warmth": 1, "spirit_sight": 3, "mischief": 1, "grump": 4},
+    "stats": {
+      "curiosity": 2,
+      "wit": 4,
+      "warmth": 1,
+      "spirit_sight": 3,
+      "mischief": 1,
+      "grump": 4
+    },
     "home": "gravedigger_hut",
     "sprite": "sk_warrior",
-    "initial_secrets": ["tree_is_hollow", "grave_37_name"]
+    "initial_secrets": [
+      "tree_is_hollow",
+      "grave_37_name"
+    ],
+    "tint": "#8E9AA8"
   },
   {
     "id": "sefa",
     "name": "Doña Sefa",
     "role": "cantina_owner",
     "persona": "Serves aguas frescas and sharp observations. Nothing gets past the counter of La Catrina Feliz.",
-    "stats": {"curiosity": 3, "wit": 2, "warmth": 3, "spirit_sight": 1, "mischief": 3, "grump": 2},
+    "stats": {
+      "curiosity": 3,
+      "wit": 2,
+      "warmth": 3,
+      "spirit_sight": 1,
+      "mischief": 3,
+      "grump": 2
+    },
     "home": "cantina",
-    "sprite": "tavern_a",
-    "initial_secrets": ["cantina_recipe"]
+    "sprite": "sk_rogue",
+    "initial_secrets": [
+      "cantina_recipe"
+    ],
+    "tint": "#5FD0BC"
   },
   {
     "id": "ramon",
     "name": "Ramón el Trovador",
     "role": "musician",
     "persona": "Turns everything he hears into verses. Would sing his own epitaph if it rhymed.",
-    "stats": {"curiosity": 3, "wit": 3, "warmth": 4, "spirit_sight": 2, "mischief": 4, "grump": 1},
+    "stats": {
+      "curiosity": 3,
+      "wit": 3,
+      "warmth": 4,
+      "spirit_sight": 2,
+      "mischief": 4,
+      "grump": 1
+    },
     "home": "plaza",
-    "sprite": "sk_rogue",
-    "initial_secrets": []
+    "sprite": "sk_base",
+    "initial_secrets": [],
+    "tint": "#E87AB8"
   },
   {
     "id": "ines",
     "name": "Abuela Inés",
     "role": "memory_keeper",
     "persona": "Sits by the fountain counting what the water remembers. Sees more than she says.",
-    "stats": {"curiosity": 4, "wit": 5, "warmth": 4, "spirit_sight": 4, "mischief": 0, "grump": 1},
+    "stats": {
+      "curiosity": 4,
+      "wit": 5,
+      "warmth": 4,
+      "spirit_sight": 4,
+      "mischief": 0,
+      "grump": 1
+    },
     "home": "fountain",
-    "sprite": "wizzard",
-    "initial_secrets": ["fountain_whisper", "tree_watcher_hint"]
+    "sprite": "sk_mage",
+    "initial_secrets": [
+      "fountain_whisper",
+      "tree_watcher_hint"
+    ],
+    "tint": "#A98BE0"
   },
   {
     "id": "solorio",
     "name": "Solorio",
     "role": "forgotten",
     "persona": "Barely there, barely remembered. Answers in half sentences, hopes someone says his name.",
-    "stats": {"curiosity": 1, "wit": 2, "warmth": 1, "spirit_sight": 5, "mischief": 0, "grump": 2},
+    "stats": {
+      "curiosity": 1,
+      "wit": 2,
+      "warmth": 1,
+      "spirit_sight": 5,
+      "mischief": 0,
+      "grump": 2
+    },
     "home": "cemetery_lane",
     "sprite": "sk_base",
-    "initial_secrets": []
+    "initial_secrets": [],
+    "tint": "#9FC4E8"
   }
 ]

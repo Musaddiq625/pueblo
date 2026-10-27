@@ -45,13 +45,14 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
 
     // ---- world ----
     final floors = await images.load('town/floors.png');
-    await world.add(
-        GroundComponent(size: Vector2(mapW, mapH), floors: floors));
+    final treeImg = await images.load(objects['ancient_tree']!.path);
+    await world.add(GroundComponent(
+        size: Vector2(mapW, mapH), floors: floors, treeImg: treeImg));
     await world.add(PetalDriftComponent(Vector2(mapW, mapH)));
 
     // papel picado strings across plaza + market
     for (final p in const [
-      [560.0, 240.0, 280.0], [400.0, 300.0, 260.0], [900.0, 300.0, 260.0]
+      [560.0, 240.0, 280.0], [400.0, 268.0, 260.0], [900.0, 268.0, 260.0]
     ]) {
       await world.add(PapelPicadoComponent(
           pos: Vector2(p[0], p[1]), size: Vector2(p[2], 26)));
@@ -116,12 +117,16 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       onTapped: onEngage,
       idle: idle,
       walk: walk,
+      displayName: a.name,
+      spriteTint:
+          personaTint[a.id] != null ? Color(personaTint[a.id]!) : null,
     );
     if (a.faded) c.setFaded(true);
     return c;
   }
 
   static Map<String, String> personaSprite = {};
+  static Map<String, int> personaTint = {};
 
   Future<SpriteAnimation> _anim(SheetDef s) async {
     final img = await images.load(s.path);

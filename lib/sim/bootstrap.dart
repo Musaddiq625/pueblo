@@ -14,7 +14,8 @@ class SimBundle {
   final SimEngine engine;
   final SimStore store;
   final Map<String, String> sprites;
-  SimBundle(this.engine, this.store, this.sprites);
+  final Map<String, int> tints; // agentId -> 0xAARRGGBB sprite tint
+  SimBundle(this.engine, this.store, this.sprites, this.tints);
 }
 
 Future<SimBundle> bootstrap({
@@ -50,6 +51,7 @@ Future<SimBundle> bootstrap({
 
   final agents = <String, Agent>{};
   final sprites = <String, String>{};
+  final tints = <String, int>{};
   for (final p in personas) {
     final a = Agent(
       id: p['id'],
@@ -67,6 +69,8 @@ Future<SimBundle> bootstrap({
     if (a.battery <= 8) a.faded = true;
     agents[a.id] = a;
     sprites[a.id] = p['sprite'] ?? 'sk_base';
+    final hex = (p['tint'] as String?)?.replaceFirst('#', '');
+    if (hex != null) tints[a.id] = int.parse('FF$hex', radix: 16);
   }
 
   final store = await SimStore.open(path: dbPath, fresh: freshDb);
@@ -82,5 +86,5 @@ Future<SimBundle> bootstrap({
     timeScale: timeScale,
     dawnAt: dawnAt,
   );
-  return SimBundle(engine, store, sprites);
+  return SimBundle(engine, store, sprites, tints);
 }

@@ -16,22 +16,20 @@ import '../sim/models.dart';
 
 final _nightPaint = Paint()..color = const Color(0xFF14101F);
 
-/// Solid tile regions inside floors.png (verified by crop-inspection).
-const _brickRect = Rect.fromLTWH(245, 50, 32, 32); // gray cobblestone
-const _tileSize = 44.0;
-
-/// Tiled ground — the floors.png cobble tile tinted to night shades.
-/// Base = darkest tint; waypoint edges and plaza get lighter tints so the
-/// walkable network reads as streets under the sprites' feet.
+/// Tiled ground — a readable village: dark earth base, cobble streets one
+/// tile wide along the waypoint graph, a plaza disc, and painted decor
+/// (gravestones, stall counters, spirit trees, ofrenda candles).
 class GroundComponent extends PositionComponent {
-  GroundComponent({required Vector2 size, required this.floors})
+  GroundComponent({required Vector2 size, required this.floors,
+      this.treeImg})
       : super(size: size, position: Vector2.zero(), priority: -10000);
 
   final Image floors;
+  final Image? treeImg;
 
-  static const _tintGround = Color(0xFF35294E);
-  static const _tintPath = Color(0xFF584A78);
-  static const _tintPlaza = Color(0xFF483A66);
+  static const _streetEdge = Color(0xFF443A5E); // curb/outer band
+  static const _streetFill = Color(0xFF554870); // walkable strip
+  static const _tintTree = Color(0xFF9A88D8);
 
   /// Waypoint graph edges to paint as streets — mirrors world_def.
   static const _nodePos = <List<double>>[
@@ -45,71 +43,166 @@ class GroundComponent extends PositionComponent {
     [11, 13], [3, 13],
   ];
 
-  void _tileRect(Canvas c, Rect r, Color tint) {
-    final paint = Paint()
-      ..colorFilter = ColorFilter.mode(tint, BlendMode.modulate);
-    for (var y = r.top; y < r.bottom; y += _tileSize) {
-      for (var x = r.left; x < r.right; x += _tileSize) {
-        c.drawImageRect(floors, _brickRect, Rect.fromLTWH(x, y, _tileSize, _tileSize), paint);
-      }
-    }
-  }
-
-  void _tileCircle(Canvas c, Offset center, double radius, Color tint) {
-    final paint = Paint()
-      ..colorFilter = ColorFilter.mode(tint, BlendMode.modulate);
-    final step = _tileSize;
-    for (var y = center.dy - radius; y < center.dy + radius; y += step) {
-      for (var x = center.dx - radius; x < center.dx + radius; x += step) {
-        final cx = x + step / 2, cy = y + step / 2;
-        if ((cx - center.dx) * (cx - center.dx) +
-                (cy - center.dy) * (cy - center.dy) <=
-            radius * radius) {
-          c.drawImageRect(floors, _brickRect,
-              Rect.fromLTWH(x, y, step, step), paint);
+  /// Flat earth base — solid dark fill + a faint deterministic speckle so
+  /// the ground reads as night soil, not a wall or a checkerboard.
+  void _baseFill(Canvas c, Rect r) {
+    c.drawRect(r, Paint()..color = const Color(0xFF241B34));
+    final dot = Paint()..color = const Color(0xFF2E2540);
+    for (var y = r.top + 8; y < r.bottom; y += 18) {
+      for (var x = r.left + 8; x < r.right; x += 18) {
+        if (((x * 31 + y * 17).toInt() & 7) == 0) {
+          c.drawRect(Rect.fromLTWH(x, y, 2, 2), dot);
         }
       }
     }
   }
 
-  /// Paint a street: tiles along the segment between two waypoints,
-  /// half-tile overlap both directions so corners don't show seams.
-  void _tilePath(Canvas c, Offset a, Offset b, Color tint) {
-    final paint = Paint()
-      ..colorFilter = ColorFilter.mode(tint, BlendMode.modulate);
+  /// Street — dark curb band + lighter fill + subtle cross-ticks, drawn as
+  /// strokes so the walkable strip reads cleanly on the dark earth.
+  void _street(Canvas c, Offset a, Offset b) {
+    c.drawLine(
+        a,
+        b,
+        Paint()
+          ..color = _streetEdge
+          ..strokeWidth = 46
+          ..strokeCap = StrokeCap.round);
+    c.drawLine(
+        a,
+        b,
+        Paint()
+          ..color = _streetFill
+          ..strokeWidth = 38
+          ..strokeCap = StrokeCap.round);
+    // cobble suggestion: faint ticks across the strip every ~22 units
     final dir = b - a;
     final len = dir.distance;
     final n = dir / len;
-    final w = 44.0; // street width in world units
-    for (var d = 0.0; d < len; d += _tileSize / 2) {
+    final tick = Paint()
+      ..color = const Color(0xFF655884)
+      ..strokeWidth = 2;
+    for (var d = 20.0; d < len; d += 22) {
       final p = a + n * d;
-      // two tiles across the path width
-      for (final off in const [-0.5, 0.5]) {
-        final q = p + Offset(-n.dy, n.dx) * (off * w);
-        c.drawImageRect(
-            floors,
-            _brickRect,
-            Rect.fromCenter(
-                center: q, width: _tileSize, height: _tileSize),
-            paint);
-      }
+      c.drawLine(p - Offset(-n.dy, n.dx) * 16, p + Offset(-n.dy, n.dx) * 16,
+          tick);
     }
+  }
+
+  void _plaza(Canvas c, Offset center, double r) {
+    c.drawCircle(center, r, Paint()..color = _streetEdge);
+    c.drawCircle(center, r - 8, Paint()..color = _streetFill);
+    final tick = Paint()
+      ..color = const Color(0xFF655884)
+      ..strokeWidth = 2;
+    for (var i = 0; i < 14; i++) {
+      final ang = i * pi / 7;
+      final p1 = center + Offset(cos(ang), sin(ang)) * (r - 20);
+      final p2 = center + Offset(cos(ang), sin(ang)) * (r - 34);
+      c.drawLine(p1, p2, tick);
+    }
+  }
+
+  void _gravestone(Canvas c, double x, double y) {
+    final slab = RRect.fromRectAndRadius(
+        Rect.fromLTWH(x - 8, y - 20, 16, 22), const Radius.circular(6));
+    c.drawRRect(slab, Paint()..color = const Color(0xFF3A2F55));
+    c.drawRRect(
+        slab,
+        Paint()
+          ..color = const Color(0xFF71629B)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1);
+  }
+
+  void _stall(Canvas c, double x, double y, Color awning) {
+    // counter
+    c.drawRRect(
+        RRect.fromRectAndRadius(Rect.fromLTWH(x - 34, y - 26, 68, 14),
+            const Radius.circular(3)),
+        Paint()..color = const Color(0xFF6B4A2E));
+    // posts
+    for (final px in [x - 30, x + 30]) {
+      c.drawRect(Rect.fromLTWH(px - 2, y - 56, 4, 30),
+          Paint()..color = const Color(0xFF4E3520));
+    }
+    // awning — alternating stripes
+    for (var i = 0; i < 6; i++) {
+      c.drawRect(
+          Rect.fromLTWH(x - 36 + i * 12, y - 62, 12, 10),
+          Paint()
+            ..color = i.isEven ? awning : const Color(0xFFEFE4CE));
+    }
+    c.drawRect(Rect.fromLTWH(x - 36, y - 52, 72, 3),
+        Paint()..color = const Color(0xFF2A1E10));
+  }
+
+  void _candles(Canvas c, double x0, double y0, int n) {
+    for (var i = 0; i < n; i++) {
+      final x = x0 + (i % 8) * 22, y = y0 + (i ~/ 8) * 20;
+      c.drawCircle(Offset(x, y), 4,
+          Paint()
+            ..color = const Color(0x55FFC233)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
+      c.drawRect(Rect.fromLTWH(x - 1.5, y - 4, 3, 8),
+          Paint()..color = const Color(0xFFEFE4CE));
+      c.drawCircle(Offset(x, y - 5), 1.6,
+          Paint()..color = const Color(0xFFFFC233));
+    }
+  }
+
+  void _tree(Canvas c, double x, double y, double srcX) {
+    final img = treeImg;
+    if (img == null) return;
+    c.drawImageRect(
+        img,
+        Rect.fromLTWH(srcX, 0, 112, 160),
+        Rect.fromLTWH(x - 42, y - 96, 84, 120),
+        Paint()
+          ..colorFilter =
+              const ColorFilter.mode(_tintTree, BlendMode.modulate));
   }
 
   @override
   void render(Canvas canvas) {
     canvas.drawRect(size.toRect(), _nightPaint);
-    // base: whole map tiled in the darkest night-cobble tint
-    _tileRect(canvas, size.toRect(), _tintGround);
-    // streets along waypoint edges
+    // base: flat dark earth — stones sit on this like set paving
+    _baseFill(canvas, size.toRect());
+    // streets — clean walkable strips along the waypoint edges
     for (final e in _edges) {
-      _tilePath(canvas, Offset(_nodePos[e[0]][0], _nodePos[e[0]][1]),
-          Offset(_nodePos[e[1]][0], _nodePos[e[1]][1]), _tintPath);
+      _street(canvas, Offset(_nodePos[e[0]][0], _nodePos[e[0]][1]),
+          Offset(_nodePos[e[1]][0], _nodePos[e[1]][1]));
     }
-    // plaza — big lighter cobble disc
-    _tileCircle(canvas, const Offset(700, 330), 170, _tintPlaza);
-    // ofrenda landing
-    _tileCircle(canvas, const Offset(700, 700), 90, _tintPlaza);
+    // plaza + ofrenda landings
+    _plaza(canvas, const Offset(700, 330), 125);
+    _plaza(canvas, const Offset(700, 715), 80);
+    // gravestone field (cemetery lane, east side)
+    for (var y = 520.0; y <= 640; y += 52) {
+      for (var x = 1040.0; x <= 1350; x += 56) {
+        if ((x - 1180).abs() < 34 && (y - 590).abs() < 40) continue; // grave 37
+        _gravestone(canvas, x + ((y / 52).round() % 2) * 18, y);
+      }
+    }
+    // market stalls
+    _stall(canvas, 420, 292, const Color(0xFFEF8C1A)); // flower stall
+    _stall(canvas, 540, 272, const Color(0xFF7B4FD0)); // cantina
+    // ofrenda candle field
+    _candles(canvas, 624, 690, 16);
+    // spirit trees along the dark edges
+    _tree(canvas, 90, 160, 224);
+    _tree(canvas, 1240, 130, 0);
+    _tree(canvas, 80, 600, 224);
+    _tree(canvas, 1340, 330, 336);
+    _tree(canvas, 300, 770, 0);
+    _tree(canvas, 1080, 770, 224);
+    // vignette — darken map borders
+    for (final r in [
+      Rect.fromLTWH(0, 0, size.x, 14),
+      Rect.fromLTWH(0, size.y - 14, size.x, 14),
+      Rect.fromLTWH(0, 0, 14, size.y),
+      Rect.fromLTWH(size.x - 14, 0, 14, size.y),
+    ]) {
+      canvas.drawRect(r, Paint()..color = const Color(0x660A0714));
+    }
   }
 }
 
@@ -121,11 +214,12 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     with TapCallbacks {
   final Agent agent;
   final String charKey;
+  final String displayName;
+  final Color? spriteTint;
   final void Function(Agent) onTapped;
 
   // Movement
   final List<Vector2> _path = [];
-  final double _speed = 55;
   bool walking = false;
 
   // Visual state
@@ -138,6 +232,8 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     required this.onTapped,
     required SpriteAnimation idle,
     required SpriteAnimation walk,
+    this.displayName = '',
+    this.spriteTint,
   }) : super(
           animations: {SpiritAnim.idle: idle, SpiritAnim.walk: walk},
           current: SpiritAnim.idle,
@@ -193,7 +289,7 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
           current = SpiritAnim.idle;
         }
       } else {
-        final step = delta.normalized() * _speed * dt;
+        final step = delta.normalized() * kSpiritSpeed * dt;
         position += step;
         faceToward(target.x);
       }
@@ -203,13 +299,46 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     // engaged → gentle glow tint pulse
     opacity = _engaged ? min(1.0, _opacity + 0.15) : _opacity;
   }
+
+  @override
+  Future<void> onLoad() async {
+    if (spriteTint != null) tint(spriteTint!);
+  }
+
+  @override
+  void render(Canvas canvas) {
+    super.render(canvas);
+    // name tag under the feet — counter-flip so text stays readable when
+    // the sprite flips horizontally to face walk direction
+    if (displayName.isNotEmpty) {
+      final tp = TextPainter(
+        text: TextSpan(
+            text: displayName,
+            style: const TextStyle(
+                fontSize: 9,
+                color: Color(0xDDEFE4CE),
+                fontFamily: 'monospace',
+                shadows: [Shadow(color: Color(0xFF000000), blurRadius: 3)])),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      if (scale.x.isNegative) {
+        canvas.save();
+        canvas.translate(size.x, 0);
+        canvas.scale(-1, 1);
+        tp.paint(canvas, Offset((size.x - tp.width) / 2, size.y + 2));
+        canvas.restore();
+      } else {
+        tp.paint(canvas, Offset((size.x - tp.width) / 2, size.y + 2));
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
 
 class PlayerComponent extends SpriteAnimationGroupComponent<SpiritAnim> {
   final List<Vector2> _path = [];
-  final double _speed = 85;
+  final double _speed = 95;
   bool walking = false;
 
   PlayerComponent({
@@ -219,7 +348,7 @@ class PlayerComponent extends SpriteAnimationGroupComponent<SpiritAnim> {
   }) : super(
           animations: {SpiritAnim.idle: idle, SpiritAnim.walk: walk},
           current: SpiritAnim.idle,
-          size: Vector2.all(52),
+          size: Vector2.all(56),
           anchor: Anchor.bottomCenter,
           position: pos,
           priority: -pos.y.round(),
