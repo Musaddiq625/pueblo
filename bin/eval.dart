@@ -8,13 +8,13 @@
 ///   dart run bin/eval.dart --model gemma3:4b --parallel 1,2,4
 library;
 
-import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 
-import '../lib/sim/llm.dart';
-import '../lib/sim/models.dart';
-import '../lib/sim/prompts.dart';
+import 'package:pueblo/sim/llm.dart';
+import 'package:pueblo/sim/models.dart';
+import 'package:pueblo/sim/prompts.dart';
+
+// ignore_for_file: avoid_print
 
 const _actions = {
   'stroll', 'converse', 'inspect', 'offer_secret', 'ask_about',
@@ -94,7 +94,9 @@ void main(List<String> argv) async {
       convoOk++;
       // if it shared a secret, it must be one Bor actually knows
       if (c.sharesSecret != null &&
-          !['tree_is_hollow'].contains(c.sharesSecret)) convoOk--;
+          !['tree_is_hollow'].contains(c.sharesSecret)) {
+        convoOk--;
+      }
     }
   }
 
