@@ -45,7 +45,7 @@ class OllamaClient implements LLMClient {
   final http.Client _http = http.Client();
   final Random rng;
 
-  OllamaClient({this.model = 'gemma3:4b', Uri? base, Random? rng})
+  OllamaClient({this.model = 'qwen3:4b-instruct-2507-q4_K_M', Uri? base, Random? rng})
       : base = base ?? Uri.parse('http://localhost:11434'),
         rng = rng ?? Random(42);
 
