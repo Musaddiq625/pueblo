@@ -5,13 +5,14 @@ library;
 
 abstract final class Tt {
   // ground / vegetation
-  static const grass = [0, 1, 2, 3]; // plain + speckled + flowers
-  static const pines = [6, 7, 8, 19, 20];
-  static const leafyTree = 16;
-  static const bushes = [9, 10, 11, 21];
-  static const autumnTrees = [22, 23, 24, 26];
-  static const hayPiles = [34, 35, 36];
-  static const mushrooms = [29, 30];
+  static const grass = [0, 1, 2]; // plain + tufts + flowers — 3 is a mound fragment
+  static const pines = [6, 20]; // 8/19 are tree-fragment slivers, not whole pines
+  static const leafyTree = 16; // round green tree w/ trunk
+  // no usable bush tile — the pack's scrub tiles are all slivers of larger
+  // multi-tile trees; 'bush' props are drawn procedurally
+  static const autumnTrees = [15]; // round orange tree w/ trunk — 27 is a trunkless cone
+  static const hayPiles = [34, 35]; // left/right halves of one mound
+  static const mushrooms = [29]; // 30 is a tree-fragment sliver
   static const sprout = 17;
   static const sproutSmall = 18;
 
@@ -19,7 +20,7 @@ abstract final class Tt {
   static const fenceRail = [45, 46]; // horizontal rail + posts
   static const fencePost = 47;
   static const fenceLong = 80;
-  static const sign = 81;
+  static const sign = 95; // red banner + pole — 81 is a bare frame plaque
 
   // house kit — terracotta set
   static const roofTerra = [64, 65];
@@ -37,10 +38,13 @@ abstract final class Tt {
   // stone kit
   static const stoneWall = [96, 97, 98];
   static const fencePicket = [99, 100];
-  static const crate = 105; // wooden chest — reads as crate/barrel stand-in
+  // NB: 103-118 + 129-131 are inventory-style icons in dark frames, not
+  // world tiles — props using them render as dark boxes. They're kept out
+  // of the prop painters; the indices stay for reference.
+  static const crate = 105;
   static const boulder = 103;
-  static const logs = [101, 102]; // furniture pieces — interiors only
-  static const potTerra = 104;
+  static const logs = [101, 102];
+  static const potTerra = 93; // proper world-tile pot (104 is an icon)
   static const stoneArchBarred = [112, 113]; // crypt gate w/ iron bars
   static const pickaxe = 114;
   static const pitchfork = 115;

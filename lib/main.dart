@@ -8,6 +8,7 @@ import 'dart:ui' as ui;
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 
@@ -174,6 +175,10 @@ class _PuebloAppState extends State<PuebloApp> {
     final boundary =
         _rb.currentContext?.findRenderObject() as RenderRepaintBoundary?;
     if (boundary == null) return;
+    // Hidden/occluded windows produce no vsync frames — force one so the
+    // boundary has fresh pixels to rasterize.
+    SchedulerBinding.instance.scheduleForcedFrame();
+    await WidgetsBinding.instance.endOfFrame;
     final img = await boundary.toImage(pixelRatio: 2.0);
     final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
     if (bytes == null) return;

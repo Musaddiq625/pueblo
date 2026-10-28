@@ -10,7 +10,17 @@ import 'dart:ui' as ui;
 import 'package:flame/cache.dart';
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart'
-    show BlendMode, Canvas, Color, Offset, Paint, Rect, RRect, Radius;
+    show
+        BlendMode,
+        Canvas,
+        Color,
+        Offset,
+        Paint,
+        PaintingStyle,
+        Rect,
+        StrokeCap,
+        RRect,
+        Radius;
 
 import 'na_terrain.dart';
 import 'tile_index.dart';
@@ -31,14 +41,14 @@ class TileAssets {
   /// Every Tiny Town tile referenced anywhere in the renderer — derived
   /// from the semantic lists so it can't drift out of sync.
   static final neededTt = <int>{
-    ...Tt.grass, ...Tt.pines, Tt.leafyTree, ...Tt.bushes,
+    ...Tt.grass, ...Tt.pines, Tt.leafyTree,
     ...Tt.autumnTrees, ...Tt.hayPiles, ...Tt.mushrooms,
     Tt.sprout, Tt.sproutSmall,
     ...Tt.fenceRail, Tt.fencePost, Tt.fenceLong, Tt.sign,
     ...Tt.roofTerra, Tt.roofTerraGable,
     ...Tt.wallTanDoor, ...Tt.wallGrayDoor,
     ...Tt.winTan, ...Tt.doorTan, ...Tt.winGray, ...Tt.doorGray,
-    Tt.archDark, Tt.urnPot, Tt.signRed,
+    Tt.archDark, Tt.urnPot,
     ...Tt.stoneWall, Tt.boulder, ...Tt.logs, Tt.potTerra,
     ...Tt.fencePicket, Tt.crate,
     ...Tt.stoneArchBarred, Tt.pickaxe, Tt.pitchfork,
@@ -186,6 +196,237 @@ void _plaza(Canvas c, Rect r, int x, int y, TileAssets a) {
         3 + rr.nextDouble() * 3,
         Paint()..color = const Color(0x2a8a8498));
   }
+}
+
+/// Gray rock cluster — the pack's boulder is an inventory icon in a
+/// dark frame, not a world tile.
+void _boulder(Canvas c) {
+  final rock = Paint()..color = const Color(0xFF6e6878);
+  final shade = Paint()..color = const Color(0xFF4a4456);
+  c.drawOval(Rect.fromLTWH(4, 12, 20, 16), rock);
+  c.drawOval(Rect.fromLTWH(14, 16, 16, 12), rock);
+  c.drawOval(Rect.fromLTWH(4, 22, 26, 7), shade); // ground shadow
+  c.drawOval(Rect.fromLTWH(7, 14, 8, 5), Paint()..color = const Color(0xFF8d8698));
+}
+
+void _crate(Canvas c) {
+  final wood = Paint()..color = const Color(0xFF6a4e34);
+  final rim = Paint()..color = const Color(0xFF4a3524);
+  c.drawRect(Rect.fromLTWH(6, 8, 20, 20), wood);
+  c.drawRect(
+    Rect.fromLTWH(6, 8, 20, 20),
+    Paint()
+      ..color = const Color(0xFF3a2c20)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6,
+  );
+  c.drawRect(Rect.fromLTWH(6, 8, 20, 4), rim); // lid rim
+  c.drawLine(
+    const Offset(6, 8),
+    const Offset(26, 28),
+    Paint()
+      ..color = const Color(0xFF4a3524)
+      ..strokeWidth = 1.4,
+  );
+  c.drawLine(
+    const Offset(26, 8),
+    const Offset(6, 28),
+    Paint()
+      ..color = const Color(0xFF4a3524)
+      ..strokeWidth = 1.4,
+  );
+}
+
+void _bonePile(Canvas c) {
+  final bone = Paint()
+    ..color = const Color(0xFFd8d0bc)
+    ..strokeWidth = 2
+    ..strokeCap = StrokeCap.round;
+  c.drawOval(
+    Rect.fromLTWH(6, 24, 20, 5),
+    Paint()..color = const Color(0x55301f14),
+  );
+  c.drawLine(const Offset(9, 23), const Offset(21, 16), bone);
+  c.drawLine(const Offset(11, 16), const Offset(23, 23), bone);
+  c.drawCircle(const Offset(19, 19), 3.5, Paint()..color = const Color(0xFFe0d8c4));
+  c.drawCircle(const Offset(17.8, 18.2), 1, Paint()..color = const Color(0xFF3a3230));
+}
+
+void _scrub(Canvas c, int seed) {
+  final rr = Random(seed);
+  c.drawOval(
+    Rect.fromLTWH(5, 24, 22, 6),
+    Paint()..color = const Color(0x55301f14),
+  );
+  final dark = Paint()..color = const Color(0xFF2e4a2a);
+  final mid = Paint()..color = const Color(0xFF3d6034);
+  c.drawOval(Rect.fromLTWH(5, 13, 15, 13), dark);
+  c.drawOval(Rect.fromLTWH(13, 11, 14, 15), dark);
+  c.drawOval(
+    Rect.fromLTWH(8 + rr.nextDouble() * 4, 14, 9, 8),
+    mid,
+  );
+  c.drawOval(Rect.fromLTWH(15, 13 + rr.nextDouble() * 3, 8, 7), mid);
+}
+
+void _autumnTree(Canvas c) {
+  c.drawOval(
+    Rect.fromLTWH(6, 26, 20, 5),
+    Paint()..color = const Color(0x55301f14),
+  );
+  c.drawRect(
+    Rect.fromLTWH(14, 18, 4, 10),
+    Paint()..color = const Color(0xFF4a3524),
+  );
+  final canopy = Paint()..color = const Color(0xFFc96f2e);
+  c.drawCircle(const Offset(16, 12), 9, canopy);
+  c.drawCircle(const Offset(9, 16), 5.5, canopy);
+  c.drawCircle(const Offset(23, 16), 5.5, canopy);
+  c.drawCircle(const Offset(13, 9), 3, Paint()..color = const Color(0xFFe8962e));
+  c.drawCircle(const Offset(20, 14), 2.5, Paint()..color = const Color(0xFFe8962e));
+}
+
+void _pine(Canvas c) {
+  c.drawOval(
+    Rect.fromLTWH(7, 27, 18, 4),
+    Paint()..color = const Color(0x55301f14),
+  );
+  c.drawRect(
+    Rect.fromLTWH(14, 21, 4, 8),
+    Paint()..color = const Color(0xFF4a3524),
+  );
+  final dark = Paint()..color = const Color(0xFF2e5230);
+  final light = Paint()..color = const Color(0xFF3d6b3a);
+  for (final (i, tier) in [(4.0, 12.0), (10.0, 20.0), (16.0, 28.0)].indexed) {
+    final top = tier.$1, base = tier.$2;
+    final half = 6.0 + i * 4;
+    c.drawPath(
+      ui.Path()
+        ..moveTo(16, top)
+        ..lineTo(16 - half, base)
+        ..lineTo(16 + half, base)
+        ..close(),
+      dark,
+    );
+    // west-lit edge
+    c.drawPath(
+      ui.Path()
+        ..moveTo(16, top + 1)
+        ..lineTo(16 - half + 2, base - 1)
+        ..lineTo(16, base - 1)
+        ..close(),
+      light,
+    );
+  }
+}
+
+void _pot(Canvas c) {
+  final terra = Paint()..color = const Color(0xFFb06a3a);
+  final dark = Paint()..color = const Color(0xFF7a4526);
+  c.drawOval(
+    Rect.fromLTWH(9, 26, 14, 4),
+    Paint()..color = const Color(0x55301f14),
+  );
+  c.drawOval(Rect.fromLTWH(9, 12, 14, 16), terra);
+  c.drawRect(Rect.fromLTWH(8, 9, 16, 5), terra);
+  c.drawRect(Rect.fromLTWH(8, 9, 16, 2), dark);
+  // marigold sprig
+  c.drawLine(
+    const Offset(16, 11),
+    const Offset(16, 5),
+    Paint()
+      ..color = const Color(0xFF3d6034)
+      ..strokeWidth = 1.4,
+  );
+  c.drawCircle(const Offset(16, 4), 3, Paint()..color = const Color(0xFFe8962e));
+}
+
+void _plankSign(Canvas c) {
+  final wood = Paint()..color = const Color(0xFF6a4e34);
+  final dark = Paint()..color = const Color(0xFF3a2c20);
+  c.drawOval(
+    Rect.fromLTWH(11, 28, 10, 3),
+    Paint()..color = const Color(0x55301f14),
+  );
+  c.drawRect(Rect.fromLTWH(14, 10, 4, 20), wood);
+  // plank — angled for a hand-built look
+  c.save();
+  c.translate(16, 11);
+  c.rotate(-0.06);
+  c.drawRRect(
+    RRect.fromRectAndRadius(
+      Rect.fromLTWH(-13, -7, 26, 12),
+      const Radius.circular(2),
+    ),
+    wood,
+  );
+  c.drawRRect(
+    RRect.fromRectAndRadius(
+      Rect.fromLTWH(-13, -7, 26, 12),
+      const Radius.circular(2),
+    ),
+    Paint()
+      ..color = const Color(0xFF3a2c20)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2,
+  );
+  // plank grain + nail
+  c.drawLine(
+    const Offset(-9, -1),
+    const Offset(9, -1),
+    Paint()
+      ..color = const Color(0xFF3a2c20)
+      ..strokeWidth = 0.8,
+  );
+  c.drawCircle(const Offset(0, -2), 1.2, dark);
+  c.restore();
+}
+
+void _pickaxe(Canvas c) {
+  final wood = Paint()
+    ..color = const Color(0xFF6a4e34)
+    ..strokeWidth = 3
+    ..strokeCap = StrokeCap.round;
+  final iron = Paint()
+    ..color = const Color(0xFF8d8698)
+    ..strokeWidth = 3
+    ..strokeCap = StrokeCap.round;
+  c.drawOval(
+    Rect.fromLTWH(6, 26, 20, 4),
+    Paint()..color = const Color(0x55301f14),
+  );
+  c.drawLine(const Offset(16, 26), const Offset(16, 10), wood);
+  c.drawLine(const Offset(8, 12), const Offset(24, 8), iron);
+}
+
+/// Procedural gravestone — the pack's "stone" tiles are wall blocks; a
+/// drawn rounded-top slab + mound reads as a grave at any zoom.
+void _gravestone(Canvas c) {
+  // mound shadow
+  c.drawOval(
+    Rect.fromLTWH(3, 24, 26, 7),
+    Paint()..color = const Color(0x55301f14),
+  );
+  // rounded-top slab
+  final slab = RRect.fromRectAndCorners(
+    Rect.fromLTWH(8, 3, 16, 24),
+    topLeft: const Radius.circular(8),
+    topRight: const Radius.circular(8),
+  );
+  c.drawRRect(slab, Paint()..color = const Color(0xFF8a8390));
+  c.drawRRect(
+    slab,
+    Paint()
+      ..color = const Color(0xFF4f4a5c)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4,
+  );
+  // etched cross
+  final etch = Paint()
+    ..color = const Color(0xFF4f4a5c)
+    ..strokeWidth = 1.2;
+  c.drawLine(const Offset(16, 9), const Offset(16, 18), etch);
+  c.drawLine(const Offset(12, 12.5), const Offset(20, 12.5), etch);
 }
 
 void _marigold(Canvas c, Rect r) {
@@ -402,50 +643,22 @@ List<PropComponent> buildProps(TileAssets a) {
   for (final p in villageProps) {
     switch (p.kind) {
       case 'pine':
-        comp(
-          p.tx,
-          p.ty,
-          1,
-          1,
-          (c, s) =>
-              tile(c, a.tt[Tt.pines[(p.tx + p.ty) % Tt.pines.length]], 0, 0),
-        );
+        // the pack's pine tiles are two-tree clusters with a heavy maroon
+        // outline — at 32px they read as broken green fragments
+        comp(p.tx, p.ty, 1, 1, (c, s) => _pine(c));
       case 'autumn':
-        comp(
-          p.tx,
-          p.ty,
-          1,
-          1,
-          (c, s) => tile(
-            c,
-            a.tt[Tt.autumnTrees[(p.tx * 3 + p.ty) % Tt.autumnTrees.length]],
-            0,
-            0,
-          ),
-        );
+        // tile 15's trunk is invisible at 32px — reads as a floating orange
+        // ball. A drawn trunk + canopy keeps it a tree at any zoom.
+        comp(p.tx, p.ty, 1, 1, (c, s) => _autumnTree(c));
       case 'leafy':
         comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[Tt.leafyTree], 0, 0));
       case 'bush':
-        comp(
-          p.tx,
-          p.ty,
-          1,
-          1,
-          (c, s) => tile(
-            c,
-            a.tt[Tt.bushes[(p.tx + p.ty * 2) % Tt.bushes.length]],
-            0,
-            0,
-          ),
-        );
+        // the pack has no standalone scrub tile — every candidate is a
+        // sliver of a multi-tile tree. A clump of dark-green ellipses reads
+        // cleanly at any zoom.
+        comp(p.tx, p.ty, 1, 1, (c, s) => _scrub(c, p.tx * 7 + p.ty));
       case 'mushroom':
-        comp(
-          p.tx,
-          p.ty,
-          1,
-          1,
-          (c, s) => tile(c, a.tt[Tt.mushrooms[(p.tx + p.ty) % 2]], 0, 0),
-        );
+        comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[Tt.mushrooms[0]], 0, 0));
       case 'marigold':
         comp(p.tx, p.ty, 1, 1, (c, s) {
           final rr = Random(p.tx * 31 + p.ty);
@@ -461,27 +674,27 @@ List<PropComponent> buildProps(TileAssets a) {
           }
         });
       case 'boulder':
-        comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[Tt.boulder], 0, 0));
+        comp(p.tx, p.ty, 1, 1, (c, s) => _boulder(c));
       case 'pot':
-        comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[Tt.potTerra], 0, 0));
+        comp(p.tx, p.ty, 1, 1, (c, s) => _pot(c));
       case 'barrel':
       case 'log':
-        comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[Tt.crate], 0, 0));
+        comp(p.tx, p.ty, 1, 1, (c, s) => _crate(c));
       case 'bone':
-        comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[Tt.bone], 0, 0));
+        comp(p.tx, p.ty, 1, 1, (c, s) => _bonePile(c));
       case 'hay':
-        comp(
-          p.tx,
-          p.ty,
-          1,
-          1,
-          (c, s) =>
-              tile(c, a.tt[Tt.hayPiles[(p.tx + p.ty) % 3]], 0, 0),
-        );
+        comp(p.tx, p.ty, 1, 1, (c, s) {
+          // 34+35 are left/right halves of one mound — join them at the
+          // cell's bottom edge
+          tile(c, a.tt[Tt.hayPiles[0]], 0, 16, 0.5);
+          tile(c, a.tt[Tt.hayPiles[1]], 16, 16, 0.5);
+        });
       case 'pickaxe':
-        comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[Tt.pickaxe], 0, 0));
+        comp(p.tx, p.ty, 1, 1, (c, s) => _pickaxe(c));
       case 'sign':
-        comp(p.tx, p.ty, 1, 1, (c, s) => tile(c, a.tt[Tt.sign], 0, 0));
+        // tile 95 reads as a bright-red "no entry" marker — a wooden plank
+        // on a post matches the pueblo palette
+        comp(p.tx, p.ty, 1, 1, (c, s) => _plankSign(c));
       case 'bench':
         comp(p.tx, p.ty, 1, 1, (c, s) {
           final wood = Paint()..color = const Color(0xFF5a4432);
@@ -512,29 +725,19 @@ List<PropComponent> buildProps(TileAssets a) {
           );
         });
       case 'grave':
-        comp(p.tx, p.ty, 1, 1, (c, s) {
-          c.drawRect(
-            Rect.fromLTWH(4, 26, 24, 4),
-            Paint()..color = const Color(0xFF1c1512),
-          );
-          tile(c, a.tt[120], 0, -4); // rounded-top stone reads as gravestone
-        });
+        comp(p.tx, p.ty, 1, 1, (c, s) => _gravestone(c));
       case 'grave37':
         comp(p.tx, p.ty, 1, 1, (c, s) {
+          _gravestone(c);
+          // unmarked plank + marigolds — the grave nobody named
           c.drawRect(
-            Rect.fromLTWH(2, 26, 28, 5),
-            Paint()..color = const Color(0xFF1c1512),
-          );
-          tile(c, a.tt[120], 0, -4);
-          // unmarked plank + marigolds
-          c.drawRect(
-            Rect.fromLTWH(19, 6, 9, 14),
+            Rect.fromLTWH(20, 8, 8, 15),
             Paint()..color = const Color(0xFF4a3524),
           );
           final rr = Random(37);
           for (var i = 0; i < 7; i++) {
             c.drawCircle(
-              Offset(4 + rr.nextDouble() * 26, 24 + rr.nextDouble() * 6),
+              Offset(3 + rr.nextDouble() * 26, 24 + rr.nextDouble() * 6),
               2.2,
               Paint()..color = const Color(0xFFe8962e),
             );
@@ -543,6 +746,15 @@ List<PropComponent> buildProps(TileAssets a) {
       case 'fenceH':
         final n = p.args.isEmpty ? 1 : p.args[0];
         comp(p.tx, p.ty, n, 1, (c, s) {
+          // continuous rail under the pieces — unifies joins at gates/corners
+          c.drawRect(
+            Rect.fromLTWH(0, 13, s.x, 3),
+            Paint()..color = const Color(0xFF4a3524),
+          );
+          c.drawRect(
+            Rect.fromLTWH(0, 20, s.x, 3),
+            Paint()..color = const Color(0xFF4a3524),
+          );
           for (var i = 0; i < n; i++) {
             tile(c, a.tt[i % 3 == 0 ? 45 : 46], i * kTile, 0);
           }
@@ -550,27 +762,65 @@ List<PropComponent> buildProps(TileAssets a) {
       case 'fenceV':
         final n = p.args.isEmpty ? 1 : p.args[0];
         comp(p.tx, p.ty, 1, n, (c, s) {
+          // vertical rail — without it the column reads as floating posts
+          c.drawRect(
+            Rect.fromLTWH(15, 0, 4, s.y),
+            Paint()..color = const Color(0xFF4a3524),
+          );
           for (var i = 0; i < n; i++) {
             tile(c, a.tt[Tt.fencePost], 0, i * kTile);
           }
         });
       case 'crypt':
         comp(p.tx, p.ty, 4, 2, (c, s) {
-          tile(c, a.tt[96], 0, 0);
-          tile(c, a.tt[97], 32, 0);
-          tile(c, a.tt[98], 64, 0);
-          tile(c, a.tt[96], 96, 0);
-          tile(c, a.tt[96], 0, 32);
-          tile(c, a.tt[112], 32, 32); // barred gate
-          tile(c, a.tt[113], 64, 32);
-          tile(c, a.tt[96], 96, 32);
+          final w = s.x;
+          // body — moonlit stone wall with block joints
+          c.drawRect(
+            Rect.fromLTWH(2, 8, w - 4, 48),
+            Paint()..color = const Color(0xFF6a6478),
+          );
+          final j = Paint()
+            ..color = const Color(0xFF524c60)
+            ..strokeWidth = 1;
+          for (var yy = 18.0; yy < 52; yy += 12) {
+            c.drawLine(Offset(2, yy), Offset(w - 2, yy), j);
+          }
+          c.drawRect(
+            Rect.fromLTWH(2, 8, w - 4, 48),
+            Paint()
+              ..color = const Color(0xFF4f4a5c)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.5,
+          );
+          // cornice + pediment
+          c.drawRect(
+            Rect.fromLTWH(0, 6, w, 5),
+            Paint()..color = const Color(0xFF575066),
+          );
+          c.drawRRect(
+            RRect.fromRectAndCorners(
+              Rect.fromLTWH(w / 2 - 14, 0, 28, 7),
+              topLeft: const Radius.circular(3),
+              topRight: const Radius.circular(3),
+            ),
+            Paint()..color = const Color(0xFF6a6478),
+          );
+          // arch door (the pack's real gothic arch pair)
+          tile(c, a.tt[112], w / 2 - 32, 26);
+          tile(c, a.tt[113], w / 2, 26);
+          // threshold step
+          c.drawRect(
+            Rect.fromLTWH(w / 2 - 38, 56, 76, 6),
+            Paint()..color = const Color(0xFF575066),
+          );
         });
       case 'cantina':
         comp(p.tx, p.ty, 4, 4, (c, s) {
+          // house kit: 72/74 = edge caps, 73 = wall+door, 84/88 = wall+window
           final roof = [66, 64, 64, 66];
-          final r1 = [72, 82, 84, 72];
-          final r2 = [72, 73, 72, 73];
-          final r3 = [73, 83, 84, 73];
+          final r1 = [72, 84, 88, 74];
+          final r2 = [72, 88, 84, 74];
+          final r3 = [72, 73, 84, 74];
           for (var i = 0; i < 4; i++) {
             tile(c, a.tt[roof[i]], i * kTile, 0);
             tile(c, a.tt[r1[i]], i * kTile, 32);
@@ -581,17 +831,41 @@ List<PropComponent> buildProps(TileAssets a) {
       case 'stall':
         final v = p.args.isEmpty ? 0 : p.args[0];
         comp(p.tx, p.ty, 3, 2, (c, s) {
-          tile(c, a.tt[64], 0, 0);
-          tile(c, a.tt[65], 32, 0);
-          tile(c, a.tt[64], 64, 0);
-          tile(c, a.tt[Tt.fencePost], 0, 32);
-          tile(c, a.tt[Tt.fencePost], 64, 32);
-          // counter plank
+          final w = s.x;
+          // posts
+          final post = Paint()..color = const Color(0xFF4a3524);
+          c.drawRect(Rect.fromLTWH(6, 18, 4, 42), post);
+          c.drawRect(Rect.fromLTWH(w - 10, 18, 4, 42), post);
+          // striped awning — marigold/cream, scalloped hem
+          final seg = (w - 8) / 6;
+          for (var i = 0; i < 6; i++) {
+            c.drawRect(
+              Rect.fromLTWH(4 + i * seg, 2, seg, 16),
+              Paint()
+                ..color = i.isEven
+                    ? const Color(0xFFe8962e)
+                    : const Color(0xFFe8dcc8),
+            );
+            c.drawCircle(
+              Offset(4 + i * seg + seg / 2, 18),
+              seg / 2.4,
+              Paint()
+                ..color = i.isEven
+                    ? const Color(0xFFe8962e)
+                    : const Color(0xFFe8dcc8),
+            );
+          }
+          // counter
           c.drawRect(
-            Rect.fromLTWH(6, 44, 84, 8),
+            Rect.fromLTWH(4, 42, w - 8, 6),
             Paint()..color = const Color(0xFF5a4432),
           );
-          // goods on the counter
+          c.drawRect(
+            Rect.fromLTWH(6, 48, w - 12, 12),
+            Paint()..color = const Color(0xFF3a2c20),
+          );
+          // goods on the counter — flower colors for the marigold stall,
+          // curio colors for the rest
           final rr = Random(p.tx * 7 + v);
           final goods = v == 0
               ? [
@@ -606,7 +880,7 @@ List<PropComponent> buildProps(TileAssets a) {
                 ];
           for (var i = 0; i < 9; i++) {
             c.drawCircle(
-              Offset(10 + rr.nextDouble() * 70, 40 - rr.nextDouble() * 4),
+              Offset(10 + rr.nextDouble() * (w - 20), 38 - rr.nextDouble() * 4),
               3.2,
               Paint()..color = goods[i % 3],
             );
@@ -615,47 +889,119 @@ List<PropComponent> buildProps(TileAssets a) {
       case 'curiosity':
         comp(p.tx, p.ty, 4, 3, (c, s) {
           final roof = [66, 64, 65, 66];
-          final mid = [74, 88, 90, 75];
-          final bot = [74, 89, 74, 75];
+          final mid = [72, 84, 90, 74];
+          final bot = [72, 73, 84, 74];
           for (var i = 0; i < 4; i++) {
             tile(c, a.tt[roof[i]], i * kTile, 0);
             tile(c, a.tt[mid[i]], i * kTile, 32);
             tile(c, a.tt[bot[i]], i * kTile, 64);
           }
-          tile(c, a.tt[Tt.signRed], 3 * kTile - 8, 40);
+          // hanging wooden shop sign
+          c.save();
+          c.translate(3 * kTile + 4, 46);
+          c.rotate(0.05);
+          c.drawRRect(
+            RRect.fromRectAndRadius(
+              Rect.fromLTWH(-16, -9, 30, 15),
+              const Radius.circular(2),
+            ),
+            Paint()..color = const Color(0xFF6a4e34),
+          );
+          c.drawRRect(
+            RRect.fromRectAndRadius(
+              Rect.fromLTWH(-16, -9, 30, 15),
+              const Radius.circular(2),
+            ),
+            Paint()
+              ..color = const Color(0xFF3a2c20)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.2,
+          );
+          c.drawLine(
+            const Offset(-11, -2),
+            const Offset(9, -2),
+            Paint()
+              ..color = const Color(0xFFe8dcc8)
+              ..strokeWidth = 1.2,
+          );
+          c.restore();
         });
       case 'hut':
         comp(p.tx, p.ty, 3, 3, (c, s) {
+          // roof | cap-window-cap | cap-door-cap
           tile(c, a.tt[64], 0, 0);
           tile(c, a.tt[65], 32, 0);
           tile(c, a.tt[66], 64, 0);
-          tile(c, a.tt[74], 0, 32);
-          tile(c, a.tt[75], 32, 32);
+          tile(c, a.tt[72], 0, 32);
+          tile(c, a.tt[84], 32, 32);
           tile(c, a.tt[74], 64, 32);
-          tile(c, a.tt[75], 0, 64);
-          tile(c, a.tt[89], 32, 64); // door
+          tile(c, a.tt[72], 0, 64);
+          tile(c, a.tt[73], 32, 64); // door
           tile(c, a.tt[74], 64, 64);
         });
       case 'well':
         comp(p.tx, p.ty, 3, 3, (c, s) {
-          final ring = [124, 125, 126, 124, -1, 126, 125, 124, 125];
-          for (var i = 0; i < 9; i++) {
-            if (ring[i] < 0) continue;
-            tile(c, a.tt[ring[i]], (i % 3) * kTile, (i ~/ 3) * kTile);
-          }
-          // water + shimmer
+          const cx = 48.0;
+          // ground shadow
+          c.drawOval(
+            Rect.fromLTWH(8, 74, 80, 14),
+            Paint()..color = const Color(0x55301f14),
+          );
+          // stone ring — octagonal basin built from stacked courses
+          final stone = Paint()..color = const Color(0xFF6a6478);
+          final rim = Paint()..color = const Color(0xFF8d8698);
+          c.drawCircle(const Offset(cx, 58), 34, stone);
           c.drawCircle(
-            Offset(48, 48),
-            14,
+            const Offset(cx, 58),
+            34,
+            Paint()
+              ..color = const Color(0xFF4f4a5c)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 2,
+          );
+          // rim highlight + block joints
+          c.drawCircle(const Offset(cx, 54), 30, rim);
+          final j = Paint()
+            ..color = const Color(0xFF524c60)
+            ..strokeWidth = 1.2;
+          for (var i = 0; i < 8; i++) {
+            final ang = i * 3.14159 / 4;
+            c.drawLine(
+              Offset(cx + 26 * cos(ang), 54 + 26 * sin(ang)),
+              Offset(cx + 34 * cos(ang), 58 + 34 * sin(ang)),
+              j,
+            );
+          }
+          // water
+          c.drawCircle(
+            const Offset(cx, 52),
+            24,
             Paint()..color = const Color(0xFF1d2c48),
           );
           c.drawCircle(
-            Offset(44, 44),
-            5,
-            Paint()..color = const Color(0xFF5a7cae),
+            const Offset(cx - 6, 46),
+            8,
+            Paint()..color = const Color(0xFF3d5a86),
           );
-          // the urn on top
-          tile(c, a.tt[Tt.urnPot], 32, -6);
+          c.drawCircle(
+            const Offset(cx - 9, 44),
+            3,
+            Paint()..color = const Color(0xFF7ea6d8),
+          );
+          // center column + spout
+          c.drawRect(
+            Rect.fromLTWH(cx - 5, 20, 10, 24),
+            Paint()..color = const Color(0xFF6a6478),
+          );
+          c.drawRect(
+            Rect.fromLTWH(cx - 8, 14, 16, 8),
+            Paint()..color = const Color(0xFF8d8698),
+          );
+          c.drawCircle(
+            const Offset(cx, 12),
+            4,
+            Paint()..color = const Color(0xFF8d8698),
+          );
         });
       case 'ofrenda':
         comp(p.tx, p.ty, 7, 2, (c, s) {
@@ -698,10 +1044,12 @@ List<PropComponent> buildProps(TileAssets a) {
         comp(p.tx, p.ty, 3, 3, (c, s) {
           final img = a.ceiba;
           if (img != null) {
+            // the sheet is a 4x3 contact grid — crop the big leaf tree
+            // at cell (0,0) (ink spans 0-107 × 0-121)
             c.drawImageRect(
               img,
-              Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
-              Rect.fromLTWH(-16, -40, 128, 136),
+              const Rect.fromLTWH(0, 0, 112, 122),
+              const Rect.fromLTWH(-16, -40, 128, 136),
               Paint(),
             );
           } else {

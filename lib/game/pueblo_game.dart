@@ -326,6 +326,15 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       case 'center':
         if (player != null) camera.follow(player!);
         return 'ok centered';
+      case 'look':
+        // stop following + jump the viewfinder to world coords (tiles*32)
+        camera.stop();
+        final ps = arg.split(' ');
+        if (ps.length != 2) return 'ERR look <tx> <ty>';
+        final tx = double.tryParse(ps[0]), ty = double.tryParse(ps[1]);
+        if (tx == null || ty == null) return 'ERR look <tx> <ty>';
+        camera.viewfinder.position = Vector2(tx * 32 + 16, ty * 32 + 16);
+        return 'ok look $tx $ty';
       case 'shot':
         final hook = shotHook;
         if (hook == null) return 'ERR shot hook not wired';
