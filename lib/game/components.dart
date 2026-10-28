@@ -9,6 +9,7 @@ import 'package:flame/components.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart' hide Image;
 
+import '../sim/engine.dart';
 import '../sim/models.dart';
 
 // ---------------------------------------------------------------------------
@@ -157,7 +158,8 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
 /// half-hidden names ("Doñ", "Ramó") read as bugs, not layering.
 class SpiritLabelComponent extends PositionComponent {
   final SpiritComponent spirit;
-  SpiritLabelComponent(this.spirit)
+  final SimEngine? engine;
+  SpiritLabelComponent(this.spirit, [this.engine])
     : super(
         size: Vector2(140, 14),
         anchor: Anchor.topCenter,
@@ -174,9 +176,11 @@ class SpiritLabelComponent extends PositionComponent {
   void render(Canvas canvas) {
     final name = spirit.displayName;
     if (name.isEmpty) return;
+    final hasNews =
+        engine != null && spirit.agent.newsUntil > engine!.simTs;
     final tp = TextPainter(
       text: TextSpan(
-        text: name,
+        text: hasNews ? '💡 $name' : name,
         style: TextStyle(
           fontSize: 9,
           color: (spirit.auraColor ?? const Color(0xDDEFE4CE))
@@ -188,6 +192,16 @@ class SpiritLabelComponent extends PositionComponent {
       textDirection: TextDirection.ltr,
     )..layout(maxWidth: size.x);
     tp.paint(canvas, Offset((size.x - tp.width) / 2, 0));
+    if (hasNews) {
+      // a gold diamond under the name — the "has news, ask them" cue
+      final p = Path()
+        ..moveTo(size.x / 2, 12)
+        ..lineTo(size.x / 2 + 3, 15)
+        ..lineTo(size.x / 2, 18)
+        ..lineTo(size.x / 2 - 3, 15)
+        ..close();
+      canvas.drawPath(p, Paint()..color = const Color(0xFFFFC233));
+    }
   }
 }
 

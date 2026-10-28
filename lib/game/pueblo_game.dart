@@ -130,7 +130,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       spirits[agent.id] = comp;
       await world.add(comp);
       // name tag at world level — never occluded by depth sorting
-      await world.add(SpiritLabelComponent(comp));
+      await world.add(SpiritLabelComponent(comp, engine));
     }
 
     // ---- chispa guide ----
@@ -553,9 +553,11 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
           if (fx != 0) c.faceToward(c.position.x + fx);
         }
       case SimEventType.pairStart:
+        // ✨ = knowledge is about to move (purpose convo); 💬 = small talk
+        final glyph = e.data['purpose'] == true ? '✨' : '💬';
         for (final id in [e.data['a'], e.data['b']]) {
           spirits[id]?.walking = false;
-          _emote(id as String, '💬');
+          _emote(id as String, glyph);
         }
       case SimEventType.poiGlow:
         for (final c in world.children.whereType<PoiComponent>()) {

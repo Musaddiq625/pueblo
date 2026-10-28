@@ -86,6 +86,10 @@ class Agent {
   /// `poi`. Majora's-Mask-style baseline under the emergent errands.
   List<({int at, String poi})> schedule = const [];
 
+  /// Recently learned something — the 💡 "has news" cue renders while
+  /// sim_ts < this. Lets the player spot who just heard a secret.
+  int newsUntil = -1;
+
   /// POIs this spirit has personally inspected — gates the verify→inspect
   /// reaction loop so a heard secret sends them to see for themselves.
   final Set<String> verifiedPois = {};

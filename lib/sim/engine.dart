@@ -68,7 +68,7 @@ class SimEngine {
   final Map<String, Poi> pois;
   final NavGrid nav;
   final Random rng;
-  final double timeScale; // 1.0 normal; demo mode higher
+  double timeScale; // 1.0 normal; demo mode higher — HUD-adjustable
   final int dawnAt; // sim_ts of run end
 
   late final PromptBuilder prompts;
@@ -275,7 +275,13 @@ class SimEngine {
       SimEventType.state,
       {'agent': bId, 'fx': (a.x - b.x).sign, 'fy': (a.y - b.y).sign},
     );
-    _events.add(SimEvent(SimEventType.pairStart, {'a': aId, 'b': bId}));
+    _events.add(
+      SimEvent(SimEventType.pairStart, {
+        'a': aId,
+        'b': bId,
+        'purpose': purpose != null,
+      }),
+    );
     _requestTurn(convo);
   }
 
@@ -424,6 +430,8 @@ class SimEngine {
         partner.bumpVersion();
         // a secret received deepens the bond — more than any small talk
         partner.warmth[speaker.id] = (partner.warmth[speaker.id] ?? 0) + 5;
+        // …and leaves a 💡 over their head so the player can spot news
+        partner.newsUntil = simTs + 90;
         await store.simLog(
           simTs,
           partner.id,
@@ -561,6 +569,15 @@ class SimEngine {
     for (final p in near.pois) {
       if (p.anomaly) allowed.add('inspect(${p.id})');
       if (p.isStall) allowed.add('shop(${p.id})');
+    }
+
+    // Curiosity bias — while knowledge could actually move between two
+    // nearby spirits, idling/drifting isn't on the menu. The spirit
+    // engages, visits a POI, or pursues its errand.
+    if (allowed.any((x) => x.startsWith('share(') || x.startsWith('ask('))) {
+      allowed
+        ..remove('idle')
+        ..remove('stroll');
     }
 
     // Rescue affordance — a fading spirit whose name the decider holds:
@@ -1637,6 +1654,7 @@ class SimEngine {
         unawaited(
           store.transferKnowledge(a.id, 'grave_37_name', 'player', simTs, eid),
         );
+        a.newsUntil = simTs + 90;
         a.bumpVersion();
         _checkSolidify();
       }
@@ -1683,6 +1701,43 @@ class SimEngine {
       ),
     );
     a.battery = min(100, a.battery + 10);
+
+    // Ask and ye shall receive — a question-shaped message draws out a
+    // secret the spirit holds and the player lacks. Deterministic like
+    // spirit↔spirit transfer: the model writes the line, the engine owns
+    // the knowledge. Prefer the spirit's freshest news — that's the spark
+    // the 💡 cue promised.
+    if (RegExp(
+      r'\?|secret|news|heard|know|tell|learn|rumor|chisme|cuentame|pasa',
+      caseSensitive: false,
+    ).hasMatch(text)) {
+      final s = await _playerTeachTarget(a);
+      if (s != null) {
+        learnSecretAsPlayer(s.id, 'spirit:${a.id}');
+        _emit(a, SimEventType.emote, {'agent': a.id, 'glyph': '✨'});
+        _events.add(
+          SimEvent(SimEventType.log, {
+            'text': '${a.name} tells you: ${s.shareText}',
+          }),
+        );
+      }
+    }
+  }
+
+  /// The secret an engaged spirit should teach the player: their most
+  /// recently learned one the player lacks, else anything they hold.
+  Future<Secret?> _playerTeachTarget(Agent a) async {
+    for (final sid in await store.recentSecrets(a.id)) {
+      if (!playerKnown.contains(sid) && secrets.containsKey(sid)) {
+        return secrets[sid];
+      }
+    }
+    for (final sid in a.knownSecrets) {
+      if (!playerKnown.contains(sid) && secrets.containsKey(sid)) {
+        return secrets[sid];
+      }
+    }
+    return null;
   }
 
   /// POI inspect — deep lore iff player knows the unlocking secret.

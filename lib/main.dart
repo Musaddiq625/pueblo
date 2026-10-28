@@ -423,6 +423,8 @@ class _Hud extends StatelessWidget {
             engine.llm.name,
             style: const TextStyle(fontSize: 10, color: Color(0xFF5A5078)),
           ),
+          const SizedBox(width: 12),
+          _SpeedChip(engine: engine),
         ],
       ),
     );
@@ -430,6 +432,41 @@ class _Hud extends StatelessWidget {
 
   ValueNotifier<int> _clockListenable(SimEngine e) =>
       _ClockHolder.instance.notifier(e);
+}
+
+/// Sim-speed toggle — cycles 1× → 2× → 4× → 8× so you can fast-forward
+/// through quiet stretches of the night.
+class _SpeedChip extends StatefulWidget {
+  final SimEngine engine;
+  const _SpeedChip({required this.engine});
+
+  @override
+  State<_SpeedChip> createState() => _SpeedChipState();
+}
+
+class _SpeedChipState extends State<_SpeedChip> {
+  static const _steps = [1.0, 2.0, 4.0, 8.0];
+
+  @override
+  Widget build(BuildContext context) {
+    final speed = widget.engine.timeScale;
+    return GestureDetector(
+      onTap: () => setState(() {
+        final i = _steps.indexOf(speed);
+        widget.engine.timeScale =
+            _steps[(i < 0 ? 0 : i + 1) % _steps.length];
+      }),
+      child: Text(
+        '${speed.toInt()}×',
+        key: const Key('speedChip'),
+        style: const TextStyle(
+          fontSize: 11,
+          color: Color(0xFFB8A8E8),
+          decoration: TextDecoration.underline,
+        ),
+      ),
+    );
+  }
 }
 
 /// Tiny ticker so the HUD clock updates — the engine has no ChangeNotifier.

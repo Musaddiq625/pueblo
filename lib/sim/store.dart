@@ -142,6 +142,17 @@ class SimStore {
     return r.isEmpty ? null : r.first['value'] as String;
   }
 
+  /// The agent's secrets freshest-first — the "new info" the 💡 cue
+  /// points at when the player comes asking.
+  Future<List<String>> recentSecrets(String agent) async {
+    final r = await db.query('knowledge',
+        columns: ['secret'],
+        where: 'agent = ?',
+        whereArgs: [agent],
+        orderBy: 'sim_ts DESC');
+    return [for (final row in r) row['secret'] as String];
+  }
+
   /// The agent's newest reflection — surfaced in prompts as its own line
   /// so the synthesis doesn't lose the recall race to fresh observations.
   Future<String?> latestReflection(String agent) async {

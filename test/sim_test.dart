@@ -479,6 +479,53 @@ void main() {
     expect(await b.store.getWorld('warmth.a'), contains('b'));
   });
 
+  test('purpose convo starts with a purpose flag for the spark cue',
+      () async {
+    final b = await _boot();
+    final e = b.engine;
+    var sawPurpose = false;
+    e.events.listen((ev) {
+      if (ev.data['purpose'] == true) sawPurpose = true;
+    });
+    e.startConversation('a', 'b', purpose: (holder: 'a', secretId: 's1'));
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    expect(sawPurpose, isTrue,
+        reason: 'pairStart should carry purpose:true for the ✨ cue');
+  });
+
+  test('asking an engaged spirit a question teaches the player', () async {
+    final b = await _boot();
+    final e = b.engine;
+    e.engage('a'); // Ana knows s1, player doesn't
+    await for (final _ in e.sendPlayerMessage('what do you know?')) {}
+    expect(e.playerKnown, contains('s1'),
+        reason: 'a question should draw out a held secret');
+    e.disengage();
+  });
+
+  test('idle and stroll leave the menu while knowledge could move', () async {
+    final llm = _ScriptedLLM();
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    for (var i = 0; i < 30; i++) {
+      e.agents['a']!.x = 0;
+      e.agents['a']!.y = 0;
+      e.agents['b']!.x = 30;
+      e.agents['b']!.y = 0;
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    final aPrompt =
+        llm.prompts.firstWhere((p) => p.contains('You are Ana'), orElse: () => '');
+    // share(b,s1) is on the menu → drift options must not be
+    expect(aPrompt, contains('share(b,s1)'));
+    final menu = aPrompt.split('Choose ONE of:').last.split('- ').first;
+    expect(menu, isNot(contains('idle')));
+    expect(menu, isNot(contains('stroll')));
+  });
+
   test('director rumor beat lands as an overheard memory', () async {
     final llm = _ScriptedLLM()
       ..forcedBeat = {
