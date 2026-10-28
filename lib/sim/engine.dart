@@ -139,6 +139,17 @@ class SimEngine {
   /// a cooldown; knowledge-sharing offers never do.
   final Map<String, int> _pairLastTalked = {};
 
+  /// Director state — the storyteller's cadence and the current gathering.
+  static const directorEvery = 120.0; // sim seconds between beats
+  static const directorFirstAt = 90.0; // let the world settle first
+  double _nextDirectorAt = directorFirstAt;
+  int _gatherUntil = -1; // sim_ts the gathering beat ends
+  String _gatherPoi = 'ofrenda';
+
+  /// An approach deferred because the target was engaged/busy — one retry
+  /// at the initiator's next decision slot, then the moment passes (§11.9).
+  final Map<String, Decision> _pendingApproach = {};
+
   String _pairKey(String a, String b) =>
       a.compareTo(b) < 0 ? '$a:$b' : '$b:$a';
 
@@ -159,6 +170,7 @@ class SimEngine {
     broker.decisions.listen(_onDecision);
     broker.turns.listen(_onTurn);
     broker.reflections.listen(_onReflection);
+    broker.beats.listen(_applyBeat);
   }
 
   // ============================ world clock ================================
@@ -191,6 +203,10 @@ class SimEngine {
     if (_decisionTimer >= decisionEvery) {
       _decisionTimer = 0;
       _scheduleDecision();
+    }
+    if (simTs >= _nextDirectorAt) {
+      _nextDirectorAt = simTs + directorEvery;
+      _maybeDirect();
     }
     if (_batteryTimer >= batteryEvery) {
       _batteryTimer = 0;
@@ -278,6 +294,11 @@ class SimEngine {
       a.inConvo = b.inConvo = false;
       a.bumpVersion();
       b.bumpVersion();
+      // relationships — every completed convo warms the pair a little
+      a.warmth[b.id] = (a.warmth[b.id] ?? 0) + 2;
+      b.warmth[a.id] = (b.warmth[a.id] ?? 0) + 2;
+      unawaited(store.setWorld('warmth.${a.id}', jsonEncode(a.warmth)));
+      unawaited(store.setWorld('warmth.${b.id}', jsonEncode(b.warmth)));
       _events.add(SimEvent(SimEventType.pairEnd, {'a': c.aId, 'b': c.bId}));
     }
   }
@@ -401,6 +422,8 @@ class SimEngine {
       if (learned) {
         partner.knownSecrets.add(shared);
         partner.bumpVersion();
+        // a secret received deepens the bond — more than any small talk
+        partner.warmth[speaker.id] = (partner.warmth[speaker.id] ?? 0) + 5;
         await store.simLog(
           simTs,
           partner.id,
@@ -445,9 +468,12 @@ class SimEngine {
       }),
     );
 
-    // Next speaker / done.
+    // Next speaker / done. Purpose convos get two extra turns so the
+    // listener can react after the knowledge lands.
     c.nextSpeaker = partner.id;
-    if (turn.end || c.transcript.length >= 4) c.done = true;
+    if (turn.end || c.transcript.length >= (c.purpose != null ? 6 : 4)) {
+      c.done = true;
+    }
   }
 
   /// Player engaged a spirit that was mid-conversation — release the partner.
@@ -469,6 +495,15 @@ class SimEngine {
     free.sort((a, b) => a.lastActedAt.compareTo(b.lastActedAt));
     final agent = free.first;
     agent.lastActedAt = simTs.toDouble();
+
+    // A deferred approach consumes this slot — the agent already chose
+    // it; conditions just needed to clear. One retry, then the moment
+    // passes (no stalker loop).
+    final pending = _pendingApproach.remove(agent.id);
+    if (pending != null) {
+      _execute(agent, pending, canDefer: false);
+      return;
+    }
 
     // Build offered actions (weighted by stats).
     final near = _nearby(agent);
@@ -553,9 +588,16 @@ class SimEngine {
       allowedActions: allowed,
       errand: _describeErrand(agent),
       rescue: rescue,
+      reflection: _reflCache[agent.id],
     );
     broker.push(JobKind.decision, agent.id, prompt, agent.stateVersion);
     _refreshMemories(agent);
+    unawaited(_refreshReflection(agent));
+  }
+
+  final Map<String, String?> _reflCache = {};
+  Future<void> _refreshReflection(Agent a) async {
+    _reflCache[a.id] = await store.latestReflection(a.id);
   }
 
   // ============================ errands (planning) ==========================
@@ -566,6 +608,40 @@ class SimEngine {
   /// lacks it), seek (dim battery → find company), tend (role routine). The
   /// LLM still chooses how/when to pursue it; the world supplies the reason.
   void _ensureErrand(Agent a) {
+    if (a.faded) {
+      a.errand = null;
+      return;
+    }
+    // 0a. self-preservation — dim spirits hunt company before they fade
+    if (a.battery < 40) {
+      Agent? closest;
+      var cd = double.infinity;
+      for (final o in agents.values) {
+        if (o.id == a.id || o.faded || o.engaged) continue;
+        final d = _dist2(a.x, a.y, o.x, o.y);
+        if (d < cd) {
+          cd = d;
+          closest = o;
+        }
+      }
+      if (closest != null) {
+        a.errand = (kind: 'seek', targetId: closest.id);
+        return;
+      }
+    }
+    // 0b. rescue — a fading spirit whose wake-name I hold outranks any
+    // routine. Checked before the stale-errand early-return so learning
+    // the name mid-night immediately turns the holder toward them.
+    for (final f in agents.values) {
+      if (!f.faded || f.id == a.id) continue;
+      if (a.knownSecrets.any((s) => secrets[s]?.wakesAgent == f.id)) {
+        if (a.errand?.kind != 'seek' || a.errand?.targetId != f.id) {
+          a.errand = (kind: 'seek', targetId: f.id);
+        }
+        return;
+      }
+    }
+
     final e = a.errand;
     if (e != null) {
       // staleness — the reason evaporated
@@ -594,14 +670,20 @@ class SimEngine {
         return;
       }
     }
-    // 2. tell — carry news to whoever lacks the most of what a holds
+    // 2. tell — carry news to whoever lacks the most of what a holds,
+    // weighted by distance and how warm the pair already is so nearby
+    // friends win over far strangers at equal news-value.
     Agent? bestT;
-    var bestCount = 0;
+    var bestScore = 0.0;
     for (final o in agents.values) {
       if (o.id == a.id || o.faded || o.engaged) continue;
       final n = a.knownSecrets.difference(o.knownSecrets).length;
-      if (n > bestCount) {
-        bestCount = n;
+      if (n == 0) continue;
+      final score = n -
+          sqrt(_dist2(a.x, a.y, o.x, o.y)) / (8 * kTile) +
+          (a.warmth[o.id] ?? 0) / 10.0;
+      if (score > bestScore) {
+        bestScore = score;
         bestT = o;
       }
     }
@@ -609,26 +691,25 @@ class SimEngine {
       a.errand = (kind: 'tell', targetId: bestT.id);
       return;
     }
-    // 3. seek — dim spirits hunt company before they fade
-    if (a.battery < 40) {
-      Agent? closest;
-      var cd = double.infinity;
-      for (final o in agents.values) {
-        if (o.id == a.id || o.faded || o.engaged) continue;
-        final d = _dist2(a.x, a.y, o.x, o.y);
-        if (d < cd) {
-          cd = d;
-          closest = o;
-        }
-      }
-      if (closest != null) {
-        a.errand = (kind: 'seek', targetId: closest.id);
-        return;
-      }
+    // 3. gathering — a director-triggered beat, or the scheduled ofrenda
+    // moment at 60% of the night. Fires whether or not the player attends
+    // (the Majora's Mask rule).
+    if (simTs < _gatherUntil) {
+      a.errand = (kind: 'tend', targetId: _gatherPoi);
+      return;
     }
-    // 4. tend — routine: their own patch of the village
-    if (pois.containsKey(a.home)) {
-      a.errand = (kind: 'tend', targetId: a.home);
+    if (simTs >= dawnAt * 0.6) {
+      a.errand = (kind: 'tend', targetId: 'ofrenda');
+      return;
+    }
+    // 4. schedule — the persona's authored routine for this time of
+    // night; falls back to their home patch.
+    var schedPoi = a.home;
+    for (final s in a.schedule) {
+      if (simTs >= s.at) schedPoi = s.poi;
+    }
+    if (pois.containsKey(schedPoi)) {
+      a.errand = (kind: 'tend', targetId: schedPoi);
     }
   }
 
@@ -640,9 +721,127 @@ class SimEngine {
         'you heard something about ${pois[e.targetId]?.name ?? e.targetId} — go see for yourself',
       'tell' =>
         'you carry news ${agents[e.targetId]?.name ?? e.targetId} hasn\'t heard — find them',
-      'seek' => 'you feel dim — find company before the night takes you',
+      'seek' => agents[e.targetId]?.faded == true
+          ? '${agents[e.targetId]!.name} is fading and you hold their name — reach them'
+          : 'you feel dim — find company before the night takes you',
       _ => 'your routine — check on ${pois[e.targetId]?.name ?? e.targetId}',
     };
+  }
+
+  // ============================ director (storyteller) =====================
+  //
+  // RimWorld's AI Storyteller: a deterministic digest of the whole town in,
+  // ONE beat from a fixed palette out — rumor, mood, gathering, curiosity
+  // spike. The LLM proposes; the engine validates and applies (§11.8).
+  // Paced like RimWorld: no beats while a purpose convo is on stage, and
+  // a full-cycle cooldown after every landed beat (tension → release).
+
+  final List<String> _recentNotes = [];
+
+  void _maybeDirect() {
+    // tension already on stage — a purpose convo means the story is
+    // moving on its own; the director stays quiet.
+    if (conversations.values.any((c) => c.purpose != null)) return;
+    broker.push(
+      JobKind.director,
+      'director',
+      prompts.directorPrompt(_directorDigest()),
+      -1, // no staleness gate — the digest is re-validated at apply time
+    );
+  }
+
+  String _directorDigest() {
+    final parts = agents.values
+        .map(
+          (a) =>
+              '${a.id} ${a.faded ? 'FADING' : a.condition} b${a.battery.round()}@${_nearestPoiId(a.x, a.y)}',
+        )
+        .join('; ');
+    final know = secrets.values
+        .map(
+          (s) =>
+              '${s.id} ${agents.values.where((a) => a.knownSecrets.contains(s.id)).length}/${agents.length}',
+        )
+        .join(', ');
+    final hooks = agents.values
+        .where((a) => a.hook != null)
+        .map((a) => '${a.id}: ${a.hook}')
+        .join('; ');
+    return 'Town (night ${_clock()}):\n$parts\n'
+        'Secrets spreading: $know\n'
+        'Hooks: $hooks\n'
+        'Recent: ${_recentNotes.isEmpty ? 'the night is still young' : _recentNotes.join('; ')}';
+  }
+
+  void _applyBeat(Map<String, dynamic>? beat) {
+    if (beat == null) return;
+    final kind = beat['beat']?.toString();
+    final agent = _fuzzyId(beat['agent']?.toString(), agents.keys.toSet());
+    final poi = _fuzzyId(beat['poi']?.toString(), pois.keys.toSet());
+    final line = _cleanLine(beat['line']?.toString() ?? '');
+    var landed = false;
+    switch (kind) {
+      case 'rumor':
+        if (poi == null || line.isEmpty) return;
+        final p = pois[poi]!;
+        // the two nearest unfaded spirits overhear — it enters their
+        // memory stream and can surface in later prompts/turns.
+        final near = agents.values.where((a) => !a.faded).toList()
+          ..sort(
+            (x, y) => _dist2(x.x, x.y, p.x, p.y)
+                .compareTo(_dist2(y.x, y.y, p.x, p.y)),
+          );
+        for (final a in near.take(2)) {
+          unawaited(
+            store.memory(
+              Memory(
+                agent: a.id,
+                simTs: simTs,
+                kind: 'observation',
+                source: 'rumor',
+                text: 'whispered near ${p.name}: "$line"',
+                importance: 6,
+                entities: [poi],
+              ),
+            ),
+          );
+        }
+        _note('a whisper spreads near ${p.name}: "$line"');
+        landed = true;
+      case 'mood':
+        if (agent == null || line.isEmpty) return;
+        final a = agents[agent]!;
+        a.mood = line.split(' ').take(5).join(' ');
+        _note('${a.name} feels $line');
+        landed = true;
+      case 'gathering':
+        if (poi == null) return;
+        _gatherPoi = poi;
+        _gatherUntil = simTs + 60;
+        _note('the spirits drift toward ${pois[poi]!.name}');
+        landed = true;
+      case 'curiosity_spike':
+        if (agent == null || poi == null) return;
+        final a = agents[agent]!;
+        if (!a.faded && !a.verifiedPois.contains(poi)) {
+          a.errand = (kind: 'verify', targetId: poi);
+          _note('${a.name} can\'t stop thinking about ${pois[poi]!.name}');
+          landed = true;
+        }
+      default:
+        return; // 'none' or anything unrecognized — the night breathes
+    }
+    if (landed) {
+      unawaited(store.simLog(simTs, 'director', 'beat', kind ?? '?'));
+      // tension → release: a full quiet cycle after every landed beat.
+      _nextDirectorAt = simTs + directorEvery;
+    }
+  }
+
+  void _note(String text) {
+    _recentNotes.add(text);
+    if (_recentNotes.length > 6) _recentNotes.removeAt(0);
+    _events.add(SimEvent(SimEventType.log, {'text': text}));
   }
 
   final Map<String, List<String>> _memCache = {};
@@ -695,7 +894,7 @@ class SimEngine {
     _execute(a, d);
   }
 
-  void _execute(Agent a, Decision d) {
+  void _execute(Agent a, Decision d, {bool canDefer = true}) {
     // Small models echo offered actions verbatim ("share(bruno,x)") —
     // normalize name(args) into action/target/subject before dispatch.
     var action = d.action.trim();
@@ -709,6 +908,11 @@ class SimEngine {
     }
     if (target == 'null' || target == '') target = null;
     if (subject == 'null' || subject == '') subject = null;
+    // Small models typo ids ("Solors", "solor_01") — resolve them before
+    // dispatch so intent survives a misspelling.
+    final allIds = {...agents.keys, ...pois.keys};
+    target = _fuzzyId(target, allIds);
+    subject = _fuzzyId(subject, {...allIds, ...secrets.keys});
     // The model often picks the errand action without filling the
     // destination — the deterministic plan supplies what it meant.
     if (target == null &&
@@ -742,6 +946,10 @@ class SimEngine {
           }
           return;
         }
+        if (t != null && canDefer) {
+          _pendingApproach[a.id] = d;
+          return;
+        }
         _fallbackStroll(a);
       case 'askAbout':
         final t = agents[target];
@@ -755,6 +963,10 @@ class SimEngine {
               ag.goal = null;
             },
           );
+          return;
+        }
+        if (t != null && canDefer) {
+          _pendingApproach[a.id] = d;
           return;
         }
         _fallbackStroll(a);
@@ -790,6 +1002,10 @@ class SimEngine {
       case 'offerSecret': // legacy — same thing
         final t = agents[target];
         if (t == null || t.engaged || t.inConvo || t.faded) {
+          if (t != null && !t.faded && canDefer) {
+            _pendingApproach[a.id] = d;
+            return;
+          }
           _fallbackStroll(a);
           return;
         }
@@ -817,6 +1033,10 @@ class SimEngine {
       case 'ask':
         final t = agents[target];
         if (t == null || t.engaged || t.inConvo || t.faded) {
+          if (t != null && !t.faded && canDefer) {
+            _pendingApproach[a.id] = d;
+            return;
+          }
           _fallbackStroll(a);
           return;
         }
@@ -836,9 +1056,18 @@ class SimEngine {
         );
         return;
       case 'seek':
-        // walk to the errand's person — the talk happens on a later decision
+        // walk to the errand's person — the talk happens on a later
+        // decision. A faded spirit is approachable when we carry their
+        // wake-name (the rescue-seek errand).
         final t = agents[target];
-        if (t == null || t.faded || t.inConvo || t.engaged) {
+        final canWake = t != null &&
+            t.faded &&
+            a.knownSecrets.any((s) => secrets[s]?.wakesAgent == t.id);
+        if (t == null || (t.faded && !canWake) || t.inConvo || t.engaged) {
+          if (t != null && !t.faded && canDefer) {
+            _pendingApproach[a.id] = d;
+            return;
+          }
           _fallbackStroll(a);
           return;
         }
@@ -1627,6 +1856,59 @@ class SimEngine {
     return dx * dx + dy * dy;
   }
 
+  /// Resolve a possibly-misspelled id: exact → normalized → prefix →
+  /// Levenshtein≤1. Returns null when nothing is close enough to trust.
+  String? _fuzzyId(String? raw, Set<String> ids) {
+    if (raw == null) return null;
+    if (ids.contains(raw)) return raw;
+    final norm = _normId(raw);
+    for (final id in ids) {
+      if (_normId(id) == norm) return id;
+    }
+    for (final id in ids) {
+      if (_normId(id).startsWith(norm) || norm.startsWith(_normId(id))) {
+        return id;
+      }
+    }
+    String? best;
+    var bd = 2;
+    for (final id in ids) {
+      final d = _lev(_normId(id), norm);
+      if (d < bd) {
+        bd = d;
+        best = id;
+      }
+    }
+    return best;
+  }
+
+  static String _normId(String s) => s
+      .toLowerCase()
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll('ñ', 'n')
+      .replaceAll(RegExp('[^a-z0-9_]'), '');
+
+  static int _lev(String a, String b) {
+    var prev = List<int>.generate(b.length + 1, (i) => i);
+    for (var i = 1; i <= a.length; i++) {
+      final cur = <int>[i];
+      for (var j = 1; j <= b.length; j++) {
+        cur.add(
+          min(
+            min(cur[j - 1] + 1, prev[j] + 1),
+            prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1),
+          ),
+        );
+      }
+      prev = cur;
+    }
+    return prev[b.length];
+  }
+
   /// The model often picks an action without filling its target — the
   /// deterministic world supplies the nearest valid destination.
   Poi? _nearestOf(Agent a, bool Function(Poi) predicate) {
@@ -1654,6 +1936,19 @@ class SimEngine {
       }
     }
     return best?.name ?? 'the road';
+  }
+
+  String _nearestPoiId(double x, double y) {
+    Poi? best;
+    var bd = double.infinity;
+    for (final p in pois.values) {
+      final d = _dist2(x, y, p.x, p.y);
+      if (d < bd) {
+        bd = d;
+        best = p;
+      }
+    }
+    return best?.id ?? 'road';
   }
 
   String _clock() {

@@ -129,4 +129,8 @@ class GemmaLocalClient implements LLMClient {
     final j = _json(await _chat(prompt, temperature: 0.5, maxTokens: 120));
     return j?['summary']?.toString() ?? j?['line']?.toString();
   }
+
+  @override
+  Future<Map<String, dynamic>?> direct(String prompt) async =>
+      _json(await _chat(prompt, temperature: 0.6, maxTokens: 100));
 }

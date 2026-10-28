@@ -60,6 +60,11 @@ Future<SimBundle> bootstrap({
       home: p['home'],
       battery: p['id'] == 'solorio' ? 6 : 70 + r.nextDouble() * 20,
     );
+    a.hook = p['hook'] as String?;
+    a.schedule = [
+      for (final s in (p['schedule'] as List? ?? const []))
+        (at: s['at'] as int, poi: s['poi'] as String),
+    ];
     final home = homePos[a.home] ?? [704.0, 336.0];
     a.x = home[0];
     a.y = home[1];

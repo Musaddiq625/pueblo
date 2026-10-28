@@ -142,6 +142,18 @@ class SimStore {
     return r.isEmpty ? null : r.first['value'] as String;
   }
 
+  /// The agent's newest reflection — surfaced in prompts as its own line
+  /// so the synthesis doesn't lose the recall race to fresh observations.
+  Future<String?> latestReflection(String agent) async {
+    final r = await db.query('memories',
+        columns: ['text'],
+        where: 'agent = ? AND kind = ?',
+        whereArgs: [agent, 'reflection'],
+        orderBy: 'sim_ts DESC',
+        limit: 1);
+    return r.isEmpty ? null : r.first['text'] as String;
+  }
+
   Future<List<Memory>> recall(Agent a, int nowTs, {int limit = 5,
       Set<String> contextEntities = const {}}) async {
     final rows = await db.query('memories',

@@ -31,20 +31,24 @@ Future<void> main() async {
   // loads never complete under it (black screen, dead world).
   // Commands: state | tap_spirit <name> | tap_poi <id> | release |
   //           chat <msg> | zoom <f> | center | shot
+  WidgetsFlutterBinding.ensureInitialized();
   const driver = bool.fromEnvironment('DRIVER');
   if (driver) {
-    dev.registerExtension(
-      'ext.pueblo.cmd',
-      (method, params) async => dev.ServiceExtensionResponse.result(
-        jsonEncode({
-          'result':
-              await (PuebloGame.activeGame?.driverCommand(params['cmd']) ??
-                  Future.value('ERR game not loaded')),
-        }),
-      ),
-    );
+    // registerExtension only bites once the isolate's service connection
+    // is live — main() runs too early, so defer to the first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      dev.registerExtension(
+        'ext.pueblo.cmd',
+        (method, params) async => dev.ServiceExtensionResponse.result(
+          jsonEncode({
+            'result':
+                await (PuebloGame.activeGame?.driverCommand(params['cmd']) ??
+                    Future.value('ERR game not loaded')),
+          }),
+        ),
+      );
+    });
   }
-  WidgetsFlutterBinding.ensureInitialized();
   final personasJson = await rootBundle.loadString('assets/data/personas.json');
   final secretsJson = await rootBundle.loadString('assets/data/secrets.json');
 

@@ -35,6 +35,10 @@ abstract class LLMClient {
   Future<ConvoTurn?> convoTurn(String prompt);
   Stream<String> playerChat(String prompt);
   Future<String?> reflect(String prompt);
+
+  /// The storyteller — a town-state digest in, one validated beat JSON out
+  /// (or null). Engine owns all application.
+  Future<Map<String, dynamic>?> direct(String prompt);
 }
 
 // ---------------------------------------------------------------------------
@@ -146,6 +150,10 @@ class OllamaClient implements LLMClient {
     final j = _json(await _chat(prompt, temperature: 0.5, numPredict: 200));
     return j?['summary']?.toString() ?? j?['line']?.toString();
   }
+
+  @override
+  Future<Map<String, dynamic>?> direct(String prompt) async =>
+      _json(await _chat(prompt, temperature: 0.6, numPredict: 120));
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +240,23 @@ class MockLLMClient implements LLMClient {
   @override
   Future<String?> reflect(String prompt) async =>
       'the town keeps turning; i keep watching.';
+
+  @override
+  Future<Map<String, dynamic>?> direct(String prompt) async {
+    // Alternate a gentle rumor with silence — the night breathes.
+    if (rng.nextDouble() < 0.4) {
+      final m = RegExp('@([a-z_0-9]+)').allMatches(prompt);
+      final poi = m.isEmpty ? 'fountain' : m.first.group(1);
+      return {
+        'beat': 'rumor',
+        'agent': null,
+        'poi': poi,
+        'line': 'the water remembers what the night forgets',
+        'why': 'a whisper for the listeners',
+      };
+    }
+    return {'beat': 'none'};
+  }
 
   String _pick(List<String> l) => l[rng.nextInt(l.length)];
 }

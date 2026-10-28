@@ -18,7 +18,7 @@ import 'package:pueblo/sim/prompts.dart';
 
 const _actions = {
   'stroll', 'idle', 'converse', 'greet', 'inspect', 'shop', 'goto',
-  'share', 'ask', 'askAbout', 'offerSecret',
+  'share', 'ask', 'askAbout', 'offerSecret', 'seek',
 };
 
 /// Same normalization the engine applies — small models echo "share(bor,x)"
@@ -71,7 +71,9 @@ void main(List<String> argv) async {
 
   // --- correctness pass: are the JSONs valid + actions legal? ---
   var decideOk = 0, convoOk = 0, actionLegal = 0, decided = 0;
+  var purposePicks = 0; // share/ask/greet chosen while a secret is offerable
   final decideLat = <int>[], convoLat = <int>[];
+  const purpose = {'share', 'ask', 'askAbout', 'greet'};
 
   for (var i = 0; i < rounds; i++) {
     // decide — Ana with a visible Bor, legal action menu
@@ -88,6 +90,7 @@ void main(List<String> argv) async {
     decideLat.add(DateTime.now().difference(t0).inMilliseconds);
     if (d != null) {
       decided++;
+      if (purpose.contains(_actionName(d.action))) purposePicks++;
       if (_actions.contains(_actionName(d.action))) {
         decideOk++;
         actionLegal++;
@@ -116,9 +119,21 @@ void main(List<String> argv) async {
 
   print('-- single-request correctness ($rounds rounds) --');
   print('decide: $decided/$rounds parsed, $actionLegal legal action, '
+      '$purposePicks purpose picks, '
       'p50=${_p50(decideLat)}ms p95=${_p95(decideLat)}ms');
   print('convo : $convoOk/$rounds valid turn, '
       'p50=${_p50(convoLat)}ms p95=${_p95(convoLat)}ms\n');
+
+  // --- director beat: does the storyteller return a usable beat? ---
+  final dt = DateTime.now();
+  final beat = await llm.direct(prompts.directorPrompt(
+      'Town (night 03:12):\nluz lively b62@flower_stall; bruno lively b80@gravedigger_hut; solorio FADING b2@plaza\n'
+      'Secrets spreading: tree_is_hollow 1/6, grave_37_name 1/6\n'
+      'Recent: luz told bruno bridge_memory'));
+  final beatMs = DateTime.now().difference(dt).inMilliseconds;
+  const beats = {'rumor', 'mood', 'gathering', 'curiosity_spike', 'none'};
+  final beatOk = beat != null && beats.contains(beat['beat']);
+  print('director: ${beatOk ? 'OK' : 'BAD'} ${beat?['beat']} ${beatMs}ms — $beat');
 
   // --- throughput scaling: N parallel decisions ---
   for (final n in parallels) {

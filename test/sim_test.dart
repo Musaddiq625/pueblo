@@ -31,6 +31,7 @@ Future<SimBundle> _boot({LLMClient? llm}) async {
     pois: const [
       Poi(id: 'p1', name: 'P1', surfaceText: 'just a lane', x: 0, y: 0),
       Poi(id: 'p2', name: 'P2', surfaceText: 'just a stall', x: 10, y: 10),
+      Poi(id: 'ofrenda', name: 'Ofrenda', surfaceText: 'the shrine', x: 40, y: 40),
     ],
     homePos: const {
       'p1': [0, 0],
@@ -51,6 +52,7 @@ class _ScriptedLLM extends MockLLMClient {
   String? forcedShare;
   bool endNow = true;
   Decision? forcedDecision;
+  Map<String, dynamic>? forcedBeat;
 
   @override
   Future<Decision?> decide(String prompt) async {
@@ -62,6 +64,12 @@ class _ScriptedLLM extends MockLLMClient {
   Future<ConvoTurn?> convoTurn(String prompt) async {
     prompts.add(prompt);
     return ConvoTurn('a spoken line', sharesSecret: forcedShare, end: endNow);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> direct(String prompt) async {
+    prompts.add(prompt);
+    return forcedBeat ?? {'beat': 'none'};
   }
 }
 
@@ -331,5 +339,168 @@ void main() {
         isTrue);
     expect(bor.faded, isFalse, reason: 'the spoken name should revive them');
     expect(bor.battery, greaterThan(8));
+  });
+
+  test('approach on an engaged target defers and retries when free', () async {
+    final llm = _ScriptedLLM()
+      ..forcedDecision = Decision('converse', 'b', 'hola, compadre');
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    // B busy with the player — A's approach must wait, not drop
+    e.engage('b');
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    for (var i = 0; i < 26; i++) {
+      e.agents['a']!.x = 0;
+      e.agents['a']!.y = 0;
+      e.agents['b']!.x = 30;
+      e.agents['b']!.y = 0;
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    expect(e.conversations, isEmpty, reason: 'B is engaged — no convo yet');
+    // release B — the deferred approach should fire on A's next slot
+    e.disengage();
+    for (var i = 0; i < 60 && e.conversations.isEmpty; i++) {
+      if (i < 20) {
+        e.agents['a']!.x = 0;
+        e.agents['a']!.y = 0;
+        e.agents['b']!.x = 30;
+        e.agents['b']!.y = 0;
+      }
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    expect(e.conversations, isNotEmpty,
+        reason: 'the deferred converse should retry once B is free');
+  });
+
+  test('fuzzy id resolves a typoed target', () async {
+    final llm = _ScriptedLLM()
+      ..forcedDecision = Decision('greet', 'b!', 'hola'); // model typo
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    var greeted = false;
+    e.events.listen((ev) {
+      if (ev.data['line'] == 'hola') greeted = true;
+    });
+    for (var i = 0; i < 60 && !greeted; i++) {
+      if (i < 20) {
+        e.agents['a']!.x = 0;
+        e.agents['a']!.y = 0;
+        e.agents['b']!.x = 30;
+        e.agents['b']!.y = 0;
+      }
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    expect(greeted, isTrue,
+        reason: 'greet(b!) should resolve to greet(b) and fire the line');
+  });
+
+  test('rescue errand sends the name-holder to the fading spirit', () async {
+    final b = await _boot();
+    final e = b.engine;
+    final bor = e.agents['b']!..battery = 4;
+    bor.faded = true;
+    // a holds s1 — wakes_agent: b. Next decision assigns the rescue errand.
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    await _pump(e, ticks: 30);
+    expect(e.agents['a']!.errand?.kind, 'seek');
+    expect(e.agents['a']!.errand?.targetId, 'b');
+  });
+
+  test('scheduled gathering: past 60% of the night everyone tends the ofrenda',
+      () async {
+    final b = await _boot();
+    final e = b.engine;
+    e.simTs = 600; // dawnAt 900 → 60% = 540
+    // clear any current errand so ensureErrand picks fresh
+    e.agents['a']!.errand = null;
+    e.agents['a']!.verifiedPois.add('p1'); // no verify pending
+    e.agents['a']!.knownSecrets.clear(); // nothing to tell
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    await _pump(e, ticks: 30);
+    expect(e.agents['a']!.errand?.kind, 'tend');
+    expect(e.agents['a']!.errand?.targetId, 'ofrenda');
+  });
+
+  test('persona schedule phase moves the tend target', () async {
+    // a's persona has no schedule in _personas — inject one directly
+    final b = await _boot();
+    final e = b.engine;
+    final ana = e.agents['a']!;
+    ana.schedule = const [(at: 50, poi: 'p2')];
+    ana.verifiedPois.add('p1');
+    ana.knownSecrets.clear();
+    e.simTs = 100; // past the phase boundary
+    ana.errand = null;
+    ana.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    await _pump(e, ticks: 30);
+    expect(ana.errand?.kind, 'tend');
+    expect(ana.errand?.targetId, 'p2');
+  });
+
+  test('director gathering beat moves every idle errand to the poi', () async {
+    final llm = _ScriptedLLM()
+      ..forcedBeat = {'beat': 'gathering', 'poi': 'p1', 'line': null};
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    e.simTs = 100; // director's first beat fires at 90
+    final ana = e.agents['a']!;
+    ana.verifiedPois.add('p1');
+    ana.knownSecrets.clear();
+    ana.errand = null;
+    ana.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    for (var i = 0; i < 40 && ana.errand?.targetId != 'p1'; i++) {
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    expect(llm.prompts.any((p) => p.contains('storyteller')), isTrue,
+        reason: 'the director prompt should have been sent');
+    expect(ana.errand?.kind, 'tend');
+    expect(ana.errand?.targetId, 'p1');
+  });
+
+  test('completed convo warms both speakers', () async {
+    final b = await _boot();
+    final e = b.engine;
+    e.startConversation('a', 'b');
+    await _pump(e, ticks: 40);
+    expect(e.agents['a']!.warmth['b'], greaterThanOrEqualTo(2));
+    expect(e.agents['b']!.warmth['a'], greaterThanOrEqualTo(2));
+    // and the bond is persisted to the world kv
+    expect(await b.store.getWorld('warmth.a'), contains('b'));
+  });
+
+  test('director rumor beat lands as an overheard memory', () async {
+    final llm = _ScriptedLLM()
+      ..forcedBeat = {
+        'beat': 'rumor',
+        'poi': 'p1',
+        'line': 'the lane hums after midnight',
+      };
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    e.simTs = 100;
+    var overheard = false;
+    for (var i = 0; i < 40 && !overheard; i++) {
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+      // the two nearest spirits get the rumor in their memory stream —
+      // importance 6 outranks fresh observations in recall
+      for (final a in e.agents.values) {
+        final ms = await b.store.recall(a, e.simTs);
+        if (ms.any((m) => m.text.contains('lane hums'))) overheard = true;
+      }
+    }
+    expect(overheard, isTrue,
+        reason: 'the rumor should enter at least one memory stream');
   });
 }

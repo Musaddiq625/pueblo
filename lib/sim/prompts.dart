@@ -26,15 +26,21 @@ class PromptBuilder {
     required List<String> allowedActions,
     String? errand,
     String? rescue,
+    String? reflection,
   }) {
     final s = a.stats;
+    final warm = a.warmth.entries.where((e) => e.value > 0).toList()
+      ..sort((x, y) => y.value.compareTo(x.value));
+    final bonds = warm.isEmpty
+        ? ''
+        : '\nYou feel close to: ${warm.take(3).map((e) => e.key).join(', ')}.';
     return '''
-You are ${a.name}. ${a.persona}
+You are ${a.name}. ${a.persona}${a.hook == null ? '' : '\nQuirk: ${a.hook}'}
 Stats (0-5): curiosity ${s.curiosity}, wit ${s.wit}, warmth ${s.warmth}, spirit-sight ${s.spiritSight}, mischief ${s.mischief}, grump ${s.grump}.
 Pueblo de las Velas, a village of the dead at night. Stay in character.
 Never invent people, places, or events.${rescue == null ? '' : '\nURGENT: $rescue'}
-Now: $simClock. You stand at $place. Nearby: $nearbyEntities.
-You remember: ${memories.isEmpty ? 'nothing recent' : memories.join(' | ')}.
+Now: $simClock. You stand at $place. Nearby: $nearbyEntities.${a.mood == null ? '' : ' Feeling: ${a.mood}.'}$bonds
+You remember: ${memories.isEmpty ? 'nothing recent' : memories.join(' | ')}.${reflection == null ? '' : '\nYou\'ve been thinking: $reflection'}
 Secrets you know: [${_secretsBlock(a)}]${errand == null ? '' : '\nYour errand: $errand.'}
 Choose ONE of: ${allowedActions.join(', ')}.
 - share(who,secret_id): tell them a secret they haven't heard — knowledge passes mouth to ear.
@@ -121,4 +127,21 @@ You are ${a.name}. Compress these memories into ONE sentence of self-knowledge
 (what you think, who matters, what you're looking for). ≤30 words.
 Memories: ${oldMemories.join(' | ')}
 JSON: {"summary":"..."}''';
+
+  /// The storyteller — RimWorld's director pattern. Reads a deterministic
+  /// digest of the whole town, picks at most ONE validated beat. The LLM
+  /// proposes; the engine disposes (§11.8): nothing it emits touches state
+  /// without passing validation.
+  String directorPrompt(String digest) => '''
+You are the storyteller of Pueblo de las Velas, a village of the dead at night.
+Read the town state; choose at most ONE small beat that deepens the story.
+$digest
+Beats (choose one):
+- rumor(poi,line): a whisper spreads near a place — nearby spirits overhear it (≤15 words)
+- mood(agent,line): a feeling settles on one spirit (≤5 words)
+- gathering(poi): the spirits drift toward a place for a while
+- curiosity_spike(agent,poi): one spirit becomes intent on seeing a place
+- none: the night breathes on its own
+Stay inside the world — never invent people, places, or secrets.
+Reply ONLY JSON: {"beat":"...","agent":"id|null","poi":"id|null","line":"..|null","why":"≤10 words"}''';
 }

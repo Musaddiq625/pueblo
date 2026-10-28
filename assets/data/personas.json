@@ -15,7 +15,18 @@
     "home": "flower_stall",
     "sprite": "sk_mage",
     "initial_secrets": [],
-    "tint": "#F5A95B"
+    "tint": "#F5A95B",
+    "hook": "feeds everyone gossip like tortillas; can't keep a secret past supper",
+    "schedule": [
+      {
+        "at": 180,
+        "poi": "plaza"
+      },
+      {
+        "at": 400,
+        "poi": "flower_stall"
+      }
+    ]
   },
   {
     "id": "bruno",
@@ -36,7 +47,18 @@
       "tree_is_hollow",
       "grave_37_name"
     ],
-    "tint": "#8E9AA8"
+    "tint": "#8E9AA8",
+    "hook": "counts graves when nervous; trusts stones more than spirits",
+    "schedule": [
+      {
+        "at": 200,
+        "poi": "cemetery_lane"
+      },
+      {
+        "at": 420,
+        "poi": "grave_37"
+      }
+    ]
   },
   {
     "id": "sefa",
@@ -56,7 +78,18 @@
     "initial_secrets": [
       "cantina_recipe"
     ],
-    "tint": "#5FD0BC"
+    "tint": "#5FD0BC",
+    "hook": "keeps her recipe closer than her rosary",
+    "schedule": [
+      {
+        "at": 240,
+        "poi": "flower_stall"
+      },
+      {
+        "at": 480,
+        "poi": "cantina"
+      }
+    ]
   },
   {
     "id": "ramon",
@@ -74,7 +107,18 @@
     "home": "plaza",
     "sprite": "sk_base",
     "initial_secrets": [],
-    "tint": "#E87AB8"
+    "tint": "#E87AB8",
+    "hook": "versifies everything — a bad secret keeper in perfect meter",
+    "schedule": [
+      {
+        "at": 300,
+        "poi": "cantina"
+      },
+      {
+        "at": 500,
+        "poi": "plaza"
+      }
+    ]
   },
   {
     "id": "ines",
@@ -95,7 +139,14 @@
       "fountain_whisper",
       "tree_watcher_hint"
     ],
-    "tint": "#A98BE0"
+    "tint": "#A98BE0",
+    "hook": "believes the fountain talks back — she's usually right",
+    "schedule": [
+      {
+        "at": 350,
+        "poi": "ofrenda"
+      }
+    ]
   },
   {
     "id": "solorio",
@@ -113,6 +164,8 @@
     "home": "cemetery_lane",
     "sprite": "sk_base",
     "initial_secrets": [],
-    "tint": "#9FC4E8"
+    "tint": "#9FC4E8",
+    "hook": "forgot his own name; follows whoever smells of marigold",
+    "schedule": []
   }
 ]

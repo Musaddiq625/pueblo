@@ -69,6 +69,23 @@ class Agent {
   /// to pursue. Every walk should have a reason.
   ({String kind, String targetId})? errand;
 
+  /// Relationship ledger — who this spirit feels close to. +2 per
+  /// meaningful convo, +5 on receiving a secret. Feeds prompts and
+  /// tell-targeting; persisted in the world kv table.
+  final Map<String, int> warmth = {};
+
+  /// Transient disposition set by the director's mood beat — surfaced in
+  /// prompts as "Feeling: …". Not persisted; the night forgets.
+  String? mood;
+
+  /// One authored quirk from personas.json — the Wildermyth-style hook the
+  /// director casts roles from.
+  String? hook;
+
+  /// Time-of-night routine from personas.json: at sim_ts >= `at`, tend
+  /// `poi`. Majora's-Mask-style baseline under the emergent errands.
+  List<({int at, String poi})> schedule = const [];
+
   /// POIs this spirit has personally inspected — gates the verify→inspect
   /// reaction loop so a heard secret sends them to see for themselves.
   final Set<String> verifiedPois = {};

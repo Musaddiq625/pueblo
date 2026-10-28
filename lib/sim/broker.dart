@@ -7,13 +7,14 @@ import 'dart:async';
 
 import 'llm.dart';
 
-enum JobKind { player, convoTurn, decision, reflection }
+enum JobKind { player, convoTurn, decision, reflection, director }
 
 int _prio(JobKind k) => switch (k) {
       JobKind.player => 0,
       JobKind.convoTurn => 1,
       JobKind.decision => 2,
       JobKind.reflection => 3,
+      JobKind.director => 4, // storyteller waits for everyone else
     };
 
 class Job {
@@ -43,11 +44,13 @@ class InferenceBroker {
   final _turns = StreamController<(Job, ConvoTurn?)>.broadcast();
   final _chats = StreamController<String>.broadcast();
   final _reflections = StreamController<(Job, String?)>.broadcast();
+  final _beats = StreamController<Map<String, dynamic>?>.broadcast();
 
   Stream<(Job, Decision?)> get decisions => _decisions.stream;
   Stream<(Job, ConvoTurn?)> get turns => _turns.stream;
   Stream<String> get chats => _chats.stream;
   Stream<(Job, String?)> get reflections => _reflections.stream;
+  Stream<Map<String, dynamic>?> get beats => _beats.stream;
 
   bool get playerInFlight => _playerInFlight;
   int get queueLength => _q.length;
@@ -95,6 +98,8 @@ class InferenceBroker {
           _turns.add((job, await llm.convoTurn(job.prompt)));
         case JobKind.reflection:
           _reflections.add((job, await llm.reflect(job.prompt)));
+        case JobKind.director:
+          _beats.add(await llm.direct(job.prompt));
         case JobKind.player:
           break; // handled by playerChat()
       }
