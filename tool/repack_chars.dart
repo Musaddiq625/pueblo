@@ -6,16 +6,19 @@
 ///
 /// What it does, per character:
 ///   1. slices every animation sheet into frames (manifest-declared cells)
-///   2. computes each frame's alpha bounding box (a > kAlphaCut)
-///   3. takes the UNION rect across ALL frames of ALL anims of that character
-///   4. re-exports every frame cropped to that union rect → new sheets whose
-///      cells are identical across anims, feet anchored at the cell bottom
+///   2. computes a per-anim union alpha bbox — frames in one anim share a
+///      cell size, so unions stay in a consistent coordinate space
+///   3. the output cell = max width/height across the character's unions
+///   4. each anim's union crop is pasted into the cell bottom-center:
+///      feet anchored at the cell bottom, art centered horizontally
 ///   5. writes a generated manifest (`lib/game/chars_norm_manifest.g.dart`)
 ///      with cell sizes + per-character display height
 ///
-/// Union (not per-frame) cropping is deliberate: the pixel differences
-/// between frames are the animation — feet bob, cloaks sway. A shared rect
-/// preserves that motion while making the SCALE identical.
+/// Per-anim (not per-frame, not global) cropping is deliberate:
+///   - per-frame would erase the intra-anim motion (feet bob, cloaks sway)
+///   - a single global union mixes coordinate spaces — idle sheets are
+///     32px cells, run/death 64px, so the union's bottom edge lands mid-cell
+///     for idle art and idle sprites float above their ground point.
 ///
 /// Run:  dart run tool/repack_chars.dart
 /// Output: assets/sprites/chars_norm/*.png + lib/game/chars_norm_manifest.g.dart
@@ -112,21 +115,22 @@ void main() {
 
   for (final entry in spec.entries) {
     final key = entry.key;
-    // Pass 1 — union bbox across every anim of this character.
-    var ux0 = 1 << 30, uy0 = 1 << 30, ux1 = -1, uy1 = -1;
+    // Pass 1 — per-anim union bbox (each anim's frames share a cell size,
+    // so every union lives in a consistent coordinate space).
     final sheets = <String, List<Image>>{};
+    final unions = <String, List<int>>{};
+    var cw = 0, ch = 0;
     for (final ae in entry.value.entries) {
       final anim = ae.key, s = ae.value;
       final file = File('$srcDir/${key}_$anim.png');
       if (!file.existsSync()) continue;
       final img = decodePng(file.readAsBytesSync())!;
       final frames = <Image>[];
+      var ux0 = 1 << 30, uy0 = 1 << 30, ux1 = -1, uy1 = -1;
       for (var i = 0; i < s[0]; i++) {
-        frames.add(copyCrop(img,
-            x: i * s[1], y: 0, width: s[1], height: s[2]));
-      }
-      sheets[anim] = frames;
-      for (final f in frames) {
+        final f = copyCrop(img,
+            x: i * s[1], y: 0, width: s[1], height: s[2]);
+        frames.add(f);
         final b = alphaBBox(f);
         if (b == null) continue;
         if (b[0] < ux0) ux0 = b[0];
@@ -134,25 +138,32 @@ void main() {
         if (b[0] + b[2] > ux1) ux1 = b[0] + b[2];
         if (b[1] + b[3] > uy1) uy1 = b[1] + b[3];
       }
+      if (ux1 < 0) continue;
+      sheets[anim] = frames;
+      unions[anim] = [ux0, uy0, ux1 - ux0, uy1 - uy0];
+      if (ux1 - ux0 + 2 > cw) cw = ux1 - ux0 + 2;
+      if (uy1 - uy0 + 2 > ch) ch = uy1 - uy0 + 2;
     }
-    if (sheets.isEmpty || ux1 < 0) {
+    if (sheets.isEmpty) {
       stderr.writeln('!! $key: no art found, skipped');
       continue;
     }
-    // +1px padding inside the union so strokes/glows never clip.
-    final cw = ux1 - ux0 + 2, ch = uy1 - uy0 + 2;
-    final cx = ux0 - 1, cy = uy0 - 1;
 
-    // Pass 2 — re-export each anim cropped to the union rect.
+    // Pass 2 — re-export each anim cropped to its union rect, pasted
+    // bottom-center of the shared cell → feet anchored for every anim.
     manifest.writeln("  '$key': NormChar($cw, $ch, {");
     for (final ae in sheets.entries) {
       final anim = ae.key, frames = ae.value;
+      final u = unions[anim]!;
+      final cropW = u[2] + 2, cropH = u[3] + 2;
+      final dstX = (cw - cropW) ~/ 2;
+      final dstY = ch - cropH;
       final out = Image(
           width: cw * frames.length, height: ch, numChannels: 4);
       for (var i = 0; i < frames.length; i++) {
         final cropped = copyCrop(frames[i],
-            x: cx, y: cy, width: cw, height: ch);
-        compositeImage(out, cropped, dstX: i * cw);
+            x: u[0] - 1, y: u[1] - 1, width: cropW, height: cropH);
+        compositeImage(out, cropped, dstX: i * cw + dstX, dstY: dstY);
       }
       final name = '${key}_$anim.png';
       File('$outDir/$name').writeAsBytesSync(encodePng(out));

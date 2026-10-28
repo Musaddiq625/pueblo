@@ -11,29 +11,29 @@ class NormChar { final int cellW; final int cellH; final Map<String, NormSheet> 
 const kCharDisplayH = 56.0;
 
 const normChars = <String, NormChar>{
-  'sk_base': NormChar(53, 64, {
-    'idle': NormSheet('chars_norm/sk_base_idle.png', 4, 53, 64, stepTime: 0.22),
-    'run': NormSheet('chars_norm/sk_base_run.png', 6, 53, 64, stepTime: 0.12),
-    'death': NormSheet('chars_norm/sk_base_death.png', 12, 53, 64, stepTime: 0.14),
+  'sk_base': NormChar(53, 49, {
+    'idle': NormSheet('chars_norm/sk_base_idle.png', 4, 53, 49, stepTime: 0.22),
+    'run': NormSheet('chars_norm/sk_base_run.png', 6, 53, 49, stepTime: 0.12),
+    'death': NormSheet('chars_norm/sk_base_death.png', 12, 53, 49, stepTime: 0.14),
   }),
-  'sk_warrior': NormChar(43, 64, {
-    'idle': NormSheet('chars_norm/sk_warrior_idle.png', 4, 43, 64, stepTime: 0.22),
-    'run': NormSheet('chars_norm/sk_warrior_run.png', 6, 43, 64, stepTime: 0.12),
-    'death': NormSheet('chars_norm/sk_warrior_death.png', 6, 43, 64, stepTime: 0.14),
+  'sk_warrior': NormChar(40, 48, {
+    'idle': NormSheet('chars_norm/sk_warrior_idle.png', 4, 40, 48, stepTime: 0.22),
+    'run': NormSheet('chars_norm/sk_warrior_run.png', 6, 40, 48, stepTime: 0.12),
+    'death': NormSheet('chars_norm/sk_warrior_death.png', 6, 40, 48, stepTime: 0.14),
   }),
-  'sk_rogue': NormChar(42, 66, {
-    'idle': NormSheet('chars_norm/sk_rogue_idle.png', 4, 42, 66, stepTime: 0.22),
-    'run': NormSheet('chars_norm/sk_rogue_run.png', 6, 42, 66, stepTime: 0.12),
-    'death': NormSheet('chars_norm/sk_rogue_death.png', 6, 42, 66, stepTime: 0.14),
+  'sk_rogue': NormChar(36, 38, {
+    'idle': NormSheet('chars_norm/sk_rogue_idle.png', 4, 36, 38, stepTime: 0.22),
+    'run': NormSheet('chars_norm/sk_rogue_run.png', 6, 36, 38, stepTime: 0.12),
+    'death': NormSheet('chars_norm/sk_rogue_death.png', 6, 36, 38, stepTime: 0.14),
   }),
-  'sk_mage': NormChar(40, 66, {
-    'idle': NormSheet('chars_norm/sk_mage_idle.png', 4, 40, 66, stepTime: 0.22),
-    'run': NormSheet('chars_norm/sk_mage_run.png', 6, 40, 66, stepTime: 0.12),
-    'death': NormSheet('chars_norm/sk_mage_death.png', 6, 40, 66, stepTime: 0.14),
+  'sk_mage': NormChar(28, 58, {
+    'idle': NormSheet('chars_norm/sk_mage_idle.png', 4, 28, 58, stepTime: 0.22),
+    'run': NormSheet('chars_norm/sk_mage_run.png', 6, 28, 58, stepTime: 0.12),
+    'death': NormSheet('chars_norm/sk_mage_death.png', 6, 28, 58, stepTime: 0.14),
   }),
-  'knight': NormChar(42, 63, {
-    'idle': NormSheet('chars_norm/knight_idle.png', 4, 42, 63, stepTime: 0.22),
-    'run': NormSheet('chars_norm/knight_run.png', 6, 42, 63, stepTime: 0.12),
+  'knight': NormChar(26, 33, {
+    'idle': NormSheet('chars_norm/knight_idle.png', 4, 26, 33, stepTime: 0.22),
+    'run': NormSheet('chars_norm/knight_run.png', 6, 26, 33, stepTime: 0.12),
   }),
   'tavern_a': NormChar(18, 33, {
     'idle': NormSheet('chars_norm/tavern_a_idle.png', 4, 18, 33, stepTime: 0.22),
@@ -43,8 +43,8 @@ const normChars = <String, NormChar>{
     'idle': NormSheet('chars_norm/tavern_b_idle.png', 4, 18, 33, stepTime: 0.22),
     'walk': NormSheet('chars_norm/tavern_b_walk.png', 6, 18, 33, stepTime: 0.12),
   }),
-  'wizzard': NormChar(43, 66, {
-    'idle': NormSheet('chars_norm/wizzard_idle.png', 4, 43, 66, stepTime: 0.22),
-    'run': NormSheet('chars_norm/wizzard_run.png', 6, 43, 66, stepTime: 0.12),
+  'wizzard': NormChar(28, 37, {
+    'idle': NormSheet('chars_norm/wizzard_idle.png', 4, 28, 37, stepTime: 0.22),
+    'run': NormSheet('chars_norm/wizzard_run.png', 6, 28, 37, stepTime: 0.12),
   }),
 };
