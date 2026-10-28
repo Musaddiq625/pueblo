@@ -144,6 +144,22 @@ class Secret {
   /// Speaking this secret's name aloud to [wakesAgent] recharges them hard —
   /// the resurrection mechanic, data-driven instead of hardcoded.
   final String? wakesAgent;
+
+  /// The agent this secret is ABOUT — for rumor-tier gossip, the subject
+  /// only confesses their own scandal to a deeply trusted ear (warmth≥4).
+  final String? aboutAgent;
+
+  /// The night's headline — the director reports on its spread.
+  final bool headline;
+
+  /// Arc resolution: when set, this secret IS the deep truth of the arc
+  /// named by [verdictOf] — at the night's 80% mark the engine counts
+  /// knowers and narrates [verdictPass] (≥4 spirits know) or
+  /// [verdictFail]. The headline's unlocks_poi_lore is the POI that
+  /// glows on a pass. Deterministic consequence; the LLM never decides.
+  final String? verdictOf;
+  final String? verdictPass;
+  final String? verdictFail;
   final String tier;
 
   const Secret({
@@ -154,6 +170,11 @@ class Secret {
     required this.initiallyKnownBy,
     this.unlocksPoiLore,
     this.wakesAgent,
+    this.aboutAgent,
+    this.headline = false,
+    this.verdictOf,
+    this.verdictPass,
+    this.verdictFail,
     this.tier = 'town',
   });
 
@@ -165,6 +186,11 @@ class Secret {
         initiallyKnownBy: List<String>.from(j['initially_known_by'] ?? const []),
         unlocksPoiLore: j['unlocks_poi_lore'],
         wakesAgent: j['wakes_agent'],
+        aboutAgent: j['about_agent'],
+        headline: j['headline'] == true,
+        verdictOf: j['verdict_of'],
+        verdictPass: j['verdict_pass'],
+        verdictFail: j['verdict_fail'],
         tier: j['tier'] ?? 'town',
       );
 }

@@ -7,6 +7,7 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pueblo/sim/bootstrap.dart';
+import 'package:pueblo/sim/engine.dart';
 import 'package:pueblo/sim/llm.dart';
 import 'package:pueblo/sim/models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -549,5 +550,158 @@ void main() {
     }
     expect(overheard, isTrue,
         reason: 'the rumor should enter at least one memory stream');
+  });
+
+  // ======================= rumor ecology (the headline arc) ===============
+
+  /// Five spirits so the ≥4-knower verdict can pass. 'a' is a cold teller
+  /// (warmth/mischief 0 — needs a bond); 'c' is the gossip (mischief 4).
+  const rumorPersonas = '''
+[{"id":"a","name":"Ana","role":"s","persona":"cold","stats":{"curiosity":5,"wit":1,"warmth":0,"spirit_sight":0,"mischief":0,"grump":0},"home":"p1","sprite":"sk_base","initial_secrets":[]},
+ {"id":"b","name":"Bor","role":"s","persona":"plain","stats":{"curiosity":0,"wit":1,"warmth":0,"spirit_sight":0,"mischief":0,"grump":0},"home":"p2","sprite":"sk_base","initial_secrets":[]},
+ {"id":"c","name":"Che","role":"s","persona":"gossip","stats":{"curiosity":3,"wit":1,"warmth":1,"spirit_sight":0,"mischief":4,"grump":0},"home":"p1","sprite":"sk_base","initial_secrets":[]},
+ {"id":"d","name":"Del","role":"s","persona":"plain","stats":{"curiosity":1,"wit":1,"warmth":1,"spirit_sight":0,"mischief":0,"grump":0},"home":"p2","sprite":"sk_base","initial_secrets":[]},
+ {"id":"e","name":"Eli","role":"s","persona":"plain","stats":{"curiosity":1,"wit":1,"warmth":1,"spirit_sight":0,"mischief":0,"grump":0},"home":"p2","sprite":"sk_base","initial_secrets":[]}]
+''';
+
+  String rumorSecrets({int deepKnowers = 4}) {
+    final all = ['b', 'c', 'd', 'e'];
+    final knowers =
+        all.take(deepKnowers).map((id) => '"$id"').join(',');
+    return '''
+[{"id":"head","surface":"empty frame","truth":"b removed it","share_text":"b took the photo down",
+  "initially_known_by":["a"],"unlocks_poi_lore":"ofrenda","about_agent":"b","headline":true,"tier":"rumor"},
+ {"id":"own","surface":"a glances","truth":"a did it","share_text":"a took it down herself",
+  "initially_known_by":["a"],"about_agent":"a","tier":"rumor"},
+ {"id":"deep","surface":"name goes quiet","truth":"the betrayal","share_text":"the deep truth",
+  "initially_known_by":[$knowers],"about_agent":"b","verdict_of":"head",
+  "verdict_pass":"the photo returns","verdict_fail":"stays dark","tier":"rumor"}]
+''';
+  }
+
+  Future<SimBundle> bootRumor({
+    LLMClient? llm,
+    int deepKnowers = 4,
+  }) async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    final dir = await Directory.systemTemp.createTemp('simtest');
+    return bootstrap(
+      personasJson: rumorPersonas,
+      secretsJson: rumorSecrets(deepKnowers: deepKnowers),
+      pois: const [
+        Poi(id: 'p1', name: 'P1', surfaceText: 'just a lane', x: 0, y: 0),
+        Poi(id: 'p2', name: 'P2', surfaceText: 'just a stall', x: 10, y: 10),
+        Poi(id: 'ofrenda', name: 'Ofrenda', surfaceText: 'the shrine', x: 40, y: 40),
+      ],
+      homePos: const {'p1': [0, 0], 'p2': [10, 10]},
+      llm: llm ?? MockLLMClient(seed: 1),
+      rng: Random(1),
+      freshDb: true,
+      dbPath: '${dir.path}/t.db',
+    );
+  }
+
+  /// Pin everyone adjacent but only [id] due for a decision, then collect
+  /// the prompt the engine built for them.
+  Future<String> promptFor(
+    dynamic e,
+    _ScriptedLLM llm,
+    String id,
+  ) async {
+    for (final a in e.agents.values) {
+      a.lastActedAt = a.id == id ? -999.0 : 99999.0;
+      a.x = a.id == id ? 0.0 : 30.0;
+      a.y = 0.0;
+    }
+    llm.prompts.clear();
+    for (var i = 0; i < 30 && llm.prompts.isEmpty; i++) {
+      for (final a in e.agents.values) {
+        a.x = a.id == id ? 0.0 : 30.0;
+        a.y = 0.0;
+      }
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    return llm.prompts.isEmpty ? '' : llm.prompts.first;
+  }
+
+  test('cold teller cannot offer a rumor until a bond forms', () async {
+    final llm = _ScriptedLLM();
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    // a knows 'head' (about b) but warmth/mischief 0 and no bond → gated
+    var p = await promptFor(e, llm, 'a');
+    expect(p, isNot(contains('share(b,head)')),
+        reason: 'a cold teller should not be offered rumor shares');
+    // converse comes back when no legal share exists for the pair
+    expect(p, contains('converse(b)'));
+    // a real bond opens the channel
+    e.agents['a']!.warmth['b'] = 2;
+    p = await promptFor(e, llm, 'a');
+    expect(p, contains('share(b,head)'));
+  });
+
+  test('gossip leaks rumor with no bond at all', () async {
+    final llm = _ScriptedLLM();
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    e.agents['c']!.knownSecrets.add('head'); // the gossip heard it too
+    final p = await promptFor(e, llm, 'c');
+    expect(p, contains('share(b,head)'),
+        reason: 'mischief≥3 shares rumor to anyone — no bond needed');
+  });
+
+  test('self-scandal stays buried until deep trust', () async {
+    final llm = _ScriptedLLM();
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    e.agents['a']!.warmth['b'] = 3; // friendly, not trusted
+    var p = await promptFor(e, llm, 'a');
+    expect(p, contains('share(b,head)')); // about b: bond≥2 suffices
+    expect(p, isNot(contains('share(b,own)')),
+        reason: 'a secret ABOUT the teller needs warmth≥4');
+    e.agents['a']!.warmth['b'] = 4;
+    p = await promptFor(e, llm, 'a');
+    expect(p, contains('share(b,own)'));
+  });
+
+  test('organic rumor leak is rejected when the channel is closed', () async {
+    final llm = _ScriptedLLM()..forcedShare = 'head';
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    e.startConversation('a', 'b'); // cold teller, no bond
+    await _pump(e, ticks: 60);
+    expect(e.agents['b']!.knownSecrets, isNot(contains('head')));
+  });
+
+  test('verdict passes when the deep truth reaches ≥4 spirits', () async {
+    final b = await bootRumor(deepKnowers: 4);
+    final e = b.engine;
+    final events = <SimEvent>[];
+    final sub = e.events.listen(events.add);
+    e.simTs = (e.dawnAt * 0.8).ceil() - 1;
+    await _pump(e, ticks: 10);
+    await sub.cancel();
+    expect(events.any((ev) => ev.type == SimEventType.log && 
+        (ev.data['text'] as String).contains('photo returns')), isTrue);
+    expect(
+      events.any((ev) =>
+          ev.type == SimEventType.poiGlow && ev.data['poi'] == 'ofrenda'),
+      isTrue,
+    );
+  });
+
+  test('verdict fails when the truth stayed whispers', () async {
+    final b = await bootRumor(deepKnowers: 2);
+    final e = b.engine;
+    final events = <SimEvent>[];
+    final sub = e.events.listen(events.add);
+    e.simTs = (e.dawnAt * 0.8).ceil() - 1;
+    await _pump(e, ticks: 10);
+    await sub.cancel();
+    expect(events.any((ev) => ev.type == SimEventType.log &&
+        (ev.data['text'] as String).contains('stays dark')), isTrue);
   });
 }

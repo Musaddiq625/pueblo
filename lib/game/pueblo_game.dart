@@ -263,6 +263,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
             'faded': a.faded,
             'solidified': a.solidified,
             'battery': a.battery.round(),
+            'knows': a.knownSecrets.toList()..sort(),
           },
       ],
       'pois': [

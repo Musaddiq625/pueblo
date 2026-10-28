@@ -208,6 +208,10 @@ class SimEngine {
       _nextDirectorAt = simTs + directorEvery;
       _maybeDirect();
     }
+    if (simTs >= dawnAt * 0.8 && !_verdictFired) {
+      _verdictFired = true;
+      _verdict();
+    }
     if (_batteryTimer >= batteryEvery) {
       _batteryTimer = 0;
       _drainBatteries();
@@ -376,13 +380,15 @@ class SimEngine {
     if (p != null &&
         speaker.id == p.holder &&
         speaker.knownSecrets.contains(p.secretId) &&
-        !partner.knownSecrets.contains(p.secretId)) {
+        !partner.knownSecrets.contains(p.secretId) &&
+        _canShareRumor(speaker, partner, secrets[p.secretId])) {
       shared = p.secretId;
     } else if (turn.sharesSecret != null &&
         turn.sharesSecret != 'null' &&
         speaker.knownSecrets.contains(turn.sharesSecret) &&
         !partner.knownSecrets.contains(turn.sharesSecret) &&
-        secrets.containsKey(turn.sharesSecret)) {
+        secrets.containsKey(turn.sharesSecret) &&
+        _canShareRumor(speaker, partner, secrets[turn.sharesSecret])) {
       shared = turn.sharesSecret;
     }
 
@@ -543,7 +549,13 @@ class SimEngine {
       // Knowledge the engine can verify is offered as concrete actions —
       // the model picks a purpose, not a vibe. share(who,what) means "tell
       // them a secret they don't know"; ask(who) draws out theirs.
-      final shareable = agent.knownSecrets.difference(other.knownSecrets);
+      // Rumor-tier secrets only appear where the persona would tell:
+      // gossips leak (mischief), warm souls confide (bonds), and nobody
+      // confesses their own scandal to a stranger.
+      final shareable = agent.knownSecrets
+          .difference(other.knownSecrets)
+          .where((sid) => _canShareRumor(agent, other, secrets[sid]))
+          .toList();
       for (final sid in shareable) {
         allowed.add('share(${other.id},$sid)');
       }
@@ -669,7 +681,10 @@ class SimEngine {
         if (t == null ||
             t.faded ||
             (e.kind == 'tell' &&
-                a.knownSecrets.difference(t.knownSecrets).isEmpty) ||
+                a.knownSecrets
+                    .difference(t.knownSecrets)
+                    .where((sid) => _canShareRumor(a, t, secrets[sid]))
+                    .isEmpty) ||
             (e.kind == 'seek' && a.battery > 55)) {
           a.errand = null;
         }
@@ -694,7 +709,10 @@ class SimEngine {
     var bestScore = 0.0;
     for (final o in agents.values) {
       if (o.id == a.id || o.faded || o.engaged) continue;
-      final n = a.knownSecrets.difference(o.knownSecrets).length;
+      final n = a.knownSecrets
+          .difference(o.knownSecrets)
+          .where((sid) => _canShareRumor(a, o, secrets[sid]))
+          .length;
       if (n == 0) continue;
       final score = n -
           sqrt(_dist2(a.x, a.y, o.x, o.y)) / (8 * kTile) +
@@ -755,6 +773,49 @@ class SimEngine {
 
   final List<String> _recentNotes = [];
 
+  /// The night's headline rumor and its spread, so the storyteller paces
+  /// around the authored arc instead of improvising over it.
+  String _headlineDigest() {
+    final rumor = secrets.values.where((s) => s.tier == 'rumor');
+    if (rumor.isEmpty) return '';
+    final line = rumor
+        .map(
+          (s) =>
+              '${s.id}: ${agents.values.where((a) => a.knownSecrets.contains(s.id)).length}/${agents.length}',
+        )
+        .join(', ');
+    return 'Headline rumor — the ofrenda scandal: $line\n';
+  }
+
+  /// The authored consequence — deterministic, never LLM. Whether Genero's
+  /// photo goes back up depends on how far the truth actually traveled:
+  /// if the village knows why Sefa did it (≥4 know the deep secret),
+  /// forgiveness wins; if the scandal stayed whispers, the frame stays
+  /// bare. The player tips it only by learning and spreading the truth
+  /// themselves.
+  bool _verdictFired = false;
+
+  void _verdict() {
+    for (final s in secrets.values.where((s) => s.verdictOf != null)) {
+      final knowers =
+          agents.values.where((a) => a.knownSecrets.contains(s.id)).length;
+      if (knowers >= 4) {
+        _note(s.verdictPass ?? 'the truth traveled far enough tonight');
+        final head = secrets[s.verdictOf];
+        if (head?.unlocksPoiLore != null) {
+          _events.add(
+            SimEvent(SimEventType.poiGlow, {
+              'poi': head!.unlocksPoiLore,
+              'on': true,
+            }),
+          );
+        }
+      } else {
+        _note(s.verdictFail ?? 'the whisper died in the dark');
+      }
+    }
+  }
+
   void _maybeDirect() {
     // tension already on stage — a purpose convo means the story is
     // moving on its own; the director stays quiet.
@@ -786,6 +847,7 @@ class SimEngine {
         .join('; ');
     return 'Town (night ${_clock()}):\n$parts\n'
         'Secrets spreading: $know\n'
+        '${_headlineDigest()}'
         'Hooks: $hooks\n'
         'Recent: ${_recentNotes.isEmpty ? 'the night is still young' : _recentNotes.join('; ')}';
   }
@@ -1909,6 +1971,20 @@ class SimEngine {
   double _dist2(double x1, double y1, double x2, double y2) {
     final dx = x1 - x2, dy = y1 - y2;
     return dx * dx + dy * dy;
+  }
+
+  /// Persona-shaped propagation — rumor-tier gossip only travels channels
+  /// that fit the teller: gossips leak to anyone (mischief≥3), warm souls
+  /// confide freely (warmth-stat≥4), everyone else needs a real bond
+  /// (warmth≥2). And nobody confesses their own scandal to a stranger —
+  /// secrets ABOUT the teller demand warmth≥4. Deterministic; this is how
+  /// the same rumor travels differently through every persona.
+  bool _canShareRumor(Agent a, Agent b, Secret? s) {
+    if (s == null || s.tier != 'rumor') return true;
+    if (s.aboutAgent == a.id) return (a.warmth[b.id] ?? 0) >= 4;
+    return (a.warmth[b.id] ?? 0) >= 2 ||
+        a.stats.mischief >= 3 ||
+        a.stats.warmth >= 4;
   }
 
   /// Resolve a possibly-misspelled id: exact → normalized → prefix →
