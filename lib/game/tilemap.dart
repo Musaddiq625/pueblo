@@ -12,6 +12,7 @@ import 'package:flame/components.dart';
 import 'package:flutter/material.dart'
     show BlendMode, Canvas, Color, Offset, Paint, Rect, RRect, Radius;
 
+import 'na_terrain.dart';
 import 'tile_index.dart';
 import '../sim/world_map.dart';
 
@@ -69,12 +70,9 @@ Future<ui.Image> bakeGround(TileAssets a) async {
   final c = ui.Canvas(rec);
   final w = kMapW, h = kMapH;
 
-  // 1. base earth — warm dark soil, reads as dusk
-  c.drawRect(
-    Rect.fromLTWH(0, 0, w, h),
-    Paint()..color = const Color(0xFF241a14),
-  );
-
+  // 1. terrain — grass is the continuous base; dirt streets/earth yards are
+  //    carved through it with real autotile edges (the Stardew trick: the
+  //    ground is one coherent surface, paths live IN it)
   for (var y = 0; y < kMapTilesH; y++) {
     for (var x = 0; x < kMapTilesW; x++) {
       final ch = villageAscii[y][x];
@@ -83,7 +81,9 @@ Future<ui.Image> bakeGround(TileAssets a) async {
         case 'g':
           _grass(c, r, x, y, a);
         case 'd':
-          _street(c, r, x, y);
+          _dirt(c, r, x, y, a);
+        case 'e':
+          _dirt(c, r, x, y, a, packed: true);
         case 's':
           _plaza(c, r, x, y, a);
         case 'p':
@@ -93,17 +93,24 @@ Future<ui.Image> bakeGround(TileAssets a) async {
         case 'w':
           c.drawRect(r, Paint()..color = const Color(0xFF141b2e));
         default:
-          // 'e' — scatter subtle ground texture so the field isn't flat
-          _earthSpeckle(c, r, x, y);
+          _grass(c, r, x, y, a);
       }
     }
   }
 
-  // 2. street/plaza edge accents — darker rim where walk-surface meets earth
+  // 2. one dusk wash over the whole ground — keeps every terrain family in
+  //    the same light so the map reads as a single night world
+  c.drawRect(
+    Rect.fromLTWH(0, 0, w, h),
+    Paint()..color = const Color(0x33141c28),
+  );
+
+  // 3. rim accents on the paved/special surfaces (dirt already has fringe
+  //    tiles baked into its edges)
   for (var y = 0; y < kMapTilesH; y++) {
     for (var x = 0; x < kMapTilesW; x++) {
       final ch = villageAscii[y][x];
-      if (ch == 'd' || ch == 's' || ch == 'b') {
+      if (ch == 's' || ch == 'b' || ch == 'p') {
         _edgeRim(c, x, y, const Color(0x660f0a08));
       }
       if (ch == 'g') {
@@ -116,46 +123,46 @@ Future<ui.Image> bakeGround(TileAssets a) async {
   return pic.toImage(w.ceil(), h.ceil());
 }
 
+/// Grass fill — real NA grass tiles so the ground has organic texture
+/// everywhere instead of a flat wash.
 void _grass(Canvas c, Rect r, int x, int y, TileAssets a) {
-  final pick = (x * 7 + y * 13) % 4;
-  _tile(c, a.tt[pick], r);
-  // dusk grade — the pack's noon-green reads wrong at night
-  c.drawRect(r, Paint()..color = const Color(0x66121a20));
+  final pick = naGrassFill[(x * 7 + y * 13) % naGrassFill.length];
+  _floorCell(c, a, pick.$1, pick.$2, r);
 }
 
-void _street(Canvas c, Rect r, int x, int y) {
-  c.drawRect(r, Paint()..color = const Color(0xFF4a3a2c));
-  // packed-clay speckle
-  final p = Paint()..color = const Color(0xFF5a4838);
-  final rr = Random(x * 31 + y * 17 + 7);
-  for (var i = 0; i < 5; i++) {
-    c.drawCircle(
-      Offset(
-        r.left + rr.nextDouble() * kTile,
-        r.top + rr.nextDouble() * kTile,
-      ),
-      1.4,
-      p,
-    );
+/// Dirt — streets and packed-earth yards. Uses the pack's dirt-into-grass
+/// autotile so paths get soft fringed edges where they meet grass.
+/// [packed] darkens the cell — bare worked earth (cemetery/market yards).
+void _dirt(Canvas c, Rect r, int x, int y, TileAssets a, {bool packed = false}) {
+  bool isDirt(int nx, int ny) {
+    if (nx < 0 || nx >= kMapTilesW || ny < 0 || ny >= kMapTilesH) {
+      return false;
+    }
+    return 'desbp'.contains(villageAscii[ny][nx]);
   }
-  // occasional pebble
-  if ((x * 11 + y * 5) % 7 == 0) {
-    c.drawCircle(
-      Offset(
-        r.left + 8 + rr.nextDouble() * 16,
-        r.top + 8 + rr.nextDouble() * 16,
-      ),
-      2.5,
-      Paint()..color = const Color(0xFF6b5a48),
-    );
+
+  final bits = naNeighborBits(isDirt, x, y);
+  final (col, row) = naDirtTile(bits);
+  _floorCell(c, a, col, row, r);
+  if (packed) {
+    c.drawRect(r, Paint()..color = const Color(0x401b1009));
   }
+}
+
+void _floorCell(Canvas c, TileAssets a, int col, int row, Rect dst) {
+  c.drawImageRect(
+    a.floor,
+    Rect.fromLTWH(col * 16.0, row * 16.0, 16, 16),
+    dst,
+    Paint(),
+  );
 }
 
 void _plaza(Canvas c, Rect r, int x, int y, TileAssets a) {
-  // moonlit cobbles — procedural so the dusk grade stays consistent
-  c.drawRect(r, Paint()..color = const Color(0xFF4d4658));
+  // moonlit cobbles — light slate so the plaza reads as stone, not void
+  c.drawRect(r, Paint()..color = const Color(0xFF7b7488));
   final rr = Random(x * 53 + y * 29);
-  final grout = Paint()..color = const Color(0xFF38323f);
+  final grout = Paint()..color = const Color(0xFF575066);
   // running-bond cobble joints
   final off = (y % 2 == 0) ? 0.0 : 8.0;
   c.drawRect(Rect.fromLTWH(r.left, r.top + 10, kTile, 1.5), grout);
@@ -177,22 +184,29 @@ void _plaza(Canvas c, Rect r, int x, int y, TileAssets a) {
         Offset(r.left + rr.nextDouble() * kTile,
             r.top + rr.nextDouble() * kTile),
         3 + rr.nextDouble() * 3,
-        Paint()..color = const Color(0x22524b60));
+        Paint()..color = const Color(0x2a8a8498));
   }
 }
 
 void _marigold(Canvas c, Rect r) {
-  c.drawRect(r, Paint()..color = const Color(0xFF2e2118));
+  // warm loam base + a dense carpet of petals — the ofrenda path should
+  // glow, not read as plowed mud
+  c.drawRect(r, Paint()..color = const Color(0xFF4a3020));
   final rr = Random(r.left.toInt() * 13 + r.top.toInt());
-  for (var i = 0; i < 26; i++) {
-    final gold = rr.nextBool();
+  for (var i = 0; i < 52; i++) {
+    final pick = rr.nextInt(3);
     c.drawCircle(
       Offset(
         r.left + rr.nextDouble() * kTile,
         r.top + rr.nextDouble() * kTile,
       ),
-      1.6 + rr.nextDouble() * 1.6,
-      Paint()..color = gold ? const Color(0xFFe8962e) : const Color(0xFFc9741c),
+      1.8 + rr.nextDouble() * 1.8,
+      Paint()
+        ..color = pick == 0
+            ? const Color(0xFFf0a838)
+            : pick == 1
+                ? const Color(0xFFd17a1f)
+                : const Color(0xFFb85c14),
     );
   }
 }
@@ -211,31 +225,6 @@ void _deck(Canvas c, Rect r) {
   );
 }
 
-void _earthSpeckle(Canvas c, Rect r, int x, int y) {
-  final rr = Random(x * 97 + y * 41 + 3);
-  final p = Paint()..color = const Color(0xFF2d211a);
-  for (var i = 0; i < 4; i++) {
-    c.drawCircle(
-      Offset(
-        r.left + rr.nextDouble() * kTile,
-        r.top + rr.nextDouble() * kTile,
-      ),
-      1.2 + rr.nextDouble(),
-      p,
-    );
-  }
-  // rare tuft of dead grass
-  if ((x * 13 + y * 7) % 11 == 0) {
-    c.drawCircle(
-      Offset(
-        r.left + 6 + rr.nextDouble() * 20,
-        r.top + 6 + rr.nextDouble() * 20,
-      ),
-      2.2,
-      Paint()..color = const Color(0xFF3a3220),
-    );
-  }
-}
 
 /// Dark rim inside a walk tile where its neighbors aren't walk-surface.
 void _edgeRim(Canvas c, int x, int y, Color col) {
@@ -274,20 +263,6 @@ void _grassFringe(Canvas c, int x, int y) {
   if (!isG(x + 1, y)) {
     c.drawRect(Rect.fromLTWH(l + kTile - 2, t, 2, kTile), p);
   }
-}
-
-void _tile(Canvas c, ui.Image? img, Rect dst) {
-  if (img == null) {
-    // loud placeholder — a missing tile must never kill the render pass
-    c.drawRect(dst, Paint()..color = const Color(0xFFcc2266));
-    return;
-  }
-  c.drawImageRect(
-    img,
-    Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
-    dst,
-    Paint(),
-  );
 }
 
 // ---------- river water (animated overlay above baked riverbed) ----------

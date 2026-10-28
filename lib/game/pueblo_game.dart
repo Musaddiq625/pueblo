@@ -81,9 +81,9 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     );
     await world.add(RiverComponent());
     // candles breathing on the great ofrenda + the nameless grave
-    await world.add(CandleFlickerComponent(Vector2(tileX(20), tileY(22))));
+    await world.add(CandleFlickerComponent(Vector2(tileX(19), tileY(22))));
     await world.add(
-      CandleFlickerComponent(Vector2(tileX(40), tileY(19)), count: 2),
+      CandleFlickerComponent(Vector2(tileX(40), tileY(17)), count: 2),
     );
     for (final p in buildProps(tileAssets)) {
       await world.add(p);
@@ -98,9 +98,12 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
 
     // papel picado strings across the market street
     for (final p in const [
-      [330.0, 308.0, 230.0],
-      [620.0, 308.0, 240.0],
-      [890.0, 308.0, 230.0],
+      [180.0, 315.0, 240.0],
+      [450.0, 315.0, 240.0],
+      [730.0, 315.0, 240.0],
+      [1000.0, 315.0, 240.0],
+      // one across the plaza's north rim
+      [540.0, 400.0, 250.0],
     ]) {
       await world.add(
         PapelPicadoComponent(pos: Vector2(p[0], p[1]), size: Vector2(p[2], 26)),
@@ -369,9 +372,11 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   int _perRow(int sheetW, double frameW) => max(1, (sheetW / frameW).floor());
 
   /// POIs: the tilemap props draw the structures — the component adds
-  /// just a floating name label + the inspect glow + tap target.
+  /// the inspect glow + tap target; the nameplate is a world-level overlay
+  /// so props standing in front can't clip it.
   Future<PoiComponent> _buildPoi(Poi p) async {
-    return PoiComponent(poi: p, onInspect: onPoiInspect, visual: _PoiLabel(p));
+    await world.add(_PoiLabel(p));
+    return PoiComponent(poi: p, onInspect: onPoiInspect);
   }
 
   // ---------------------------- gestures -----------------------------------
@@ -631,13 +636,16 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   }
 }
 
-/// Floating name label for a POI — the tilemap prop is the visual.
+/// Floating name label for a POI — lives at world level so it draws above
+/// nearby props; nameplate sits just above the structure's base.
 class _PoiLabel extends PositionComponent {
-  _PoiLabel(this._p)
-    : super(
+  _PoiLabel(Poi p)
+    : _p = p,
+      super(
         size: Vector2(140, 20),
         anchor: Anchor.bottomCenter,
-        position: Vector2(0, -56),
+        position: Vector2(p.x, p.y - 20),
+        priority: 3000000,
       );
   final Poi _p;
 
