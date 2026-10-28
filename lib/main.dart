@@ -244,62 +244,8 @@ class _PuebloAppState extends State<PuebloApp> {
                 child: _Hud(engine: engine, petals: petals),
               ),
 
-              // Town log — recent spirit speech, always scannable.
-              // Hidden while a sheet has the bottom edge.
-              if (engaged == null && shoppingAt == null)
-                Positioned(
-                  left: 10,
-                  bottom: 10,
-                  child: ValueListenableBuilder<List<(String, String)>>(
-                    valueListenable: game.townLog,
-                    builder: (_, lines, _) {
-                      if (lines.isEmpty) return const SizedBox.shrink();
-                      return Container(
-                        constraints: const BoxConstraints(maxWidth: 340),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xB31A1430),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            for (final (name, line) in lines)
-                              Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 1),
-                                child: RichText(
-                                  text: TextSpan(
-                                    children: [
-                                      TextSpan(
-                                        text: '$name  ',
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: Color(0xFFFFC233),
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      TextSpan(
-                                        text: line,
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: Color(0xFFEDE6D6),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
+              // Town log — hidden per request; the sim still narrates
+              // internally (game.townLog) for the driver + debugging.
 
               // POI inspect toast
               if (inspecting != null)

@@ -63,6 +63,16 @@ class Agent {
   bool faded = false;
   bool solidified = false; // nameless-grave arc: can't re-fade once true
   String? goal; // e.g. 'askAbout:ancient_tree'
+
+  /// Current errand — the agent's plan. (kind: 'tell'|'verify'|'tend'|'seek',
+  /// targetId: agent or POI id). Deterministically assigned, LLM-chosen how
+  /// to pursue. Every walk should have a reason.
+  ({String kind, String targetId})? errand;
+
+  /// POIs this spirit has personally inspected — gates the verify→inspect
+  /// reaction loop so a heard secret sends them to see for themselves.
+  final Set<String> verifiedPois = {};
+
   double lastActedAt = 0;
   int lastTalkedToPlayer = -1; // sim_ts
   final Set<String> knownSecrets = {};

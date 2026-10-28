@@ -2,6 +2,7 @@
 /// sprite loading, SimEvent → component wiring.
 library;
 
+import 'dart:async' as async_;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -143,6 +144,20 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
 
     // ---- sim wiring ----
     engine.events.listen(_onSimEvent);
+
+    // The town must live even when the window is occluded — macOS pauses
+    // the display link, so Flame's update() stops. Fall back to a timer
+    // that ticks the sim whenever the render loop has stalled.
+    _lastFrameAt = DateTime.now();
+    _simPump = async_.Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (DateTime.now().difference(_lastFrameAt).inMilliseconds > 300) {
+        try {
+          engine.tick(0.1);
+        } catch (e, st) {
+          debugPrint('PUEBLO pump FAILED: $e\n$st');
+        }
+      }
+    });
 
     // scatter initial petals
     for (var i = 0; i < 10; i++) {
@@ -448,6 +463,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       onPoiInspect(poi.poi);
       return;
     }
+    world.add(ClickMarker(p));
     player?.walkTo(p);
   }
 
@@ -625,10 +641,19 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   }
 
   int _tickCount = 0;
+  DateTime _lastFrameAt = DateTime.now();
+  async_.Timer? _simPump;
+
+  @override
+  void onRemove() {
+    _simPump?.cancel();
+    super.onRemove();
+  }
 
   @override
   void update(double dt) {
     super.update(dt);
+    _lastFrameAt = DateTime.now();
     _tickCount++;
     try {
       engine.tick(dt);

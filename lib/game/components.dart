@@ -275,6 +275,43 @@ class PoiComponent extends PositionComponent with TapCallbacks {
 
 // ---------------------------------------------------------------------------
 
+/// Destination ripple — brief expanding ring where the player clicked, so a
+/// click-to-move reads as a deliberate walk order, not a wander.
+class ClickMarker extends PositionComponent {
+  double _t = 0;
+  ClickMarker(Vector2 pos)
+    : super(
+        position: pos,
+        size: Vector2.all(36),
+        anchor: Anchor.center,
+        priority: 9000,
+      );
+
+  @override
+  void update(double dt) {
+    _t += dt;
+    if (_t > 0.55) removeFromParent();
+  }
+
+  @override
+  void render(Canvas canvas) {
+    final p = _t / 0.55;
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(size.x / 2, size.y / 2),
+        width: 8 + p * 40,
+        height: 4 + p * 20,
+      ),
+      Paint()
+        ..color = Color.fromRGBO(255, 194, 51, 0.75 * (1 - p))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 /// Speech/emote bubble floating over a component's head. [speaker] shows a
 /// small name chip over the line — who is talking should never be a guess.
 class BubbleComponent extends PositionComponent {

@@ -232,6 +232,11 @@ class SimEngine {
     );
     conversations[convo.id] = convo;
     _pairLastTalked[_pairKey(aId, bId)] = simTs;
+    // errand satisfied — the initiator was carrying a reason to reach them
+    if (a.errand?.targetId == bId &&
+        (a.errand?.kind == 'tell' || a.errand?.kind == 'seek')) {
+      a.errand = null;
+    }
     // both stand where they are — cancel in-flight walks + release slots
     _walks.remove(aId);
     _walks.remove(bId);
@@ -467,7 +472,22 @@ class SimEngine {
 
     // Build offered actions (weighted by stats).
     final near = _nearby(agent);
+    _ensureErrand(agent);
+    final errand = agent.errand;
     final allowed = <String>['stroll', 'idle'];
+
+    // Errand-backed offers — the plan the deterministic brain assigned.
+    // 'tell'/'seek' chase a spirit; 'verify'/'tend' chase a place.
+    if (errand != null) {
+      switch (errand.kind) {
+        case 'tell' || 'seek':
+          if (!near.agentIds.contains(errand.targetId)) {
+            allowed.add('seek(${errand.targetId})');
+          }
+        case 'verify' || 'tend':
+          allowed.add('goto(${errand.targetId})');
+      }
+    }
     for (final other in near.agents) {
       if (other.inConvo || other.engaged) continue;
       // Faded spirits can't converse — but a name spoken can wake one,
@@ -515,9 +535,97 @@ class SimEngine {
       nearbyEntities: near.describe,
       memories: _memCache[agent.id] ?? const [],
       allowedActions: allowed,
+      errand: _describeErrand(agent),
     );
     broker.push(JobKind.decision, agent.id, prompt, agent.stateVersion);
     _refreshMemories(agent);
+  }
+
+  // ============================ errands (planning) ==========================
+  //
+  // The genre trick (Generative Agents / AI Town): believable spirits run on
+  // plans, not Brownian motion. The engine assigns ONE errand at a time —
+  // verify (hear a secret → go see the POI), tell (carry news to the one who
+  /// lacks it), seek (dim battery → find company), tend (role routine). The
+  /// LLM still chooses how/when to pursue it; the world supplies the reason.
+  void _ensureErrand(Agent a) {
+    final e = a.errand;
+    if (e != null) {
+      // staleness — the reason evaporated
+      if (e.kind == 'verify' && a.verifiedPois.contains(e.targetId)) {
+        a.errand = null;
+      } else if (e.kind == 'tell' || e.kind == 'seek') {
+        final t = agents[e.targetId];
+        if (t == null ||
+            t.faded ||
+            (e.kind == 'tell' &&
+                a.knownSecrets.difference(t.knownSecrets).isEmpty) ||
+            (e.kind == 'seek' && a.battery > 55)) {
+          a.errand = null;
+        }
+      }
+      if (a.errand != null) return;
+    }
+
+    // 1. verify — a held secret unlocks lore at a POI never inspected
+    for (final sid in a.knownSecrets) {
+      final poiId = secrets[sid]?.unlocksPoiLore;
+      if (poiId != null &&
+          pois.containsKey(poiId) &&
+          !a.verifiedPois.contains(poiId)) {
+        a.errand = (kind: 'verify', targetId: poiId);
+        return;
+      }
+    }
+    // 2. tell — carry news to whoever lacks the most of what a holds
+    Agent? bestT;
+    var bestCount = 0;
+    for (final o in agents.values) {
+      if (o.id == a.id || o.faded || o.engaged) continue;
+      final n = a.knownSecrets.difference(o.knownSecrets).length;
+      if (n > bestCount) {
+        bestCount = n;
+        bestT = o;
+      }
+    }
+    if (bestT != null) {
+      a.errand = (kind: 'tell', targetId: bestT.id);
+      return;
+    }
+    // 3. seek — dim spirits hunt company before they fade
+    if (a.battery < 40) {
+      Agent? closest;
+      var cd = double.infinity;
+      for (final o in agents.values) {
+        if (o.id == a.id || o.faded || o.engaged) continue;
+        final d = _dist2(a.x, a.y, o.x, o.y);
+        if (d < cd) {
+          cd = d;
+          closest = o;
+        }
+      }
+      if (closest != null) {
+        a.errand = (kind: 'seek', targetId: closest.id);
+        return;
+      }
+    }
+    // 4. tend — routine: their own patch of the village
+    if (pois.containsKey(a.home)) {
+      a.errand = (kind: 'tend', targetId: a.home);
+    }
+  }
+
+  String? _describeErrand(Agent a) {
+    final e = a.errand;
+    if (e == null) return null;
+    return switch (e.kind) {
+      'verify' =>
+        'you heard something about ${pois[e.targetId]?.name ?? e.targetId} — go see for yourself',
+      'tell' =>
+        'you carry news ${agents[e.targetId]?.name ?? e.targetId} hasn\'t heard — find them',
+      'seek' => 'you feel dim — find company before the night takes you',
+      _ => 'your routine — check on ${pois[e.targetId]?.name ?? e.targetId}',
+    };
   }
 
   final Map<String, List<String>> _memCache = {};
@@ -581,6 +689,15 @@ class SimEngine {
       action = m.group(1)!;
       target ??= m.group(2)?.trim();
       subject ??= m.group(3)?.trim();
+    }
+    if (target == 'null' || target == '') target = null;
+    if (subject == 'null' || subject == '') subject = null;
+    // The model often picks the errand action without filling the
+    // destination — the deterministic plan supplies what it meant.
+    if (target == null &&
+        (action == 'goto' || action == 'seek') &&
+        a.errand?.targetId != null) {
+      target = a.errand!.targetId;
     }
     unawaited(
       store.simLog(
@@ -699,14 +816,33 @@ class SimEngine {
           },
         );
         return;
+      case 'seek':
+        // walk to the errand's person — the talk happens on a later decision
+        final t = agents[target];
+        if (t == null || t.faded || t.inConvo || t.engaged) {
+          _fallbackStroll(a);
+          return;
+        }
+        _approachForConvo(
+          a,
+          t,
+          onNear: (ag, tt) {
+            ag.errand = null; // arrived — next decision decides what to say
+            _nextWanderAt[ag.id] = simTs + 1;
+          },
+          onFail: _fallbackStroll,
+        );
+        return;
       case 'goto':
         final p = pois[target];
         if (p != null) {
           _visitSlot(
             a,
             p.id,
-            onArrive: (e, ag) =>
-                _nextWanderAt[ag.id] = e.simTs + 5 + e.rng.nextDouble() * 5,
+            onArrive: (e, ag) {
+              if (ag.errand?.targetId == p.id) ag.errand = null;
+              _nextWanderAt[ag.id] = e.simTs + 5 + e.rng.nextDouble() * 5;
+            },
             onFail: _fallbackStroll,
           );
           return;
@@ -724,6 +860,23 @@ class SimEngine {
   /// Standing at a POI → observe it. Curiosity payoff → goal to ask around.
   _Arrival _doInspect(Poi p, String line) => (e, a) {
     _sayOrNote(a, line.isEmpty ? p.surfaceText : line, 'curious');
+    a.verifiedPois.add(p.id);
+    if (a.errand?.targetId == p.id) {
+      a.errand = null;
+      unawaited(
+        store.memory(
+          Memory(
+            agent: a.id,
+            simTs: simTs,
+            kind: 'observation',
+            source: 'self',
+            text: 'went to see ${p.name} — the rumor was true',
+            importance: 6,
+            entities: [p.id],
+          ),
+        ),
+      );
+    }
     _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
     unawaited(
       Future.delayed(
@@ -1014,7 +1167,17 @@ class SimEngine {
       if (_walks.containsKey(a.id)) continue;
       if (simTs < (_nextWanderAt[a.id] ?? 0)) continue;
       final r = rng.nextDouble();
-      if (r < 0.65) {
+      // An active errand steers the ambient hop — the walk has a reason.
+      final e = a.errand;
+      final errandPoi = e != null &&
+              (e.kind == 'verify' || e.kind == 'tend') &&
+              pois[e.targetId] != null
+          ? pois[e.targetId]
+          : null;
+      if (errandPoi != null && r < 0.8) {
+        _visitSlot(a, errandPoi.id, onArrive: _browse(errandPoi),
+            onFail: _fallbackStroll);
+      } else if (r < 0.65) {
         // visit a POI — weight stalls & anomalies, but any POI qualifies
         final targets = pois.values
             .where((p) => villageSlots.any((s) => s.poiId == p.id))
@@ -1039,6 +1202,10 @@ class SimEngine {
   /// Reached a POI slot — face it, linger, glow the marker, remember it.
   _Arrival _browse(Poi p, {String line = ''}) => (e, a) {
     _sayOrNote(a, line, 'warm');
+    if (a.errand?.targetId == p.id &&
+        (a.errand?.kind == 'tend' || a.errand?.kind == 'verify')) {
+      a.errand = null;
+    }
     _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
     unawaited(
       Future.delayed(

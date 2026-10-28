@@ -24,6 +24,7 @@ class PromptBuilder {
     required String nearbyEntities,
     required List<String> memories,
     required List<String> allowedActions,
+    String? errand,
   }) {
     final s = a.stats;
     return '''
@@ -33,7 +34,7 @@ Pueblo de las Velas, a village of the dead at night. Stay in character.
 Never invent people, places, or events.
 Now: $simClock. You stand at $place. Nearby: $nearbyEntities.
 You remember: ${memories.isEmpty ? 'nothing recent' : memories.join(' | ')}.
-Secrets you know: [${_secretsBlock(a)}]
+Secrets you know: [${_secretsBlock(a)}]${errand == null ? '' : '\nYour errand: $errand.'}
 Choose ONE of: ${allowedActions.join(', ')}.
 - share(who,secret_id): tell them a secret they haven't heard — knowledge passes mouth to ear.
 - ask(who): draw out something they know that you don't.
@@ -82,7 +83,8 @@ Talking with ${partner.name} ($context). Mood: ${speaker.faded ? 'sad' : 'neutra
 Conversation so far:
 ${transcript.isEmpty ? '(no one has spoken yet)' : transcript.join('\n')}
 Secrets you know: [${_secretsBlock(speaker)}]$ask
-Write YOUR next line. ≤14 words, in voice.
+Write YOUR next line. ≤14 words, in voice — reply to their last line, stay
+on the topic, don't start a new one.
 JSON: {"line":"...","shares_secret":"id|null","end":true|false,"mood":"neutral|warm|curious|sad|scared"}''';
   }
 

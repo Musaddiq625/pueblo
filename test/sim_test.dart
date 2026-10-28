@@ -260,4 +260,48 @@ void main() {
     }
     expect(e.agents['b']!.knownSecrets, contains('s1'));
   });
+
+  test('verify errand surfaces in the decision prompt', () async {
+    final llm = _ScriptedLLM();
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    // Ana knows s1 (unlocks p1) and never inspected it → verify errand
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    for (var i = 0; i < 30; i++) {
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    final aPrompt = llm.prompts
+        .firstWhere((p) => p.contains('You are Ana'), orElse: () => '');
+    expect(aPrompt, contains('Your errand:'));
+    expect(aPrompt, contains('go see for yourself'));
+    // and the engine backs it with a concrete offer
+    expect(aPrompt, contains('goto(p1)'));
+  });
+
+  test('tell errand: carries news to whoever lacks it, clears on convo',
+      () async {
+    final llm = _ScriptedLLM();
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    // verify already satisfied → next priority is tell(Bor)
+    e.agents['a']!.verifiedPois.add('p1');
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    for (var i = 0; i < 30; i++) {
+      e.agents['a']!.x = 0;
+      e.agents['a']!.y = 0;
+      e.agents['b']!.x = 30;
+      e.agents['b']!.y = 0;
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    final aPrompt = llm.prompts
+        .firstWhere((p) => p.contains('You are Ana'), orElse: () => '');
+    expect(aPrompt, contains('news Bor'));
+    // talking to Bor satisfies the errand
+    e.startConversation('a', 'b');
+    expect(e.agents['a']!.errand, isNull);
+  });
 }
