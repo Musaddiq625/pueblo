@@ -13,7 +13,7 @@
       "grump": 1
     },
     "home": "flower_stall",
-    "sprite": "sk_mage",
+    "sprite": "tavern_b",
     "initial_secrets": [],
     "tint": "#F5A95B",
     "hook": "feeds everyone gossip like tortillas; can't keep a secret past supper",
@@ -42,7 +42,7 @@
       "grump": 4
     },
     "home": "gravedigger_hut",
-    "sprite": "sk_warrior",
+    "sprite": "tavern_a",
     "initial_secrets": [
       "tree_is_hollow",
       "grave_37_name"
@@ -74,7 +74,7 @@
       "grump": 2
     },
     "home": "cantina",
-    "sprite": "sk_rogue",
+    "sprite": "tavern_b",
     "initial_secrets": [
       "cantina_recipe"
     ],
@@ -89,7 +89,8 @@
         "at": 480,
         "poi": "cantina"
       }
-    ]
+    ],
+    "dye": "#5FD0BC"
   },
   {
     "id": "ramon",
@@ -105,7 +106,7 @@
       "grump": 1
     },
     "home": "plaza",
-    "sprite": "sk_base",
+    "sprite": "tavern_a",
     "initial_secrets": [],
     "tint": "#E87AB8",
     "hook": "versifies everything — a bad secret keeper in perfect meter",
@@ -118,7 +119,8 @@
         "at": 500,
         "poi": "plaza"
       }
-    ]
+    ],
+    "dye": "#E87AB8"
   },
   {
     "id": "ines",
@@ -134,7 +136,7 @@
       "grump": 1
     },
     "home": "fountain",
-    "sprite": "sk_mage",
+    "sprite": "wizzard",
     "initial_secrets": [
       "fountain_whisper",
       "tree_watcher_hint"
@@ -162,10 +164,11 @@
       "grump": 2
     },
     "home": "cemetery_lane",
-    "sprite": "sk_base",
+    "sprite": "wizzard",
     "initial_secrets": [],
     "tint": "#9FC4E8",
     "hook": "forgot his own name; follows whoever smells of marigold",
-    "schedule": []
+    "schedule": [],
+    "dye": "#9FC4E8"
   }
 ]

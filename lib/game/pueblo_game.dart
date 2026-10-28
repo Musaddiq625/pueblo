@@ -200,6 +200,19 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     final death = def.death == null
         ? null
         : await _anim(def.death!, loop: false);
+    // the ghost every person becomes when forgotten — the naked skeleton
+    Map<SpiritAnim, SpriteAnimation>? ghost;
+    Vector2? ghostSize;
+    final gdef = chars[kGhostChar];
+    if (gdef != null && key != kGhostChar) {
+      ghost = {
+        SpiritAnim.idle: await _anim(gdef.idle),
+        SpiritAnim.walk: await _anim(gdef.walk),
+        if (gdef.death != null)
+          SpiritAnim.death: await _anim(gdef.death!, loop: false),
+      };
+      ghostSize = Vector2(gdef.displayW, gdef.displayH);
+    }
     final c = SpiritComponent(
       agent: a,
       charKey: key,
@@ -212,13 +225,26 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       // in-world; the full name lives in the inspect card + town log
       displayName: a.name.split(' ').first,
       auraColor: personaTint[a.id] != null ? Color(personaTint[a.id]!) : null,
+      ghostAnims: ghost,
+      ghostSize: ghostSize,
     );
+    // persona dye — a palette swap so spirits sharing a sheet still read
+    // as different people (multiply preserves the pixel shading)
+    final dye = personaDye[a.id];
+    if (dye != null) {
+      c.paint.colorFilter =
+          ColorFilter.mode(Color(dye), BlendMode.modulate);
+    }
     if (a.faded) c.setFaded(true);
     return c;
   }
 
+  /// The ghost char — the naked skeleton faded spirits collapse into.
+  static const kGhostChar = 'sk_base';
+
   static Map<String, String> personaSprite = {};
   static Map<String, int> personaTint = {};
+  static Map<String, int> personaDye = {};
 
   /// Set in onLoad — lets the driver extension reach the live game.
   static PuebloGame? activeGame;

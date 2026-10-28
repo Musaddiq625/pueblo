@@ -24,6 +24,12 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
   final Color? auraColor;
   final void Function(Agent) onTapped;
 
+  /// Ghost form — the bare skeleton every spirit collapses into when
+  /// forgotten. When set, fading swaps the whole animation group (and the
+  /// cell's display size) rather than just dimming the person sprite.
+  final Map<SpiritAnim, SpriteAnimation>? ghostAnims;
+  final Vector2? ghostSize;
+
   // Movement
   final List<Vector2> _path = [];
   bool walking = false;
@@ -32,6 +38,11 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
   double _opacity = 1.0;
   bool _engaged = false;
   bool _faded = false;
+  bool _collapsing = false; // ghost death anim playing → then ghost idle
+  late final Map<SpiritAnim, SpriteAnimation> _personAnims = {
+    for (final e in animations!.entries) e.key: e.value,
+  };
+  late final Vector2 _personSize = size.clone();
 
   SpiritComponent({
     required this.agent,
@@ -43,6 +54,8 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     SpriteAnimation? death,
     this.displayName = '',
     this.auraColor,
+    this.ghostAnims,
+    this.ghostSize,
   }) : super(
          animations: {
            SpiritAnim.idle: idle,
@@ -89,11 +102,28 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
   void setFaded(bool faded) {
     _faded = faded;
     _opacity = faded ? 0.35 : 1.0;
-    // play the death anim once when the spirit is forgotten — the sheets
-    // exist for all sk_* chars; loop:false parks on the last frame
-    if (faded && animations?.containsKey(SpiritAnim.death) == true) {
+    if (faded && ghostAnims != null) {
+      // the person dissolves into bare bone — ghost collapse plays once,
+      // then the skeleton stands and wanders translucent
+      walking = false;
+      _path.clear();
+      animations = ghostAnims;
+      if (ghostSize != null) size = ghostSize!.clone();
+      if (animations!.containsKey(SpiritAnim.death)) {
+        _collapsing = true;
+        current = SpiritAnim.death;
+      } else {
+        current = SpiritAnim.idle;
+      }
+    } else if (faded && animations?.containsKey(SpiritAnim.death) == true) {
       current = SpiritAnim.death;
-    } else if (!faded && current == SpiritAnim.death) {
+    } else if (!faded) {
+      // name spoken — the spirit is a person again
+      _collapsing = false;
+      if (ghostAnims != null) {
+        animations = _personAnims;
+        size = _personSize.clone();
+      }
       current = SpiritAnim.idle;
       _opacity = 1.0;
     }
@@ -121,6 +151,11 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
         position += step;
         faceToward(target.x);
       }
+    }
+    // ghost collapse finished → the skeleton stands
+    if (_collapsing && animationTicker?.done() == true) {
+      _collapsing = false;
+      current = SpiritAnim.idle;
     }
     // depth sort by foot y; engaged pins nothing visually
     priority = position.y.round();

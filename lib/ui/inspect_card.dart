@@ -13,6 +13,7 @@ import '../sim/models.dart';
 class InspectCard extends StatefulWidget {
   final SimEngine engine;
   final String spiritSprite;
+  final int? spiritDye;
   final VoidCallback onEnd;
 
   const InspectCard({
@@ -20,6 +21,7 @@ class InspectCard extends StatefulWidget {
     required this.engine,
     required this.spiritSprite,
     required this.onEnd,
+    this.spiritDye,
   });
 
   @override
@@ -94,7 +96,7 @@ class _InspectCardState extends State<InspectCard> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _Portrait(sprite: widget.spiritSprite),
+              _Portrait(sprite: widget.spiritSprite, dye: widget.spiritDye),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -209,9 +211,21 @@ class _InspectCardState extends State<InspectCard> {
 
 class _Portrait extends StatelessWidget {
   final String sprite;
-  const _Portrait({required this.sprite});
+  final int? dye;
+  const _Portrait({required this.sprite, this.dye});
   @override
   Widget build(BuildContext context) {
+    Widget img = Image.asset('assets/sprites/chars/${sprite}_idle.png',
+        fit: BoxFit.cover,
+        alignment: Alignment.centerLeft,
+        filterQuality: FilterQuality.none);
+    final d = dye;
+    if (d != null) {
+      img = ColorFiltered(
+        colorFilter: ColorFilter.mode(Color(d), BlendMode.modulate),
+        child: img,
+      );
+    }
     return Container(
       width: 52, height: 52,
       decoration: BoxDecoration(
@@ -221,10 +235,7 @@ class _Portrait extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(9),
-        child: Image.asset('assets/sprites/chars/${sprite}_idle.png',
-            fit: BoxFit.cover,
-            alignment: Alignment.centerLeft,
-            filterQuality: FilterQuality.none),
+        child: img,
       ),
     );
   }

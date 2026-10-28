@@ -14,8 +14,9 @@ class SimBundle {
   final SimEngine engine;
   final SimStore store;
   final Map<String, String> sprites;
-  final Map<String, int> tints; // agentId -> 0xAARRGGBB sprite tint
-  SimBundle(this.engine, this.store, this.sprites, this.tints);
+  final Map<String, int> tints; // agentId -> 0xAARRGGBB aura ring color
+  final Map<String, int> dyes; // agentId -> 0xAARRGGBB sprite palette swap
+  SimBundle(this.engine, this.store, this.sprites, this.tints, this.dyes);
 }
 
 Future<SimBundle> bootstrap({
@@ -50,6 +51,7 @@ Future<SimBundle> bootstrap({
   final agents = <String, Agent>{};
   final sprites = <String, String>{};
   final tints = <String, int>{};
+  final dyes = <String, int>{};
   for (final p in personas) {
     final a = Agent(
       id: p['id'],
@@ -74,6 +76,8 @@ Future<SimBundle> bootstrap({
     sprites[a.id] = p['sprite'] ?? 'sk_base';
     final hex = (p['tint'] as String?)?.replaceFirst('#', '');
     if (hex != null) tints[a.id] = int.parse('FF$hex', radix: 16);
+    final dye = (p['dye'] as String?)?.replaceFirst('#', '');
+    if (dye != null) dyes[a.id] = int.parse('FF$dye', radix: 16);
   }
 
   final store = await SimStore.open(path: dbPath, fresh: freshDb);
@@ -87,5 +91,5 @@ Future<SimBundle> bootstrap({
     timeScale: timeScale,
     dawnAt: dawnAt,
   );
-  return SimBundle(engine, store, sprites, tints);
+  return SimBundle(engine, store, sprites, tints, dyes);
 }

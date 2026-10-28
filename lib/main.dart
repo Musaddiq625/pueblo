@@ -83,6 +83,7 @@ Future<void> main() async {
             );
             PuebloGame.personaSprite = bundle.sprites;
             PuebloGame.personaTint = bundle.tints;
+            PuebloGame.personaDye = bundle.dyes;
             runApp(PuebloApp(bundle: bundle));
           },
         ),
@@ -112,6 +113,7 @@ Future<void> main() async {
     final bundle = await mkBundle();
     PuebloGame.personaSprite = bundle.sprites;
     PuebloGame.personaTint = bundle.tints;
+    PuebloGame.personaDye = bundle.dyes;
     runApp(PuebloApp(bundle: bundle, onNewNight: launch));
   }
 
@@ -314,6 +316,7 @@ class _PuebloAppState extends State<PuebloApp> {
                     engine: engine,
                     spiritSprite:
                         PuebloGame.personaSprite[engaged] ?? 'sk_base',
+                    spiritDye: PuebloGame.personaDye[engaged],
                     onEnd: _endInteraction,
                   ),
                 ),
