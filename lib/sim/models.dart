@@ -119,6 +119,10 @@ class Secret {
   final String shareText;
   final List<String> initiallyKnownBy;
   final String? unlocksPoiLore;
+
+  /// Speaking this secret's name aloud to [wakesAgent] recharges them hard —
+  /// the resurrection mechanic, data-driven instead of hardcoded.
+  final String? wakesAgent;
   final String tier;
 
   const Secret({
@@ -128,6 +132,7 @@ class Secret {
     required this.shareText,
     required this.initiallyKnownBy,
     this.unlocksPoiLore,
+    this.wakesAgent,
     this.tier = 'town',
   });
 
@@ -138,6 +143,7 @@ class Secret {
         shareText: j['share_text'],
         initiallyKnownBy: List<String>.from(j['initially_known_by'] ?? const []),
         unlocksPoiLore: j['unlocks_poi_lore'],
+        wakesAgent: j['wakes_agent'],
         tier: j['tier'] ?? 'town',
       );
 }

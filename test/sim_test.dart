@@ -17,7 +17,7 @@ const _personas = '''
 ''';
 const _secrets = '''
 [{"id":"s1","surface":"surf","truth":"the buried truth","share_text":"shares s1",
-  "initially_known_by":["a"],"unlocks_poi_lore":"p1","tier":"town"}]
+  "initially_known_by":["a"],"unlocks_poi_lore":"p1","wakes_agent":"b","tier":"town"}]
 ''';
 
 Future<SimBundle> _boot({LLMClient? llm}) async {
@@ -303,5 +303,33 @@ void main() {
     // talking to Bor satisfies the errand
     e.startConversation('a', 'b');
     expect(e.agents['a']!.errand, isNull);
+  });
+
+  test('data-driven wake: greeting with a name-secret revives a fading spirit',
+      () async {
+    final llm = _ScriptedLLM()
+      ..forcedDecision = Decision('greet', 'b', '¡Bor! Still with us?');
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    final bor = e.agents['b']!;
+    bor.battery = 2;
+    bor.faded = true;
+    // a's next decision sees the rescue and acts on it
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    for (var i = 0; i < 30 && bor.faded; i++) {
+      if (i < 26) {
+        e.agents['a']!.x = 624;
+        e.agents['a']!.y = 496;
+        e.agents['b']!.x = 656;
+        e.agents['b']!.y = 496;
+      }
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    expect(llm.prompts.any((p) => p.contains('FADING') && p.contains('greet(b)')),
+        isTrue);
+    expect(bor.faded, isFalse, reason: 'the spoken name should revive them');
+    expect(bor.battery, greaterThan(8));
   });
 }

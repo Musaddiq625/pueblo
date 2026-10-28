@@ -528,6 +528,22 @@ class SimEngine {
       if (p.isStall) allowed.add('shop(${p.id})');
     }
 
+    // Rescue affordance — a fading spirit whose name the decider holds:
+    // the single most important fact on the whole decision sheet.
+    String? rescue;
+    for (final o in near.agents) {
+      if (!o.faded) continue;
+      for (final s in secrets.values) {
+        if (s.wakesAgent == o.id && agent.knownSecrets.contains(s.id)) {
+          rescue =
+              '${o.name} is FADING — forgotten. You know their name. '
+              'greet(${o.id}) speaks it aloud and saves them. Choose it.';
+          break;
+        }
+      }
+      if (rescue != null) break;
+    }
+
     final prompt = prompts.decisionPrompt(
       agent,
       simClock: _clock(),
@@ -536,6 +552,7 @@ class SimEngine {
       memories: _memCache[agent.id] ?? const [],
       allowedActions: allowed,
       errand: _describeErrand(agent),
+      rescue: rescue,
     );
     broker.push(JobKind.decision, agent.id, prompt, agent.stateVersion);
     _refreshMemories(agent);
@@ -742,7 +759,8 @@ class SimEngine {
         }
         _fallbackStroll(a);
       case 'inspect':
-        final p = pois[target];
+        var p = pois[target];
+        p ??= _nearestOf(a, (q) => q.anomaly);
         if (p == null) {
           _fallbackStroll(a);
           return;
@@ -756,7 +774,8 @@ class SimEngine {
         );
       case 'shop':
         // browsing a stall — the POI is the target, not a spirit
-        final p = pois[target];
+        var p = pois[target];
+        p ??= _nearestOf(a, (q) => q.isStall);
         if (p != null) {
           _visitSlot(
             a,
@@ -840,7 +859,24 @@ class SimEngine {
             a,
             p.id,
             onArrive: (e, ag) {
-              if (ag.errand?.targetId == p.id) ag.errand = null;
+              if (ag.errand?.targetId == p.id) {
+                // arriving IS seeing — the verify errand is satisfied
+                ag.verifiedPois.add(p.id);
+                ag.errand = null;
+                unawaited(
+                  store.memory(
+                    Memory(
+                      agent: ag.id,
+                      simTs: e.simTs,
+                      kind: 'observation',
+                      source: 'self',
+                      text: 'went to see ${p.name} — the rumor was true',
+                      importance: 6,
+                      entities: [p.id],
+                    ),
+                  ),
+                );
+              }
               _nextWanderAt[ag.id] = e.simTs + 5 + e.rng.nextDouble() * 5;
             },
             onFail: _fallbackStroll,
@@ -904,13 +940,18 @@ class SimEngine {
   };
 
   /// Greeting — the named greeting is the resurrection mechanic: if the
-  /// greeter knows `grave_37_name` and the target is Solorio, speaking his
-  /// name recharges him hard. Otherwise a normal small recharge.
+  /// greeter holds a secret that names the target (wakes_agent), speaking
+  /// the name recharges them hard. Otherwise a normal small recharge.
   void _greet(Agent a, Agent t, Decision d) {
-    final knowsName =
-        t.id == 'solorio' && a.knownSecrets.contains('grave_37_name');
-    if (knowsName) {
-      _say(a, '¡Solorio! Still with us, compadre.', 'warm');
+    Secret? wakeSecret;
+    for (final s in secrets.values) {
+      if (s.wakesAgent == t.id && a.knownSecrets.contains(s.id)) {
+        wakeSecret = s;
+        break;
+      }
+    }
+    if (wakeSecret != null) {
+      _say(a, d.line.isEmpty ? '¡${t.name.split(' ').first}! Still with us?' : _cleanLine(d.line), 'warm');
       t.battery = min(100, t.battery + 25);
       unawaited(
         store.memory(
@@ -919,9 +960,9 @@ class SimEngine {
             simTs: simTs,
             kind: 'heard',
             source: 'spirit:${a.id}',
-            text: '${a.name} spoke his name: Solorio',
+            text: '${a.name} spoke their name — remembered aloud',
             importance: 9,
-            entities: [a.id, 'grave_37_name'],
+            entities: [a.id, wakeSecret.id],
           ),
         ),
       );
@@ -1204,6 +1245,7 @@ class SimEngine {
     _sayOrNote(a, line, 'warm');
     if (a.errand?.targetId == p.id &&
         (a.errand?.kind == 'tend' || a.errand?.kind == 'verify')) {
+      a.verifiedPois.add(p.id);
       a.errand = null;
     }
     _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
@@ -1583,6 +1625,22 @@ class SimEngine {
   double _dist2(double x1, double y1, double x2, double y2) {
     final dx = x1 - x2, dy = y1 - y2;
     return dx * dx + dy * dy;
+  }
+
+  /// The model often picks an action without filling its target — the
+  /// deterministic world supplies the nearest valid destination.
+  Poi? _nearestOf(Agent a, bool Function(Poi) predicate) {
+    Poi? best;
+    var bd = double.infinity;
+    for (final q in pois.values) {
+      if (!predicate(q)) continue;
+      final d = _dist2(a.x, a.y, q.x, q.y);
+      if (d < bd) {
+        bd = d;
+        best = q;
+      }
+    }
+    return best;
   }
 
   String nearestPoiName(double x, double y) {

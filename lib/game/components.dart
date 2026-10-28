@@ -98,6 +98,9 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     }
   }
 
+  /// For the world-level name label — mirrors fade/engaged tint.
+  double get labelOpacity => opacity;
+
   @override
   void update(double dt) {
     super.update(dt);
@@ -146,31 +149,45 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
       );
     }
     super.render(canvas);
-    // name tag under the feet — persona color, counter-flip so text stays
-    // readable when the sprite flips to face walk direction
-    if (displayName.isNotEmpty) {
-      final tp = TextPainter(
-        text: TextSpan(
-          text: displayName,
-          style: TextStyle(
-            fontSize: 9,
-            color: aura ?? const Color(0xDDEFE4CE),
-            fontFamily: 'monospace',
-            shadows: const [Shadow(color: Color(0xFF000000), blurRadius: 3)],
-          ),
+  }
+}
+
+/// World-level spirit name tag. Lives OUTSIDE the sprite component so
+/// depth sorting never paints another spirit's body over the text —
+/// half-hidden names ("Doñ", "Ramó") read as bugs, not layering.
+class SpiritLabelComponent extends PositionComponent {
+  final SpiritComponent spirit;
+  SpiritLabelComponent(this.spirit)
+    : super(
+        size: Vector2(140, 14),
+        anchor: Anchor.topCenter,
+        priority: 3000000, // same stratum as POI nameplates
+      );
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    position = Vector2(spirit.position.x, spirit.position.y + 12);
+  }
+
+  @override
+  void render(Canvas canvas) {
+    final name = spirit.displayName;
+    if (name.isEmpty) return;
+    final tp = TextPainter(
+      text: TextSpan(
+        text: name,
+        style: TextStyle(
+          fontSize: 9,
+          color: (spirit.auraColor ?? const Color(0xDDEFE4CE))
+              .withValues(alpha: spirit.labelOpacity),
+          fontFamily: 'monospace',
+          shadows: const [Shadow(color: Color(0xFF000000), blurRadius: 3)],
         ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      if (scale.x.isNegative) {
-        canvas.save();
-        canvas.translate(size.x, 0);
-        canvas.scale(-1, 1);
-        tp.paint(canvas, Offset((size.x - tp.width) / 2, size.y + 4));
-        canvas.restore();
-      } else {
-        tp.paint(canvas, Offset((size.x - tp.width) / 2, size.y + 4));
-      }
-    }
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: size.x);
+    tp.paint(canvas, Offset((size.x - tp.width) / 2, 0));
   }
 }
 

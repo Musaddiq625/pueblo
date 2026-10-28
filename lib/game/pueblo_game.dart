@@ -129,6 +129,8 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       final comp = await _spirit(agent);
       spirits[agent.id] = comp;
       await world.add(comp);
+      // name tag at world level — never occluded by depth sorting
+      await world.add(SpiritLabelComponent(comp));
     }
 
     // ---- chispa guide ----

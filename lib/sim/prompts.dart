@@ -25,13 +25,14 @@ class PromptBuilder {
     required List<String> memories,
     required List<String> allowedActions,
     String? errand,
+    String? rescue,
   }) {
     final s = a.stats;
     return '''
 You are ${a.name}. ${a.persona}
 Stats (0-5): curiosity ${s.curiosity}, wit ${s.wit}, warmth ${s.warmth}, spirit-sight ${s.spiritSight}, mischief ${s.mischief}, grump ${s.grump}.
 Pueblo de las Velas, a village of the dead at night. Stay in character.
-Never invent people, places, or events.
+Never invent people, places, or events.${rescue == null ? '' : '\nURGENT: $rescue'}
 Now: $simClock. You stand at $place. Nearby: $nearbyEntities.
 You remember: ${memories.isEmpty ? 'nothing recent' : memories.join(' | ')}.
 Secrets you know: [${_secretsBlock(a)}]${errand == null ? '' : '\nYour errand: $errand.'}
