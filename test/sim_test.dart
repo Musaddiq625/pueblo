@@ -20,7 +20,7 @@ const _secrets = '''
   "initially_known_by":["a"],"unlocks_poi_lore":"p1","tier":"town"}]
 ''';
 
-Future<SimBundle> _boot() async {
+Future<SimBundle> _boot({LLMClient? llm}) async {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
@@ -36,11 +36,41 @@ Future<SimBundle> _boot() async {
       'p1': [0, 0],
       'p2': [10, 10],
     },
-    llm: MockLLMClient(seed: 1),
+    llm: llm ?? MockLLMClient(seed: 1),
     rng: Random(1),
     freshDb: true,
     dbPath: '${dir.path}/t.db',
   );
+}
+
+/// Scripted double — returns fixed turns, records every prompt the engine
+/// builds so tests can assert on what the model was offered.
+class _ScriptedLLM extends MockLLMClient {
+  _ScriptedLLM() : super(seed: 1);
+  final prompts = <String>[];
+  String? forcedShare;
+  bool endNow = true;
+  Decision? forcedDecision;
+
+  @override
+  Future<Decision?> decide(String prompt) async {
+    prompts.add(prompt);
+    return forcedDecision; // null → engine emits '·' emote, agent stays put
+  }
+
+  @override
+  Future<ConvoTurn?> convoTurn(String prompt) async {
+    prompts.add(prompt);
+    return ConvoTurn('a spoken line', sharesSecret: forcedShare, end: endNow);
+  }
+}
+
+/// Pump the async broker/store pipeline while ticking the sim clock.
+Future<void> _pump(dynamic e, {int ticks = 60, double dt = 0.5}) async {
+  for (var i = 0; i < ticks; i++) {
+    e.tick(dt);
+    await Future<void>.delayed(const Duration(milliseconds: 3));
+  }
 }
 
 void main() {
@@ -82,5 +112,152 @@ void main() {
     expect(e.inspectPoi('p1'), 'just a lane');
     e.playerKnown.add('s1');
     expect(e.inspectPoi('p1'), 'the buried truth');
+  });
+
+  test('purpose-bound convo transfers the declared secret deterministically',
+      () async {
+    final llm = _ScriptedLLM(); // shares_secret stays null on purpose
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    e.startConversation('a', 'b', purpose: (holder: 'a', secretId: 's1'));
+    // convo needs a couple of turn cycles — pump until transfer lands
+    for (var i = 0; i < 160 && !e.agents['b']!.knownSecrets.contains('s1');
+        i++) {
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    expect(e.agents['b']!.knownSecrets, contains('s1'));
+  });
+
+  test('hallucinated shares_secret cannot move knowledge', () async {
+    final llm = _ScriptedLLM()..forcedShare = 'bogus_secret';
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    e.startConversation('a', 'b'); // organic, no purpose
+    await _pump(e, ticks: 60);
+    expect(e.agents['b']!.knownSecrets, isEmpty);
+  });
+
+  test('organic convo still transfers a valid owned secret', () async {
+    final llm = _ScriptedLLM()..forcedShare = 's1';
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    e.startConversation('a', 'b');
+    for (var i = 0; i < 160 && !e.agents['b']!.knownSecrets.contains('s1');
+        i++) {
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    expect(e.agents['b']!.knownSecrets, contains('s1'));
+  });
+
+  test('already-known secret cannot re-transfer', () async {
+    final llm = _ScriptedLLM()..forcedShare = 's1';
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    e.agents['b']!.knownSecrets.add('s1');
+    e.startConversation('a', 'b');
+    await _pump(e, ticks: 60);
+    expect(e.agents['b']!.knownSecrets.length, 1);
+  });
+
+  test('converse is not re-offered within the pair cooldown', () async {
+    final llm = _ScriptedLLM();
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    // put them adjacent, talk once → cooldown starts
+    e.agents['a']!.x = 0;
+    e.agents['a']!.y = 0;
+    e.agents['b']!.x = 30;
+    e.agents['b']!.y = 0;
+    e.startConversation('a', 'b');
+    await _pump(e, ticks: 40);
+    // force A to be the next decided agent, inside the 90s cooldown —
+    // pin positions so ambient wandering can't separate them mid-test
+    llm.prompts.clear();
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    for (var i = 0; i < 30; i++) {
+      e.agents['a']!.x = 0;
+      e.agents['a']!.y = 0;
+      e.agents['b']!.x = 30;
+      e.agents['b']!.y = 0;
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    final aPrompt =
+        llm.prompts.firstWhere((p) => p.contains('You are Ana'), orElse: () => '');
+    expect(aPrompt, isNot(contains('converse(b)')));
+    // but knowledge offers are never cooled down — Ana holds s1 Bor lacks
+    expect(aPrompt, contains('share(b,s1)'));
+  });
+
+  test('small talk is withheld while a pair has real news to pass', () async {
+    final llm = _ScriptedLLM();
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    // Ana knows s1, Bor doesn't → share exists, so no converse( offer
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    for (var i = 0; i < 30; i++) {
+      e.agents['a']!.x = 0;
+      e.agents['a']!.y = 0;
+      e.agents['b']!.x = 30;
+      e.agents['b']!.y = 0;
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    final aPrompt =
+        llm.prompts.firstWhere((p) => p.contains('You are Ana'), orElse: () => '');
+    expect(aPrompt, contains('share(b,s1)'));
+    expect(aPrompt, isNot(contains('converse(b)')));
+  });
+
+  test('grumpy spirits keep the random-talk exemption', () async {
+    final llm = _ScriptedLLM();
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    // Bor (grump 5) decides — knows nothing, yet converse stays offered
+    e.agents['b']!.lastActedAt = -999;
+    e.agents['a']!.lastActedAt = 99999;
+    for (var i = 0; i < 30; i++) {
+      e.agents['a']!.x = 0;
+      e.agents['a']!.y = 0;
+      e.agents['b']!.x = 30;
+      e.agents['b']!.y = 0;
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    final bPrompt =
+        llm.prompts.firstWhere((p) => p.contains('You are Bor'), orElse: () => '');
+    expect(bPrompt, isNotEmpty);
+    expect(bPrompt, contains('converse(a)'));
+    // and Bor can still ask Ana what she knows
+    expect(bPrompt, contains('ask(a)'));
+  });
+
+  test('name(args) echo from the model normalizes into a share', () async {
+    final llm = _ScriptedLLM()
+      ..forcedDecision = Decision(
+        'share(b,s1)', // small models echo the offered string verbatim
+        null,
+        'heard something',
+      );
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    // Both on the south road — walkable, and close enough to approach.
+    // Pin only until the decision lands; the approach walk needs real motion.
+    for (var i = 0; i < 400 && !e.agents['b']!.knownSecrets.contains('s1');
+        i++) {
+      if (i < 30) {
+        e.agents['a']!.x = 624;
+        e.agents['a']!.y = 496;
+        e.agents['b']!.x = 656;
+        e.agents['b']!.y = 496;
+      }
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+    }
+    expect(e.agents['b']!.knownSecrets, contains('s1'));
   });
 }

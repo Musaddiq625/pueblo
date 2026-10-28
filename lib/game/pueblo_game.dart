@@ -549,6 +549,16 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         _spawnPetal();
       case SimEventType.log:
         final t = e.data['text'] as String;
+        // Narration ("X tells Y: …", unheard mutters) lands in the town
+        // log too — quieter than a bubble, but still visible to the player.
+        if (t.contains(': ')) {
+          townLog.value = [...townLog.value, ('·', t)]
+              .reversed
+              .take(5)
+              .toList()
+              .reversed
+              .toList();
+        }
         if (t.startsWith('bought')) {
           _chispa('A gift goes further than a question, mijo.');
         }
@@ -583,8 +593,11 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       b.removeFromParent();
     }
     c.add(
-      BubbleComponent(line, size: Vector2(220, 44))
-        ..position = Vector2(0, -c.size.y - 6),
+      BubbleComponent(
+        line,
+        speaker: engine.agents[agentId]?.name.split(' ').first ?? '',
+        size: Vector2(220, 44),
+      )..position = Vector2(0, -c.size.y - 6),
     );
   }
 

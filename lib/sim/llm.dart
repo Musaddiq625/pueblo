@@ -173,6 +173,14 @@ class MockLLMClient implements LLMClient {
   Future<Decision?> decide(String prompt) async {
     // Cheap intent inference from the offered action list in the prompt.
     final r = rng.nextDouble();
+    // Purpose first — the point of the sim is knowledge moving.
+    if (prompt.contains('share(') && r < 0.5) {
+      final m = RegExp(r'share\((\w+),(\w+)\)').firstMatch(prompt);
+      if (m != null) {
+        return Decision('share', m.group(1), _pick(_idleLines),
+            subject: m.group(2), thought: 'they haven\'t heard', mood: 'warm');
+      }
+    }
     if (prompt.contains('converse') && r < 0.45) {
       final m = RegExp(r'converse\((\w+)\)').firstMatch(prompt);
       if (m != null) {

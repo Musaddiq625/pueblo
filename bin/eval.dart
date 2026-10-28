@@ -17,9 +17,16 @@ import 'package:pueblo/sim/prompts.dart';
 // ignore_for_file: avoid_print
 
 const _actions = {
-  'stroll', 'converse', 'inspect', 'offer_secret', 'ask_about',
-  'visit_poi', 'buy', 'wander_home', 'idle'
+  'stroll', 'idle', 'converse', 'greet', 'inspect', 'shop', 'goto',
+  'share', 'ask', 'askAbout', 'offerSecret',
 };
+
+/// Same normalization the engine applies — small models echo "share(bor,x)"
+/// verbatim; that counts as legal.
+String _actionName(String a) {
+  final m = RegExp(r'^(\w+)\(').firstMatch(a.trim());
+  return m?.group(1) ?? a;
+}
 
 // A realistic 2-agent scenario the real prompts get fed.
 final _ana = Agent(
@@ -51,9 +58,13 @@ void main(List<String> argv) async {
   final llm = OllamaClient(model: model, rng: Random(1));
   final secrets = {for (final s in [_secret]) s.id: s};
   final prompts = PromptBuilder(secrets);
-  _ana.knownSecrets.add('tree_is_hollow');
+  // Asymmetric knowledge — the whole point of the sim is that it moves.
   _bor.knownSecrets.add('tree_is_hollow');
-  const legal = ['stroll', 'converse(bor)', 'inspect(ceiba)', 'idle'];
+  const legal = [
+    'stroll', 'idle',
+    'share(bor,tree_is_hollow)', 'ask(bor)',
+    'greet(bor)', 'converse(bor)', 'inspect(ceiba)',
+  ];
 
   print('=== pueblo model proof: $model ===');
   print('${llm.name}  (decide/convoTurn, format:json)\n');
@@ -77,7 +88,10 @@ void main(List<String> argv) async {
     decideLat.add(DateTime.now().difference(t0).inMilliseconds);
     if (d != null) {
       decided++;
-      if (_actions.contains(d.action)) { decideOk++; actionLegal++; }
+      if (_actions.contains(_actionName(d.action))) {
+        decideOk++;
+        actionLegal++;
+      }
       if (d.line.trim().isNotEmpty) decideOk++;
     }
 
@@ -117,7 +131,9 @@ void main(List<String> argv) async {
         allowedActions: legal));
     }));
     final ms = DateTime.now().difference(t).inMilliseconds;
-    final ok = results.where((r) => r != null && _actions.contains(r.action)).length;
+    final ok = results
+        .where((r) => r != null && _actions.contains(_actionName(r.action)))
+        .length;
     print('-- parallel=$n: ${ms}ms wall, $ok/$n legal '
         '(${n > 1 ? (ms / n).toStringAsFixed(0) : ms}ms effective/req) --');
   }

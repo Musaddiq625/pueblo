@@ -275,19 +275,25 @@ class PoiComponent extends PositionComponent with TapCallbacks {
 
 // ---------------------------------------------------------------------------
 
-/// Speech/emote bubble floating over a component's head.
+/// Speech/emote bubble floating over a component's head. [speaker] shows a
+/// small name chip over the line — who is talking should never be a guess.
 class BubbleComponent extends PositionComponent {
   final String text;
+  final String speaker;
   final bool isEmote;
   double _ttl;
 
-  BubbleComponent(this.text, {this.isEmote = false, Vector2? size})
-    : _ttl = isEmote ? 1.8 : 3.6,
-      super(
-        size: size ?? Vector2(220, 44),
-        anchor: Anchor.bottomCenter,
-        priority: 9999,
-      );
+  BubbleComponent(
+    this.text, {
+    this.speaker = '',
+    this.isEmote = false,
+    Vector2? size,
+  }) : _ttl = isEmote ? 1.8 : 3.6,
+       super(
+         size: size ?? Vector2(220, 44),
+         anchor: Anchor.bottomCenter,
+         priority: 9999,
+       );
 
   @override
   void update(double dt) {
@@ -331,7 +337,24 @@ class BubbleComponent extends PositionComponent {
       tp.paint(canvas, Offset((size.x - tp.width) / 2, 0));
       return;
     }
-    final w = tp.width + 16, h = tp.height + 10;
+    TextPainter? name;
+    if (speaker.isNotEmpty) {
+      name = TextPainter(
+        text: TextSpan(
+          text: speaker,
+          style: const TextStyle(
+            color: Color(0xFFFFC233),
+            fontSize: 9,
+            fontFamily: 'monospace',
+            height: 1.2,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: size.x - 16);
+    }
+    final nameH = name == null ? 0.0 : name.height + 2;
+    final w = (name == null ? tp.width : max(tp.width, name.width)) + 16;
+    final h = nameH + tp.height + 10;
     final rect = RRect.fromRectAndRadius(
       Rect.fromLTWH((size.x - w) / 2, 0, w, h),
       const Radius.circular(8),
@@ -344,7 +367,8 @@ class BubbleComponent extends PositionComponent {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2,
     );
-    tp.paint(canvas, Offset((size.x - tp.width) / 2, 5));
+    name?.paint(canvas, Offset((size.x - name.width) / 2, 4));
+    tp.paint(canvas, Offset((size.x - tp.width) / 2, 5 + nameH));
   }
 }
 

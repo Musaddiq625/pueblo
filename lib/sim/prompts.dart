@@ -34,26 +34,51 @@ Never invent people, places, or events.
 Now: $simClock. You stand at $place. Nearby: $nearbyEntities.
 You remember: ${memories.isEmpty ? 'nothing recent' : memories.join(' | ')}.
 Secrets you know: [${_secretsBlock(a)}]
-Choose ONE of: ${allowedActions.join(', ')}. Reply ONLY JSON:
+Choose ONE of: ${allowedActions.join(', ')}.
+- share(who,secret_id): tell them a secret they haven't heard — knowledge passes mouth to ear.
+- ask(who): draw out something they know that you don't.
+- askAbout(who): ask about your current question.
+- greet(who): say hello — a name spoken can wake a fading spirit.
+- converse(who): small talk — pick it only with nothing better to do.
+- inspect(poi)/shop(poi)/stroll/idle: move or observe.
+For share() put the who in "target" and the secret_id in "subject".
+Reply ONLY JSON:
 {"thought":"≤15 tokens","action":"...","target":"..|null","subject":"..|null","line":"≤12 words","mood":"neutral|warm|curious|sad|scared"}''';
   }
 
   /// ONE speaker's next turn — partner's private state never appears here.
+  /// [role] describes why this conversation exists: 'tell' = speaker holds
+  /// the purpose secret, 'ask' = speaker approached the holder to draw it
+  /// out, 'hear' = the holder sought the speaker out to share.
   String convoTurnPrompt(
     Agent speaker,
     Agent partner, {
     required List<String> transcript,
     required String context,
     String? askedAbout,
+    String? role,
+    String? shareText,
   }) {
     final s = speaker.stats;
     final ask = askedAbout == null
         ? ''
         : '\nThey are asking you about: $askedAbout. Answer honestly from what YOU know.';
+    final purpose = switch (role) {
+      'tell' =>
+        '\nYou mean to tell ${partner.name} this — they haven\'t heard it: '
+            '"$shareText". Say it in your own words, in your voice.',
+      'ask' =>
+        '\nYou came to hear what ${partner.name} knows about "$shareText" — draw it out of them.',
+      'hear' =>
+        '\n${partner.name} sought you out to share something — hear them, respond in kind.',
+      _ => s.grump >= 4
+          ? '\nNothing pressing — you\'re curt. One short line, then end=true.'
+          : '\nNothing pressing — small talk. Keep it short; set end=true soon.',
+    };
     return '''
 You are ${speaker.name}. ${speaker.persona}
 Stats (0-5): grump ${s.grump}, warmth ${s.warmth}, mischief ${s.mischief}.
-Talking with ${partner.name} ($context). Mood: ${speaker.faded ? 'sad' : 'neutral'}.
+Talking with ${partner.name} ($context). Mood: ${speaker.faded ? 'sad' : 'neutral'}.$purpose
 Conversation so far:
 ${transcript.isEmpty ? '(no one has spoken yet)' : transcript.join('\n')}
 Secrets you know: [${_secretsBlock(speaker)}]$ask

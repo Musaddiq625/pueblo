@@ -48,7 +48,11 @@ class Conversation {
   bool done = false;
   String? askedAbout; // subject when convo was initiated via askAbout
 
-  Conversation(this.id, this.aId, this.bId, {this.askedAbout})
+  /// Why this conversation exists — (holder, secretId) means the holder is
+  /// expected to pass secretId to the partner. Null = small talk.
+  final ({String holder, String secretId})? purpose;
+
+  Conversation(this.id, this.aId, this.bId, {this.askedAbout, this.purpose})
     : nextSpeaker = aId;
 }
 
@@ -131,6 +135,13 @@ class SimEngine {
   final Map<String, String> _slotReserved = {};
   final Map<String, String> _agentSlot = {}; // agentId -> slotKey
 
+  /// 'a:b' sorted pair key -> last sim_ts they conversed. Small talk needs
+  /// a cooldown; knowledge-sharing offers never do.
+  final Map<String, int> _pairLastTalked = {};
+
+  String _pairKey(String a, String b) =>
+      a.compareTo(b) < 0 ? '$a:$b' : '$b:$a';
+
   SimEngine({
     required this.store,
     required this.llm,
@@ -194,7 +205,12 @@ class SimEngine {
 
   // ============================ conversations ==============================
 
-  void startConversation(String aId, String bId, {String? askedAbout}) {
+  void startConversation(
+    String aId,
+    String bId, {
+    String? askedAbout,
+    ({String holder, String secretId})? purpose,
+  }) {
     final a = agents[aId], b = agents[bId];
     if (a == null || b == null) return;
     if (a.engaged ||
@@ -212,8 +228,10 @@ class SimEngine {
       aId,
       bId,
       askedAbout: askedAbout,
+      purpose: purpose,
     );
     conversations[convo.id] = convo;
+    _pairLastTalked[_pairKey(aId, bId)] = simTs;
     // both stand where they are — cancel in-flight walks + release slots
     _walks.remove(aId);
     _walks.remove(bId);
@@ -267,12 +285,25 @@ class SimEngine {
       return;
     }
     c.pendingJob = true;
+    final p = c.purpose;
     final prompt = prompts.convoTurnPrompt(
       speaker,
       partner,
       transcript: c.transcript,
       context: 'near ${nearestPoiName(speaker.x, speaker.y)}',
       askedAbout: c.askedAbout,
+      role: p == null
+          ? null
+          : speaker.id == p.holder
+              ? 'tell'
+              : speaker.id == c.aId
+                  ? 'ask'
+                  : 'hear',
+      shareText: p == null
+          ? null
+          : (speaker.id == p.holder
+                ? secrets[p.secretId]?.shareText
+                : secrets[p.secretId]?.surface),
     );
     broker.push(
       JobKind.convoTurn,
@@ -296,16 +327,29 @@ class SimEngine {
       return;
     }
     final partner = agents[c.nextSpeaker == c.aId ? c.bId : c.aId]!;
-    final line = (turn?.line ?? '').trim();
+    final line = _cleanLine(turn?.line ?? '');
     if (turn == null || line.isEmpty) {
       c.done = true;
       return;
     }
 
-    // Commit rule: shares_secret applies ONLY if the speaker actually owns it.
+    // Commit rule: a secret moves ONLY if the speaker owns it AND the
+    // partner doesn't already know it. Two paths:
+    //  1. purpose-bound convo — the holder speaks, engine transfers its
+    //     declared secret; the model's flag is unnecessary.
+    //  2. organic convo — the model volunteers shares_secret, validated
+    //     the same way.
     String? shared;
-    if (turn.sharesSecret != null &&
+    final p = c.purpose;
+    if (p != null &&
+        speaker.id == p.holder &&
+        speaker.knownSecrets.contains(p.secretId) &&
+        !partner.knownSecrets.contains(p.secretId)) {
+      shared = p.secretId;
+    } else if (turn.sharesSecret != null &&
+        turn.sharesSecret != 'null' &&
         speaker.knownSecrets.contains(turn.sharesSecret) &&
+        !partner.knownSecrets.contains(turn.sharesSecret) &&
         secrets.containsKey(turn.sharesSecret)) {
       shared = turn.sharesSecret;
     }
@@ -370,11 +414,23 @@ class SimEngine {
           ),
         );
         _checkSolidify();
+        _events.add(
+          SimEvent(SimEventType.log, {
+            'text':
+                '${speaker.name} tells ${partner.name}: ${secrets[shared]!.shareText}',
+          }),
+        );
       }
     }
-    // Batteries: any social contact recharges.
-    speaker.battery = min(100, speaker.battery + 4);
-    partner.battery = min(100, partner.battery + 6);
+    // Batteries: social contact recharges; passing real knowledge is the
+    // deepest connection the sim knows.
+    if (shared != null) {
+      speaker.battery = min(100, speaker.battery + 10);
+      partner.battery = min(100, partner.battery + 12);
+    } else {
+      speaker.battery = min(100, speaker.battery + 4);
+      partner.battery = min(100, partner.battery + 6);
+    }
 
     _events.add(
       SimEvent(SimEventType.say, {
@@ -413,20 +469,43 @@ class SimEngine {
     final near = _nearby(agent);
     final allowed = <String>['stroll', 'idle'];
     for (final other in near.agents) {
-      if (!other.inConvo && !other.engaged) {
+      if (other.inConvo || other.engaged) continue;
+      // Faded spirits can't converse — but a name spoken can wake one,
+      // so greet stays on the table (that is how Solorio comes back).
+      if (other.faded) {
         allowed.add('greet(${other.id})');
-        allowed.add('converse(${other.id})');
-        if (agent.goal != null && agent.goal!.startsWith('askAbout:')) {
-          allowed.add('askAbout(${other.id})');
+        continue;
+      }
+
+      // Knowledge the engine can verify is offered as concrete actions —
+      // the model picks a purpose, not a vibe. share(who,what) means "tell
+      // them a secret they don't know"; ask(who) draws out theirs.
+      final shareable = agent.knownSecrets.difference(other.knownSecrets);
+      for (final sid in shareable) {
+        allowed.add('share(${other.id},$sid)');
+      }
+      if (other.knownSecrets.difference(agent.knownSecrets).isNotEmpty) {
+        allowed.add('ask(${other.id})');
+      }
+
+      // Small talk cools down per pair — and when there's real news to
+      // pass, converse isn't on the menu at all: that pair's talk IS the
+      // share. Grumpy spirits keep their exemption — they mutter anyway.
+      final sinceTalk =
+          simTs - (_pairLastTalked[_pairKey(agent.id, other.id)] ?? -9999);
+      if (sinceTalk > 90) {
+        allowed.add('greet(${other.id})');
+        if (agent.stats.grump >= 4 || shareable.isEmpty) {
+          allowed.add('converse(${other.id})');
         }
+      }
+      if (agent.goal != null && agent.goal!.startsWith('askAbout:')) {
+        allowed.add('askAbout(${other.id})');
       }
     }
     for (final p in near.pois) {
       if (p.anomaly) allowed.add('inspect(${p.id})');
       if (p.isStall) allowed.add('shop(${p.id})');
-    }
-    if (agent.knownSecrets.isNotEmpty && near.agents.isNotEmpty) {
-      allowed.add('offerSecret(${near.agents.first.id})');
     }
 
     final prompt = prompts.decisionPrompt(
@@ -492,14 +571,33 @@ class SimEngine {
   }
 
   void _execute(Agent a, Decision d) {
-    switch (d.action) {
+    // Small models echo offered actions verbatim ("share(bruno,x)") —
+    // normalize name(args) into action/target/subject before dispatch.
+    var action = d.action.trim();
+    var target = d.target;
+    var subject = d.subject;
+    final m = RegExp(r'^(\w+)\(([^),]+)(?:,([^)]+))?\)$').firstMatch(action);
+    if (m != null) {
+      action = m.group(1)!;
+      target ??= m.group(2)?.trim();
+      subject ??= m.group(3)?.trim();
+    }
+    unawaited(
+      store.simLog(
+        simTs,
+        a.id,
+        'decide',
+        jsonEncode({'action': action, 'target': target, 'subject': subject}),
+      ),
+    );
+    switch (action) {
       case 'converse':
       case 'greet':
-        final t = agents[d.target];
+        final t = agents[target];
         if (t != null && !t.engaged && !t.inConvo) {
           // faded spirits can't be conversed with but CAN be greeted —
           // exclusion is from initiating, not from being approached.
-          if (d.action == 'greet' || t.faded) {
+          if (action == 'greet' || t.faded) {
             _approachForConvo(a, t, onNear: (ag, tt) => _greet(ag, tt, d));
           } else {
             _approachForConvo(
@@ -512,14 +610,14 @@ class SimEngine {
         }
         _fallbackStroll(a);
       case 'askAbout':
-        final t = agents[d.target];
-        final subject = a.goal?.split(':').last ?? d.subject;
-        if (t != null && !t.engaged && !t.inConvo && subject != null) {
+        final t = agents[target];
+        final subj = a.goal?.split(':').last ?? subject;
+        if (t != null && !t.engaged && !t.inConvo && subj != null) {
           _approachForConvo(
             a,
             t,
             onNear: (ag, tt) {
-              startConversation(ag.id, tt.id, askedAbout: subject);
+              startConversation(ag.id, tt.id, askedAbout: subj);
               ag.goal = null;
             },
           );
@@ -527,7 +625,7 @@ class SimEngine {
         }
         _fallbackStroll(a);
       case 'inspect':
-        final p = pois[d.target];
+        final p = pois[target];
         if (p == null) {
           _fallbackStroll(a);
           return;
@@ -541,7 +639,7 @@ class SimEngine {
         );
       case 'shop':
         // browsing a stall — the POI is the target, not a spirit
-        final p = pois[d.target];
+        final p = pois[target];
         if (p != null) {
           _visitSlot(
             a,
@@ -552,19 +650,57 @@ class SimEngine {
           return;
         }
         _fallbackStroll(a);
-      case 'offerSecret':
-        final t = agents[d.target];
-        if (t != null && !t.engaged && !t.inConvo) {
-          _approachForConvo(
-            a,
-            t,
-            onNear: (ag, tt) => startConversation(ag.id, tt.id),
-          );
+      case 'share':
+      case 'offerSecret': // legacy — same thing
+        final t = agents[target];
+        if (t == null || t.engaged || t.inConvo || t.faded) {
+          _fallbackStroll(a);
           return;
         }
-        _fallbackStroll(a);
+        _approachForConvo(
+          a,
+          t,
+          onNear: (ag, tt) {
+            // Recompute at arrival — secret sets can shift mid-walk.
+            var sid = subject;
+            if (sid == null ||
+                !ag.knownSecrets.contains(sid) ||
+                tt.knownSecrets.contains(sid)) {
+              final diff = ag.knownSecrets.difference(tt.knownSecrets);
+              sid = diff.isEmpty ? null : diff.first;
+            }
+            startConversation(
+              ag.id,
+              tt.id,
+              purpose:
+                  sid == null ? null : (holder: ag.id, secretId: sid),
+            );
+          },
+        );
+        return;
+      case 'ask':
+        final t = agents[target];
+        if (t == null || t.engaged || t.inConvo || t.faded) {
+          _fallbackStroll(a);
+          return;
+        }
+        _approachForConvo(
+          a,
+          t,
+          onNear: (ag, tt) {
+            final diff = tt.knownSecrets.difference(ag.knownSecrets);
+            startConversation(
+              ag.id,
+              tt.id,
+              purpose: diff.isEmpty
+                  ? null
+                  : (holder: tt.id, secretId: diff.first),
+            );
+          },
+        );
+        return;
       case 'goto':
-        final p = pois[d.target];
+        final p = pois[target];
         if (p != null) {
           _visitSlot(
             a,
@@ -581,13 +717,13 @@ class SimEngine {
       case 'idle':
       default:
         _emit(a, SimEventType.emote, {'agent': a.id, 'glyph': '·'});
-        if (d.line.isNotEmpty) _say(a, d.line, d.mood);
+        _sayOrNote(a, d.line, d.mood);
     }
   }
 
   /// Standing at a POI → observe it. Curiosity payoff → goal to ask around.
   _Arrival _doInspect(Poi p, String line) => (e, a) {
-    _say(a, line.isEmpty ? p.surfaceText : line, 'curious');
+    _sayOrNote(a, line.isEmpty ? p.surfaceText : line, 'curious');
     _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
     unawaited(
       Future.delayed(
@@ -902,7 +1038,7 @@ class SimEngine {
 
   /// Reached a POI slot — face it, linger, glow the marker, remember it.
   _Arrival _browse(Poi p, {String line = ''}) => (e, a) {
-    if (line.isNotEmpty) _say(a, line, 'warm');
+    _sayOrNote(a, line, 'warm');
     _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
     unawaited(
       Future.delayed(
@@ -926,8 +1062,34 @@ class SimEngine {
     );
   };
 
+  /// Small models leak JSON edge punctuation into their lines
+  /// ("How's the night?\",") — strip wrapper quotes/stray commas at the
+  /// ends only; mid-line apostrophes are sacred.
+  static String _cleanLine(String s) =>
+      s.trim().replaceAll(RegExp('^[\'"]+|[\'",]+\$'), '').trim();
+
   void _say(Agent a, String line, String mood) {
     _emit(a, SimEventType.say, {'agent': a.id, 'line': line, 'mood': mood});
+  }
+
+  /// Talking to yourself is narration, not speech. A line only becomes a
+  /// spoken `say` when another spirit is actually within earshot — or the
+  /// speaker is grumpy enough to mutter at the world. Otherwise it lands
+  /// in the town log as a quiet note: no bubble, no "random talking".
+  void _sayOrNote(Agent a, String line, String mood) {
+    line = _cleanLine(line);
+    if (line.isEmpty) return;
+    final heard = agents.values.any(
+      (o) =>
+          o.id != a.id &&
+          !o.faded &&
+          _dist2(a.x, a.y, o.x, o.y) < 120 * 120,
+    );
+    if (heard || a.stats.grump >= 3) {
+      _say(a, line, mood);
+    } else {
+      _emit(a, SimEventType.log, {'text': '${a.name}: $line'});
+    }
   }
 
   void _emit(Agent a, SimEventType t, Map<String, dynamic> data) {
