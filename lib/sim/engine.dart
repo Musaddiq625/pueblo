@@ -26,9 +26,9 @@ enum SimEventType {
   pairEnd,
   poiGlow, // {poi, on}
   petalSpawn,
-  dawn,
-  endRun, // {remembered, faded, verdict}
+  endRun, // {remembered, faded, verdict} — the one-shot resolution report
   verdict, // {secret, passed, text} — the arc's deterministic resolution
+  thought, // {agent, text} — Decision.thought, a fading float over the head
   log,
 }
 
@@ -77,7 +77,7 @@ class SimEngine {
   final NavGrid nav;
   final Random rng;
   double timeScale; // 1.0 normal; demo mode higher — HUD-adjustable
-  final int dawnAt; // sim_ts of run end
+  final int festivalAt; // sim_ts of run end
 
   late final PromptBuilder prompts;
   late final InferenceBroker broker;
@@ -192,7 +192,7 @@ class SimEngine {
     NavGrid? nav,
     Random? rng,
     this.timeScale = 1.0,
-    this.dawnAt = 900, // 15 sim-minutes
+    this.festivalAt = 900, // 15 sim-minutes
   }) : nav = nav ?? NavGrid.build(),
        rng = rng ?? Random() {
     prompts = PromptBuilder(secrets)..cast = _buildCast();
@@ -216,9 +216,8 @@ class SimEngine {
       simTs += whole;
       _simAcc -= whole;
     }
-    // After dawn the world rests — walks finish visually but no timers,
-    // decisions, convos, or inference keep running behind the end card.
-    if (_ended) return;
+    // The festival never ends — the resolution card is a report, not a
+    // halt. Walks, decisions, convos, and inference run continuously.
     _decisionTimer += dt * timeScale;
     _convoTimer += dt * timeScale;
     _batteryTimer += dt * timeScale;
@@ -247,7 +246,9 @@ class SimEngine {
       _nextDirectorAt = simTs + directorEvery;
       _maybeDirect();
     }
-    if (simTs >= dawnAt * 0.8 && !_verdictFired) {
+    // Soft fail: the festival moment arrives with the truth still trapped —
+    // the arc closes unresolved. Fast gossip resolves it long before this.
+    if (simTs >= festivalAt && !_verdictFired) {
       _verdictFired = true;
       _verdict();
     }
@@ -263,7 +264,6 @@ class SimEngine {
       _petalTimer = 0;
       _events.add(SimEvent(SimEventType.petalSpawn, {}));
     }
-    if (simTs >= dawnAt) _endRun();
   }
 
   // ============================ conversations ==============================
@@ -499,6 +499,7 @@ class SimEngine {
       if (learned) {
         partner.knownSecrets.add(shared);
         partner.bumpVersion();
+        _checkVerdict(); // the truth may have just reached its fourth mouth
         // a secret received deepens the bond — more than any small talk
         partner.warmth[speaker.id] = (partner.warmth[speaker.id] ?? 0) + 5;
         // …and leaves a 💡 over their head so the player can spot news
@@ -615,17 +616,33 @@ class SimEngine {
   // ============================ decisions ==================================
 
   void _scheduleDecision() {
-    final free = agents.values
-        .where((a) => !a.engaged && !a.inConvo && a.heldBy == null)
-        .toList();
-    if (free.isEmpty) return;
-    free.sort((a, b) => a.lastActedAt.compareTo(b.lastActedAt));
-    final agent = free.first;
+    // A deferred approach is a committed intent — it consumes the slot
+    // regardless of the decision cache cooldown.
+    final Agent agent;
+    final pendingIds = _pendingApproach.keys.where((id) {
+      final a = agents[id];
+      return a != null && !a.engaged && !a.inConvo && a.heldBy == null;
+    });
+    if (pendingIds.isNotEmpty) {
+      agent = agents[pendingIds.first]!;
+    } else {
+      // Decision cache — an agent that acted within ~30 sim-s keeps its
+      // plan; re-prompting that fast just burns tokens re-deciding walks.
+      final free = agents.values
+          .where((a) =>
+              !a.engaged &&
+              !a.inConvo &&
+              a.heldBy == null &&
+              simTs - a.lastActedAt >= 30)
+          .toList();
+      if (free.isEmpty) return;
+      free.sort((a, b) => a.lastActedAt.compareTo(b.lastActedAt));
+      agent = free.first;
+    }
     agent.lastActedAt = simTs.toDouble();
 
-    // A deferred approach consumes this slot — the agent already chose
-    // it; conditions just needed to clear. One retry, then the moment
-    // passes (no stalker loop).
+    // The agent already chose; conditions just needed to clear. One retry,
+    // then the moment passes (no stalker loop).
     final pending = _pendingApproach.remove(agent.id);
     if (pending != null) {
       _execute(agent, pending, canDefer: false);
@@ -759,11 +776,13 @@ class SimEngine {
   /// show "offline" instead of spirits going mute for no visible reason.
   Future<void> _probeLlm() async {
     final c = llm;
-    if (c is! OllamaClient) {
+    if (c is OllamaClient) {
+      llmAlive = await c.probe();
+    } else if (c is FailoverLLMClient) {
+      llmAlive = await c.probe();
+    } else {
       llmAlive = true;
-      return;
     }
-    llmAlive = await c.probe();
   }
 
   // ============================ errands (planning) ==========================
@@ -797,7 +816,7 @@ class SimEngine {
     }
     // 0b. rescue — a fading spirit whose wake-name I hold outranks any
     // routine. Checked before the stale-errand early-return so learning
-    // the name mid-night immediately turns the holder toward them.
+    // the name mid-festival immediately turns the holder toward them.
     for (final f in agents.values) {
       if (!f.faded || f.id == a.id) continue;
       if (a.knownSecrets.any((s) => secrets[s]?.wakesAgent == f.id)) {
@@ -882,18 +901,18 @@ class SimEngine {
       return;
     }
     // 3. gathering — a director-triggered beat, or the scheduled ofrenda
-    // moment at 60% of the night. Fires whether or not the player attends
+    // moment late in the festival. Fires whether or not the player attends
     // (the Majora's Mask rule).
     if (simTs < _gatherUntil) {
       a.errand = (kind: 'tend', targetId: _gatherPoi, claim: false, subject: null);
       return;
     }
-    if (simTs >= dawnAt * 0.6) {
+    if (simTs >= festivalAt * 0.6) {
       a.errand = (kind: 'tend', targetId: 'ofrenda', claim: false, subject: null);
       return;
     }
-    // 4. schedule — the persona's authored routine for this time of
-    // night; falls back to their home patch.
+    // 4. schedule — the persona's authored routine for this hour of the day
+    // festival; falls back to their home patch.
     var schedPoi = a.home;
     for (final s in a.schedule) {
       if (simTs >= s.at) schedPoi = s.poi;
@@ -914,7 +933,7 @@ class SimEngine {
           : 'you carry news ${agents[e.targetId]?.name ?? e.targetId} hasn\'t heard — find them',
       'seek' => agents[e.targetId]?.faded == true
           ? '${agents[e.targetId]!.name} is fading and you hold their name — reach them'
-          : 'you feel dim — find company before the night takes you',
+          : 'you feel dim — find company before the day takes you',
       _ => 'your routine — check on ${pois[e.targetId]?.name ?? e.targetId}',
     };
   }
@@ -929,7 +948,7 @@ class SimEngine {
 
   final List<String> _recentNotes = [];
 
-  /// The night's headline rumor and its spread, so the storyteller paces
+  /// The festival's headline rumor and its spread, so the storyteller paces
   /// around the authored arc instead of improvising over it.
   String _headlineDigest() {
     final rumor = secrets.values.where((s) => s.tier == 'rumor');
@@ -950,7 +969,21 @@ class SimEngine {
   /// bare. The player tips it only by learning and spreading the truth
   /// themselves.
   bool _verdictFired = false;
-  String? _verdictNote; // surfaced in the dawn card (endRun)
+  String? _verdictNote; // surfaced in the resolution card (endRun event)
+
+  /// Mouths holding the deepest truth — HUD progress toward the earned
+  /// resolution (the festival clock is only the fallback fail).
+  int get truthCount {
+    var n = 0;
+    for (final s in secrets.values.where((s) => s.verdictOf != null)) {
+      final k =
+          agents.values.where((a) => a.knownSecrets.contains(s.id)).length;
+      if (k > n) n = k;
+    }
+    return n;
+  }
+
+  bool get verdictResolved => _verdictFired;
 
   void _verdict() {
     for (final s in secrets.values.where((s) => s.verdictOf != null)) {
@@ -958,7 +991,7 @@ class SimEngine {
           agents.values.where((a) => a.knownSecrets.contains(s.id)).length;
       final passed = knowers >= 4;
       final text = passed
-          ? (s.verdictPass ?? 'the truth traveled far enough tonight')
+          ? (s.verdictPass ?? 'the truth traveled far enough today')
           : (s.verdictFail ?? 'the whisper died in the dark');
       _note(text);
       _verdictNote = text;
@@ -980,6 +1013,21 @@ class SimEngine {
           );
         }
       }
+    }
+    _resolution(); // one report — the festival keeps going behind the card
+  }
+
+  /// Earned resolution: every secret learn checks whether the deep truth has
+  /// reached enough mouths. The festival clock is only the fallback fail —
+  /// fast gossip closes the arc early.
+  void _checkVerdict() {
+    if (_verdictFired) return;
+    final earned = secrets.values.any((s) =>
+        s.verdictOf != null &&
+        agents.values.where((a) => a.knownSecrets.contains(s.id)).length >= 4);
+    if (earned) {
+      _verdictFired = true;
+      _verdict();
     }
   }
 
@@ -1012,11 +1060,11 @@ class SimEngine {
         .where((a) => a.hook != null)
         .map((a) => '${a.id}: ${a.hook}')
         .join('; ');
-    return 'Town (night ${_clock()}):\n$parts\n'
+    return 'Town (day ${_clock()}):\n$parts\n'
         'Secrets spreading: $know\n'
         '${_headlineDigest()}'
         'Hooks: $hooks\n'
-        'Recent: ${_recentNotes.isEmpty ? 'the night is still young' : _recentNotes.join('; ')}';
+        'Recent: ${_recentNotes.isEmpty ? 'the day is still young' : _recentNotes.join('; ')}';
   }
 
   void _applyBeat(Map<String, dynamic>? beat) {
@@ -1099,7 +1147,7 @@ class SimEngine {
           landed = true;
         }
       default:
-        return; // 'none' or anything unrecognized — the night breathes
+        return; // 'none' or anything unrecognized — the festival breathes
     }
     if (landed) {
       unawaited(store.simLog(simTs, 'director', 'beat', kind ?? '?'));
@@ -1199,6 +1247,14 @@ class SimEngine {
         jsonEncode({'action': action, 'target': target, 'subject': subject}),
       ),
     );
+    // inZOI's trick — the inner voice floats briefly over the head; the
+    // cheapest believability in the genre.
+    final th = d.thought;
+    if (th != null && th.isNotEmpty) {
+      _events.add(
+        SimEvent(SimEventType.thought, {'agent': a.id, 'text': th}),
+      );
+    }
     switch (action) {
       case 'converse':
       case 'greet':
@@ -1682,7 +1738,7 @@ class SimEngine {
 
   /// Advance every walking agent along its path at the SAME rate the
   /// renderer lerps (real dt × kSpiritSpeed × timeScale) — sim and pixels
-  /// stay in sync. Locomotion scales with the night clock so 4× is a true
+  /// stay in sync. Locomotion scales with the festival clock so 4× is a true
   /// fast-forward: legs, mouths, and gossip all move faster together.
   void _advanceWalks(double dt) {
     for (final id in _walks.keys.toList()) {
@@ -1795,7 +1851,7 @@ class SimEngine {
   };
 
   /// Small models leak JSON edge punctuation into their lines
-  /// ("How's the night?\",") — strip wrapper quotes/stray commas at the
+  /// ("How's the day?\",") — strip wrapper quotes/stray commas at the
   /// ends only; mid-line apostrophes are sacred.
   static String _cleanLine(String s) =>
       s.trim().replaceAll(RegExp('^[\'"]+|[\'",]+\$'), '').trim();
@@ -1834,7 +1890,7 @@ class SimEngine {
   void _drainBatteries() {
     for (final a in agents.values) {
       if (a.engaged) continue; // player's attention recharges, doesn't drain
-      a.battery = max(0, a.battery - 1.5);
+      a.battery = max(0, a.battery - 1.0);
       if (a.solidified) a.battery = max(a.battery, 20);
       final wasFaded = a.faded;
       // Fading is sticky — once you're a ghost only being remembered brings
@@ -2194,6 +2250,7 @@ class SimEngine {
     a.knownSecrets.add(s.id);
     a.newsUntil = simTs + 90;
     a.bumpVersion();
+    _checkVerdict();
     _checkSolidify();
     _emit(a, SimEventType.emote, {'agent': a.id, 'glyph': '✨'});
     _events.add(
@@ -2343,7 +2400,7 @@ class SimEngine {
         st.count + learned.length * 5 + heldClaims.length * 2 +
         a.verifiedPois.length * 3 + (st.importanceSum ~/ 10);
     final level = learning >= 40
-        ? 'sage of the night'
+        ? 'sage of the festival'
         : learning >= 20
             ? 'remembering much'
             : learning >= 8
@@ -2638,6 +2695,7 @@ class SimEngine {
     }
     teller.knownSecrets.add(v.id);
     teller.bumpVersion();
+    _checkVerdict();
     unawaited(
       store.simLog(simTs, teller.id, 'embellished', '$sid -> ${v.id}'),
     );
@@ -2753,10 +2811,10 @@ class SimEngine {
     _persistClaims();
   }
 
-  bool _ended = false;
-  void _endRun() {
-    if (_ended) return;
-    _ended = true;
+  bool _resolved = false;
+  void _resolution() {
+    if (_resolved) return;
+    _resolved = true;
     final remembered = agents.values.where((a) => !a.faded).length;
     _events.add(
       SimEvent(SimEventType.endRun, {

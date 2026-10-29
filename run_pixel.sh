@@ -52,6 +52,14 @@ if [ "$LLM" != "mock" ]; then
   fi
 fi
 
+# One instance only — a stale app on the phone still holds pueblo_sim.db,
+# and two processes on one sqlite file is what wedged chat before.
+if adb -s "$DEV" shell pidof com.example.pueblo 2>/dev/null | grep -q .; then
+  echo "WARNING: pueblo is already running on the device — force-stopping it"
+  echo "         (a stale instance holds pueblo_sim.db and deadlocks the new one)."
+  adb -s "$DEV" shell am force-stop com.example.pueblo
+fi
+
 exec fvm flutter run -d "$DEV" \
   --dart-define=LLM="$LLM" \
   --dart-define=DRIVER=true \

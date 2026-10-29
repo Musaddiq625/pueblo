@@ -44,7 +44,7 @@ class PromptBuilder {
     return '''
 You are ${a.name}. ${a.persona}${a.hook == null ? '' : '\nQuirk: ${a.hook}'}
 Stats (0-5): curiosity ${s.curiosity}, wit ${s.wit}, warmth ${s.warmth}, spirit-sight ${s.spiritSight}, mischief ${s.mischief}, grump ${s.grump}.
-Pueblo de las Velas, a village of the dead at night. Stay in character.
+Pueblo de las Velas, a village of the dead at festival. Stay in character.
 ${cast.isEmpty ? '' : '$cast\n'}Never invent people, places, or events.${rescue == null ? '' : '\nURGENT: $rescue'}
 Now: $simClock. You stand at $place. Nearby: $nearbyEntities.${a.mood == null ? '' : ' Feeling: ${a.mood}.'}$bonds
 You remember: ${memories.isEmpty ? 'nothing recent' : memories.join(' | ')}.${reflection == null ? '' : '\nYou\'ve been thinking: $reflection'}
@@ -152,7 +152,7 @@ JSON: {"summary":"..."}''';
   /// proposes; the engine disposes (§11.8): nothing it emits touches state
   /// without passing validation.
   String directorPrompt(String digest) => '''
-You are the storyteller of Pueblo de las Velas, a village of the dead at night.
+You are the storyteller of Pueblo de las Velas, a village of the dead at festival.
 Read the town state; choose at most ONE small beat that deepens the story.
 $digest
 Beats (choose one):
@@ -161,7 +161,7 @@ Beats (choose one):
 - gathering(poi): the spirits drift toward a place for a while
 - curiosity_spike(agent,poi): one spirit becomes intent on seeing a place
 - leak(agent,agent2): nudge agent to finally tell agent2 what they carry
-- none: the night breathes on its own
+- none: the festival breathes on its own
 Stay inside the world — never invent people, places, or secrets.
 Reply ONLY JSON: {"beat":"...","agent":"id|null","agent2":"id|null","poi":"id|null","line":"..|null","why":"≤10 words"}''';
 }

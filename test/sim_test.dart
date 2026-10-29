@@ -426,7 +426,7 @@ void main() {
       () async {
     final b = await _boot();
     final e = b.engine;
-    e.simTs = 600; // dawnAt 900 → 60% = 540
+    e.simTs = 600; // festivalAt 900 → 60% = 540
     // clear any current errand so ensureErrand picks fresh
     e.agents['a']!.errand = null;
     e.agents['a']!.verifiedPois.add('p1'); // no verify pending
@@ -686,15 +686,37 @@ void main() {
     expect(e.agents['b']!.knownSecrets, isNot(contains('head')));
   });
 
-  test('verdict passes when the deep truth reaches ≥4 spirits', () async {
+  test('verdict resolves the moment a fourth mouth learns the truth', () async {
+    // earned path — no festival clock needed: the fourth learn fires it
+    final b = await bootRumor(deepKnowers: 3);
+    final e = b.engine;
+    final events = <SimEvent>[];
+    final sub = e.events.listen(events.add);
+    e.playerKnown.add('deep');
+    e.playerChatCount['a'] = 3; // warmth gate — a believes the living one
+    await e.teachSpirit('a', 'deep');
+    await Future<void>.delayed(Duration.zero); // flush the event broadcast
+    await sub.cancel();
+    expect(events.any((ev) =>
+        ev.type == SimEventType.verdict && ev.data['passed'] == true), isTrue);
+    expect(
+      events.any((ev) =>
+          ev.type == SimEventType.poiGlow && ev.data['poi'] == 'ofrenda'),
+      isTrue,
+    );
+    // …and the world never halted
+    expect(events.any((ev) => ev.type == SimEventType.endRun), isTrue);
+  });
+
+  test('verdict passes at the festival mark when ≥4 spirits know', () async {
     final b = await bootRumor(deepKnowers: 4);
     final e = b.engine;
     final events = <SimEvent>[];
     final sub = e.events.listen(events.add);
-    e.simTs = (e.dawnAt * 0.8).ceil() - 1;
+    e.simTs = e.festivalAt - 1; // clock fallback only fires at festivalAt
     await _pump(e, ticks: 10);
     await sub.cancel();
-    expect(events.any((ev) => ev.type == SimEventType.log && 
+    expect(events.any((ev) => ev.type == SimEventType.log &&
         (ev.data['text'] as String).contains('photo returns')), isTrue);
     expect(
       events.any((ev) =>
@@ -708,11 +730,31 @@ void main() {
     final e = b.engine;
     final events = <SimEvent>[];
     final sub = e.events.listen(events.add);
-    e.simTs = (e.dawnAt * 0.8).ceil() - 1;
+    e.simTs = e.festivalAt - 1;
     await _pump(e, ticks: 10);
     await sub.cancel();
     expect(events.any((ev) => ev.type == SimEventType.log &&
         (ev.data['text'] as String).contains('stays dark')), isTrue);
+  });
+
+  test('the world keeps running after the resolution report', () async {
+    final b = await bootRumor(deepKnowers: 2);
+    final e = b.engine;
+    final events = <SimEvent>[];
+    final sub = e.events.listen(events.add);
+    e.simTs = e.festivalAt - 1;
+    await _pump(e, ticks: 10);
+    final tsAfterResolution = e.simTs;
+    await _pump(e, ticks: 20);
+    await sub.cancel();
+    expect(events.any((ev) => ev.type == SimEventType.endRun), isTrue);
+    expect(e.simTs, greaterThan(tsAfterResolution),
+        reason: 'no halt — the festival continues behind the card');
+    expect(
+      events.where((ev) => ev.type == SimEventType.endRun).length,
+      1,
+      reason: 'the resolution report is one-shot',
+    );
   });
 
   // =============== player-planted rumors (D1/D2) + P0 fixes ===============

@@ -20,7 +20,7 @@ while [ $# -gt 0 ]; do
     --mock) LLM="mock"; shift ;;
     --model) LLM="$2"; shift 2 ;;
     --model=*) LLM="${1#*=}"; shift ;;
-    --demo) DEMO="--dart-define=DEMO=1"; shift ;;
+    --demo) DEMO="--dart-define=DEMO=true"; shift ;;
     --no-driver) DRIVER=""; shift ;;
     *) shift ;;
   esac
@@ -37,6 +37,13 @@ if [ "$LLM" != "mock" ] && ! curl -sf -m 2 http://localhost:11434/api/tags >/dev
   curl -sf -m 2 http://localhost:11434/api/tags >/dev/null \
     || { echo "ERROR: Ollama still not up — run 'ollama serve' manually."; exit 1; }
   echo "Ollama is up."
+fi
+
+# One instance only — two apps on pueblo_sim.db deadlock sqlite, which is
+# what wedged the chat send button.
+if pgrep -f "pueblo.app/Contents/MacOS/pueblo" >/dev/null; then
+  echo "WARNING: pueblo.app is already running — it holds pueblo_sim.db."
+  echo "         Close it first (⌘Q) or this launch may stall on the DB."
 fi
 
 exec fvm flutter run -d macos \

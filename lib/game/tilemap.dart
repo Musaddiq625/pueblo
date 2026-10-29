@@ -109,7 +109,7 @@ Future<ui.Image> bakeGround(TileAssets a) async {
   }
 
   // 2. one dusk wash over the whole ground — keeps every terrain family in
-  //    the same light so the map reads as a single night world
+  //    the same light so the map reads as a single festival world
   c.drawRect(
     Rect.fromLTWH(0, 0, w, h),
     Paint()..color = const Color(0x33141c28),

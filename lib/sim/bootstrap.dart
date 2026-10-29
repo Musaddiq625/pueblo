@@ -27,7 +27,7 @@ Future<SimBundle> bootstrap({
   LLMClient? llm,
   Random? rng,
   double timeScale = 1.0,
-  int dawnAt = 900,
+  int festivalAt = 900,
   bool freshDb = true,
   String dbPath = 'pueblo_sim.db',
 }) async {
@@ -89,10 +89,10 @@ Future<SimBundle> bootstrap({
     pois: {for (final p in pois) p.id: p},
     rng: r,
     timeScale: timeScale,
-    dawnAt: dawnAt,
+    festivalAt: festivalAt,
   );
   // Resume path — planted rumors survive a restart (freshDb wipes them,
-  // which is correct: a new night, new whispers).
+  // which is correct: a new day, new whispers).
   if (!freshDb) {
     final raw = await store.getWorld('claims');
     if (raw != null) {

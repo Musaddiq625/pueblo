@@ -33,6 +33,10 @@ class SimStore {
       await d.execute('''CREATE TABLE sim_log(id INTEGER PRIMARY KEY, sim_ts INTEGER,
         agent TEXT, kind TEXT, payload TEXT)''');
     });
+    // A second app instance holding the file must not instantly error reads —
+    // waiting a few seconds beats a wedged send button or a dead spirit chat.
+    // (rawQuery, not execute: PRAGMA returns a row, which execute rejects.)
+    await db.rawQuery('PRAGMA busy_timeout = 5000');
     return SimStore._(db);
   }
 

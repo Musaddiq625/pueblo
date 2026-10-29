@@ -52,7 +52,7 @@ Future<void> main() async {
   final personasJson = await rootBundle.loadString('assets/data/personas.json');
   final secretsJson = await rootBundle.loadString('assets/data/secrets.json');
 
-  // --dart-define switches: SIM_SEED, SIM_TIME_SCALE, LLM=model, DEMO=1
+  // --dart-define switches: SIM_SEED, SIM_TIME_SCALE, LLM=model, DEMO=true
   const seed = int.fromEnvironment('SIM_SEED', defaultValue: 7);
   const timeScaleStr = String.fromEnvironment(
     'SIM_TIME_SCALE',
@@ -78,7 +78,7 @@ Future<void> main() async {
               llm: GemmaLocalClient(rng: Random(seed)),
               rng: Random(seed),
               timeScale: demo ? 6.0 : timeScale,
-              dawnAt: demo ? 600 : 900,
+              festivalAt: demo ? 600 : 900,
               dbPath: 'pueblo_sim.db',
             );
             PuebloGame.personaSprite = bundle.sprites;
@@ -97,12 +97,23 @@ Future<void> main() async {
   // (--dart-define=OLLAMA_BASE=http://192.168.x.x:11434) or every reply
   // silently degrades to silence.
   const ollamaBase = String.fromEnvironment('OLLAMA_BASE');
+  // STRICT_LLM=1 → hard fail when the model server is down (debugging).
+  // Default: failover — mock keeps the village alive until Ollama returns.
+  const strictLlm = bool.fromEnvironment('STRICT_LLM');
   final LLMClient llm = llmName == 'mock'
       ? MockLLMClient(seed: seed)
-      : OllamaClient(
-          model: llmName,
-          base: ollamaBase.isEmpty ? null : Uri.parse(ollamaBase),
-        );
+      : strictLlm
+          ? OllamaClient(
+              model: llmName,
+              base: ollamaBase.isEmpty ? null : Uri.parse(ollamaBase),
+            )
+          : FailoverLLMClient(
+              primary: OllamaClient(
+                model: llmName,
+                base: ollamaBase.isEmpty ? null : Uri.parse(ollamaBase),
+              ),
+              fallback: MockLLMClient(seed: seed),
+            );
 
   Future<SimBundle> mkBundle() => bootstrap(
     personasJson: personasJson,
@@ -112,7 +123,7 @@ Future<void> main() async {
     llm: llm,
     rng: Random(seed),
     timeScale: demo ? 6.0 : timeScale,
-    dawnAt: demo ? 600 : 900,
+    festivalAt: demo ? 600 : 900,
     freshDb: true,
     dbPath: 'pueblo_sim.db',
   );
@@ -122,7 +133,7 @@ Future<void> main() async {
     PuebloGame.personaSprite = bundle.sprites;
     PuebloGame.personaTint = bundle.tints;
     PuebloGame.personaDye = bundle.dyes;
-    runApp(PuebloApp(bundle: bundle, onNewNight: launch));
+    runApp(PuebloApp(bundle: bundle, onNewDay: launch));
   }
 
   await launch();
@@ -131,9 +142,9 @@ Future<void> main() async {
 class PuebloApp extends StatefulWidget {
   final SimBundle bundle;
 
-  /// Dawn card → rebuild the whole sim + app for another night.
-  final Future<void> Function()? onNewNight;
-  const PuebloApp({super.key, required this.bundle, this.onNewNight});
+  /// Resolution card → rebuild the whole sim + app for a fresh day.
+  final Future<void> Function()? onNewDay;
+  const PuebloApp({super.key, required this.bundle, this.onNewDay});
   @override
   State<PuebloApp> createState() => _PuebloAppState();
 }
@@ -146,7 +157,8 @@ class _PuebloAppState extends State<PuebloApp> {
   Poi? shoppingAt;
   int petals = 0;
   int? remembered, fadedCount;
-  String? verdictNote; // the arc's resolution, if a verdict fired tonight
+  String? verdictNote; // the arc's resolution, if a verdict fired today
+  bool resolutionDismissed = false; // card hides; the festival keeps going
   bool rosterOpen = false;
 
   SimEngine get engine => widget.bundle.engine;
@@ -164,7 +176,7 @@ class _PuebloAppState extends State<PuebloApp> {
         remembered = r;
         fadedCount = f;
         verdictNote = v;
-        engine.disengage(); // close any open InspectCard under the dawn card
+        engine.disengage(); // close any open InspectCard under the card
       }),
     );
     // DRIVER 'shot' command → capture the RepaintBoundary, return the path.
@@ -255,7 +267,7 @@ class _PuebloAppState extends State<PuebloApp> {
                 child: GameWidget(game: game),
               ),
 
-              // HUD: petals + dawn + model badge
+              // HUD: petals + truth + model badge
               Positioned(
                 top: 10,
                 left: 10,
@@ -346,8 +358,9 @@ class _PuebloAppState extends State<PuebloApp> {
                   ),
                 ),
 
-              // End run card — the night is over; offer a new one.
-              if (remembered != null)
+              // Resolution card — the arc has closed, but the festival never
+              // halts. Dismiss to keep playing, or restart for a fresh day.
+              if (remembered != null && !resolutionDismissed)
                 Center(
                   child: Container(
                     padding: const EdgeInsets.all(28),
@@ -363,7 +376,7 @@ class _PuebloAppState extends State<PuebloApp> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Text(
-                          'Dawn comes.',
+                          'The candles have spoken.',
                           style: TextStyle(
                             fontSize: 22,
                             color: Color(0xFFFFC233),
@@ -396,17 +409,33 @@ class _PuebloAppState extends State<PuebloApp> {
                           ),
                         ),
                         const SizedBox(height: 14),
-                        if (widget.onNewNight != null)
-                          FilledButton.icon(
-                            key: const Key('newNightButton'),
-                            icon: const Icon(Icons.bedtime, size: 16),
-                            label: const Text('New night'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFFEF8C1A),
-                              foregroundColor: const Color(0xFF1A1430),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            TextButton(
+                              key: const Key('keepCelebratingButton'),
+                              onPressed: () =>
+                                  setState(() => resolutionDismissed = true),
+                              child: const Text(
+                                'keep celebrating',
+                                style: TextStyle(color: Color(0xFF8D84B0)),
+                              ),
                             ),
-                            onPressed: () => widget.onNewNight!(),
-                          ),
+                            if (widget.onNewDay != null) ...[
+                              const SizedBox(width: 10),
+                              FilledButton.icon(
+                                key: const Key('newDayButton'),
+                                icon: const Icon(Icons.wb_sunny, size: 16),
+                                label: const Text('New day'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFEF8C1A),
+                                  foregroundColor: const Color(0xFF1A1430),
+                                ),
+                                onPressed: () => widget.onNewDay!(),
+                              ),
+                            ],
+                          ],
+                        ),
                       ],
                     ),
                   ),
@@ -449,19 +478,22 @@ class _Hud extends StatelessWidget {
             style: const TextStyle(fontSize: 13, color: Color(0xFFFFC233)),
           ),
           const SizedBox(width: 12),
-          const Icon(Icons.nights_stay, size: 14, color: Color(0xFF8D84B0)),
+          const Icon(Icons.auto_awesome, size: 14, color: Color(0xFF8D84B0)),
           const SizedBox(width: 4),
           ValueListenableBuilder<int>(
             valueListenable: _clockListenable(engine),
-            builder: (_, ts, _) {
-              final left = (engine.dawnAt - ts).clamp(0, 1 << 30);
-              final m = left ~/ 60, s = left % 60;
-              return Text(
-                '$m:${s.toString().padLeft(2, '0')}',
-                key: const Key('dawnTimer'),
-                style: const TextStyle(fontSize: 12, color: Color(0xFF8D84B0)),
-              );
-            },
+            builder: (_, _, _) => Text(
+              engine.verdictResolved
+                  ? 'truth told'
+                  : 'truth ${engine.truthCount}/4',
+              key: const Key('truthChip'),
+              style: TextStyle(
+                fontSize: 12,
+                color: engine.verdictResolved
+                    ? const Color(0xFFFFC233)
+                    : const Color(0xFF8D84B0),
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           ValueListenableBuilder<int>(
@@ -494,7 +526,7 @@ class _Hud extends StatelessWidget {
       _ClockHolder.instance.notifier(e);
 }
 
-/// The living one's notebook — what the night has taught them. What they
+/// The living one's notebook — what the day has taught them. What they
 /// know, where it might be worth a look, and the headline's empty frame.
 class _CuadernoChip extends StatelessWidget {
   final SimEngine engine;
@@ -609,7 +641,7 @@ class _CuadernoChip extends StatelessWidget {
 }
 
 /// The village roster — every spirit on a card, tap one for its dossier:
-/// persona, stat stars, what it's carrying, and whether the night has
+/// persona, stat stars, what it's carrying, and whether the day has
 /// taught it anything. Data-driven off engine.agents so a bigger cast
 /// needs no UI changes.
 class _RosterChip extends StatelessWidget {
@@ -662,7 +694,7 @@ class _RosterSheetState extends State<_RosterSheet> {
               children: [
                 const Expanded(
                   child: Text(
-                    'the remembered — who walks tonight',
+                    'the remembered — who walks today',
                     style: TextStyle(fontSize: 14, color: Color(0xFFFFC233)),
                   ),
                 ),
@@ -706,7 +738,7 @@ class _RosterSheetState extends State<_RosterSheet> {
                   ),
                 ),
                 Container(width: 1, color: const Color(0xFF3A2C50)),
-                // dossier — everything the night knows about this spirit
+                // dossier — everything the day knows about this spirit
                 Expanded(
                   child: _Dossier(engine: widget.engine, id: sel),
                 ),
@@ -847,7 +879,7 @@ class _Dossier extends StatelessWidget {
               _line(
                 '📖 secrets',
                 '${a.knownSecrets.length} held '
-                    '(${d.initialSecrets} from the start, ${d.learnedSecrets.length} learned tonight)',
+                    '(${d.initialSecrets} from the start, ${d.learnedSecrets.length} learned today)',
               ),
               if (d.heldClaims.isNotEmpty)
                 _line(
@@ -873,7 +905,7 @@ class _Dossier extends StatelessWidget {
               Row(
                 children: [
                   const Text(
-                    '🌱 grown tonight? ',
+                    '🌱 grown today? ',
                     style: TextStyle(fontSize: 11, color: Color(0xFF8D84B0)),
                   ),
                   Text(
@@ -961,7 +993,7 @@ class _Dossier extends StatelessWidget {
 }
 
 /// Sim-speed toggle — cycles 1× → 2× → 4× → 8× so you can fast-forward
-/// through quiet stretches of the night.
+/// through quiet stretches of the day.
 class _SpeedChip extends StatefulWidget {
   final SimEngine engine;
   const _SpeedChip({required this.engine});

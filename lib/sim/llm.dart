@@ -225,6 +225,58 @@ class OllamaClient implements LLMClient {
 
 // ---------------------------------------------------------------------------
 
+/// Tries the real model first; while the server is unreachable every call
+/// silently falls back to the mock so the town never goes dead. Re-probes at
+/// most every 8s — when Ollama comes back the real model resumes on its own.
+/// The game must always open playable.
+class FailoverLLMClient implements LLMClient {
+  final OllamaClient primary;
+  final LLMClient fallback;
+  bool _alive = false;
+  DateTime _probedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Future<bool>? _probing;
+
+  FailoverLLMClient({required this.primary, required this.fallback});
+
+  @override
+  String get name => _alive ? primary.name : '${primary.name}→mock';
+
+  /// Engine's health probe — reports what the failover is actually serving.
+  Future<bool> probe() => _available();
+
+  Future<bool> _available() async {
+    if (DateTime.now().difference(_probedAt).inSeconds < 8) return _alive;
+    _probing ??= primary.probe().whenComplete(() => _probing = null);
+    _alive = await _probing!;
+    _probedAt = DateTime.now();
+    return _alive;
+  }
+
+  Future<LLMClient> _pick() async => (await _available()) ? primary : fallback;
+
+  @override
+  Future<Decision?> decide(String prompt) async => (await _pick()).decide(prompt);
+
+  @override
+  Future<ConvoTurn?> convoTurn(String prompt) async =>
+      (await _pick()).convoTurn(prompt);
+
+  @override
+  Stream<String> playerChat(String prompt) async* {
+    yield* (await _pick()).playerChat(prompt);
+  }
+
+  @override
+  Future<String?> reflect(String prompt) async =>
+      (await _pick()).reflect(prompt);
+
+  @override
+  Future<Map<String, dynamic>?> direct(String prompt) async =>
+      (await _pick()).direct(prompt);
+}
+
+// ---------------------------------------------------------------------------
+
 /// Deterministic canned client — town stays alive without a model; also the
 /// test double. Replies are persona-aware via small token substitutions.
 class MockLLMClient implements LLMClient {
@@ -236,9 +288,9 @@ class MockLLMClient implements LLMClient {
 
   static const _idleLines = [
     'the candles keep me company.',
-    'another night, another walk.',
+    'another day, another walk.',
     'the marigolds smell like home.',
-    'quiet tonight, compadre.',
+    'quiet today, compadre.',
     'someone left pan de muerto at the ofrenda.',
     'the fountain remembers every coin, you know.',
     'i keep meaning to visit the old ceiba.',
@@ -281,7 +333,7 @@ class MockLLMClient implements LLMClient {
     final end = rng.nextDouble() < 0.3;
     return ConvoTurn(
       _pick(const [
-        'you heard anything new tonight?',
+        'you heard anything new today?',
         'the dead talk slower than the living think.',
         'i saw the strangest thing near the fountain.',
         'keep your candle lit, friend.',
@@ -296,6 +348,32 @@ class MockLLMClient implements LLMClient {
 
   @override
   Stream<String> playerChat(String prompt) async* {
+    // Emit PlayerReply JSON ~60% of the time so the offline claim loop
+    // exercises the same parse/validate path as the real model — believes,
+    // share_with, and the occasional mischievous twist all get exercised.
+    if (rng.nextDouble() < 0.6) {
+      final souls = RegExp(r'\((\w+) —').allMatches(prompt)
+          .map((m) => m.group(1)!)
+          .toList();
+      souls.shuffle(rng);
+      yield jsonEncode({
+        'say': _pick(const [
+          'the living ask such urgent questions.',
+          'you smell of sunlight, mijo.',
+          'is that so? the dead remember differently.',
+        ]),
+        'react': _pick(const ['warm', 'curious', 'amused', 'wary']),
+        'believes': rng.nextBool(),
+        'share_with': souls.isEmpty ? null : souls.first,
+        'twist': rng.nextDouble() < 0.25
+            ? _pick(const [
+                'the living one swears the candles spoke',
+                'they say the ofrenda wept marigolds',
+              ])
+            : null,
+      });
+      return;
+    }
     yield _pick(const [
       'the living ask such urgent questions.',
       'you smell of sunlight, mijo.',
@@ -310,7 +388,7 @@ class MockLLMClient implements LLMClient {
 
   @override
   Future<Map<String, dynamic>?> direct(String prompt) async {
-    // Alternate a gentle rumor with silence — the night breathes.
+    // Alternate a gentle rumor with silence — the festival breathes.
     if (rng.nextDouble() < 0.4) {
       final m = RegExp('@([a-z_0-9]+)').allMatches(prompt);
       final poi = m.isEmpty ? 'fountain' : m.first.group(1);
@@ -318,7 +396,7 @@ class MockLLMClient implements LLMClient {
         'beat': 'rumor',
         'agent': null,
         'poi': poi,
-        'line': 'the water remembers what the night forgets',
+        'line': 'the water remembers what the day forgets',
         'why': 'a whisper for the listeners',
       };
     }

@@ -560,6 +560,8 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         _bubble(id, line);
       case SimEventType.emote:
         _emote(e.data['agent'], e.data['glyph']);
+      case SimEventType.thought:
+        _thought(e.data['agent'], e.data['text'] as String);
       case SimEventType.state:
         final a = engine.agents[e.data['agent']]!;
         final c = spirits[a.id];
@@ -676,6 +678,20 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     c.add(
       BubbleComponent(glyph, isEmote: true, size: Vector2(60, 40))
         ..position = Vector2(0, -c.size.y - 4),
+    );
+  }
+
+  /// A decision's inner voice — floats immediately (no walk queue, speech
+  /// untouched), sits below the name cue so they never overlap.
+  void _thought(String agentId, String text) {
+    final c = spirits[agentId];
+    if (c == null || text.isEmpty) return;
+    for (final b in c.children.whereType<BubbleComponent>()) {
+      if (b.isThought) b.removeFromParent();
+    }
+    c.add(
+      BubbleComponent(text, isThought: true, size: Vector2(150, 36))
+        ..position = Vector2(0, -c.size.y + 2),
     );
   }
 

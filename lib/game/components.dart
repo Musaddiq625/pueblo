@@ -395,14 +395,18 @@ class BubbleComponent extends PositionComponent {
   final String text;
   final String speaker;
   final bool isEmote;
+
+  /// Thought bubble — dimmer, borderless, drifts faster than speech.
+  final bool isThought;
   double _ttl;
 
   BubbleComponent(
     this.text, {
     this.speaker = '',
     this.isEmote = false,
+    this.isThought = false,
     Vector2? size,
-  }) : _ttl = isEmote ? 1.8 : 3.6,
+  }) : _ttl = isEmote ? 1.8 : (isThought ? 2.6 : 3.6),
        super(
          size: size ?? Vector2(220, 44),
          anchor: Anchor.bottomCenter,
@@ -413,8 +417,8 @@ class BubbleComponent extends PositionComponent {
   void update(double dt) {
     _ttl -= dt;
     if (_ttl <= 0) removeFromParent();
-    // float up gently
-    position.y -= dt * 6;
+    // float up gently — thoughts drift faster and fade with the drift
+    position.y -= dt * (isThought ? 12 : 6);
   }
 
   @override
@@ -435,8 +439,9 @@ class BubbleComponent extends PositionComponent {
 
   void _draw(Canvas canvas) {
     final style = TextStyle(
-      color: const Color(0xFFFFF4DC),
-      fontSize: isEmote ? 22 : 12.5,
+      color: isThought ? const Color(0x99DCD4F0) : const Color(0xFFFFF4DC),
+      fontSize: isEmote ? 22 : (isThought ? 11 : 12.5),
+      fontStyle: isThought ? FontStyle.italic : FontStyle.normal,
       // default font for emotes — monospace lacks emoji glyphs (blank box)
       fontFamily: isEmote ? null : 'monospace',
       height: 1.25,
@@ -448,6 +453,11 @@ class BubbleComponent extends PositionComponent {
       ellipsis: '…',
     )..layout(maxWidth: size.x - 16);
     if (isEmote) {
+      tp.paint(canvas, Offset((size.x - tp.width) / 2, 0));
+      return;
+    }
+    if (isThought) {
+      // borderless — a wisp of inner voice, centered and dim
       tp.paint(canvas, Offset((size.x - tp.width) / 2, 0));
       return;
     }

@@ -77,14 +77,14 @@ class Agent {
   final Map<String, int> warmth = {};
 
   /// Transient disposition set by the director's mood beat — surfaced in
-  /// prompts as "Feeling: …". Not persisted; the night forgets.
+  /// prompts as "Feeling: …". Not persisted; the day forgets.
   String? mood;
 
   /// One authored quirk from personas.json — the Wildermyth-style hook the
   /// director casts roles from.
   String? hook;
 
-  /// Time-of-night routine from personas.json: at sim_ts >= `at`, tend
+  /// Time-of-day routine from personas.json: at sim_ts >= `at`, tend
   /// `poi`. Majora's-Mask-style baseline under the emergent errands.
   List<({int at, String poi})> schedule = const [];
 
@@ -96,7 +96,7 @@ class Agent {
   /// reaction loop so a heard secret sends them to see for themselves.
   final Set<String> verifiedPois = {};
 
-  double lastActedAt = 0;
+  double lastActedAt = -30; // starts eligible for the decision cache
   int lastTalkedToPlayer = -1; // sim_ts
   final Set<String> knownSecrets = {};
 
@@ -134,11 +134,11 @@ class Secret {
   /// only confesses their own scandal to a deeply trusted ear (warmth≥4).
   final String? aboutAgent;
 
-  /// The night's headline — the director reports on its spread.
+  /// The festival's headline — the director reports on its spread.
   final bool headline;
 
   /// Arc resolution: when set, this secret IS the deep truth of the arc
-  /// named by [verdictOf] — at the night's 80% mark the engine counts
+  /// named by [verdictOf] — when four mouths hold it the engine narrates
   /// knowers and narrates [verdictPass] (≥4 spirits know) or
   /// [verdictFail]. The headline's unlocks_poi_lore is the POI that
   /// glows on a pass. Deterministic consequence; the LLM never decides.
@@ -271,7 +271,7 @@ class SpiritDossier {
   /// Secrets they woke up knowing (authored baseline).
   final int initialSecrets;
 
-  /// Secret ids they learned tonight — beyond their baseline.
+  /// Secret ids they learned today — beyond their baseline.
   final List<String> learnedSecrets;
 
   /// Rumors they're carrying: their heard version + whether they believe it.
