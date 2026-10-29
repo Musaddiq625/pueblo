@@ -2270,6 +2270,47 @@ class SimEngine {
     for (final cl in claims.values) (text: cl.text, mouths: cl.version.length),
   ];
 
+  /// Roster dossier — everything the player can see about one spirit.
+  /// Static traits come from the Agent; the "have they grown" fields are
+  /// grounded in persisted memories/knowledge, not invented: learned =
+  /// secrets held beyond what they woke with; learning = a score over
+  /// memories + importance + secrets + rumors + places verified.
+  Future<SpiritDossier> spiritDossier(String id) async {
+    final a = agents[id]!;
+    final st = await store.memoryStats(id);
+    final reflection = await store.latestReflection(id);
+    final initial = secrets.values
+        .where((s) => s.initiallyKnownBy.contains(id))
+        .map((s) => s.id)
+        .toSet();
+    final learned = a.knownSecrets.difference(initial).toList();
+    final heldClaims = claims.values
+        .where((c) => c.version.containsKey(id))
+        .map((c) => (text: c.heardBy(id), believes: c.believers.contains(id)))
+        .toList();
+    final learning =
+        st.count + learned.length * 5 + heldClaims.length * 2 +
+        a.verifiedPois.length * 3 + (st.importanceSum ~/ 10);
+    final level = learning >= 40
+        ? 'sage of the night'
+        : learning >= 20
+            ? 'remembering much'
+            : learning >= 8
+                ? 'starting to see'
+                : 'still just a spark';
+    return SpiritDossier(
+      memoryCount: st.count,
+      importanceSum: st.importanceSum,
+      latestReflection: reflection,
+      initialSecrets: initial.length,
+      learnedSecrets: learned,
+      heldClaims: heldClaims,
+      verifiedPois: a.verifiedPois.length,
+      learningScore: learning,
+      learningLevel: level,
+    );
+  }
+
   /// Nonverbal player-chat beats — the spirit takes the words in without
   /// speaking. Glyph floats in-world; the beat line renders in chat.
   String? _reactGlyph(String react) => switch (react) {

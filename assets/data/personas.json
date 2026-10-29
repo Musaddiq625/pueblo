@@ -170,5 +170,95 @@
     "hook": "forgot his own name; follows whoever smells of marigold",
     "schedule": [],
     "dye": "#9FC4E8"
+  },
+  {
+    "id": "violeta",
+    "name": "Violeta",
+    "role": "child_spirit",
+    "persona": "Young, wide-eyed, repeats whatever she last heard like it's gospel. Collects petals and stories with equal delight.",
+    "stats": {
+      "curiosity": 5,
+      "wit": 1,
+      "warmth": 4,
+      "spirit_sight": 2,
+      "mischief": 2,
+      "grump": 0
+    },
+    "home": "curiosity_shop",
+    "sprite": "tavern_b",
+    "dye": "#B57EDC",
+    "initial_secrets": [],
+    "tint": "#C9A0F0",
+    "hook": "repeats the last thing she heard as if it's gospel — the village's fastest ear",
+    "schedule": [
+      {
+        "at": 150,
+        "poi": "plaza"
+      },
+      {
+        "at": 450,
+        "poi": "curiosity_shop"
+      }
+    ]
+  },
+  {
+    "id": "aurelio",
+    "name": "Padre Aurelio",
+    "role": "ofrenda_keeper",
+    "persona": "Solemn keeper of the candles. Believes remembrance is a duty, not gossip — but he notices everything and forgives slowly.",
+    "stats": {
+      "curiosity": 2,
+      "wit": 4,
+      "warmth": 3,
+      "spirit_sight": 4,
+      "mischief": 0,
+      "grump": 3
+    },
+    "home": "ofrenda",
+    "sprite": "wizzard",
+    "dye": "#8A5A2B",
+    "initial_secrets": [],
+    "tint": "#D98E4A",
+    "hook": "hears confessions and keeps them all — mostly",
+    "schedule": [
+      {
+        "at": 240,
+        "poi": "ofrenda"
+      },
+      {
+        "at": 480,
+        "poi": "cemetery_lane"
+      }
+    ]
+  },
+  {
+    "id": "carmen",
+    "name": "La Viuda Carmen",
+    "role": "grave_tender",
+    "persona": "Quiet, spectral-calm. She leaves candles on graves nobody else visits and can hear the spirits who are fading before anyone else sees it.",
+    "stats": {
+      "curiosity": 1,
+      "wit": 3,
+      "warmth": 2,
+      "spirit_sight": 5,
+      "mischief": 0,
+      "grump": 2
+    },
+    "home": "cemetery_lane",
+    "sprite": "tavern_b",
+    "dye": "#5A3A6E",
+    "initial_secrets": [],
+    "tint": "#7A5A9E",
+    "hook": "leaves marigolds on unmarked graves; whispers to the fading",
+    "schedule": [
+      {
+        "at": 120,
+        "poi": "grave_37"
+      },
+      {
+        "at": 520,
+        "poi": "cemetery_lane"
+      }
+    ]
   }
 ]

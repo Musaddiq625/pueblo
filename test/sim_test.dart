@@ -2,6 +2,7 @@
 /// engagement semantics. No Flutter widgets, no network.
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -1101,5 +1102,72 @@ void main() {
     }
     expect(moved, isTrue,
         reason: 'a picked claim share must travel the full pipeline');
+  });
+
+  // ==================== roster dossier ====================
+
+  test('spiritDossier separates baseline knowledge from tonight\'s learning',
+      () async {
+    final b = await _boot();
+    final e = b.engine;
+    // 'a' woke knowing s1 — baseline, not learned.
+    var d = await e.spiritDossier('a');
+    expect(d.initialSecrets, 1);
+    expect(d.learnedSecrets, isEmpty);
+    expect(d.memoryCount, greaterThanOrEqualTo(0));
+    expect(d.learningLevel, isNotEmpty);
+    // teach 'a' something new tonight → learned grows, baseline doesn't
+    final s2 = Secret(
+      id: 's2',
+      surface: 'x',
+      truth: 'y',
+      shareText: 'shares s2',
+      initiallyKnownBy: const [],
+    );
+    e.secrets['s2'] = s2;
+    e.agents['a']!.knownSecrets.add('s2');
+    d = await e.spiritDossier('a');
+    expect(d.initialSecrets, 1);
+    expect(d.learnedSecrets, contains('s2'));
+    expect(d.learningScore, greaterThan(0));
+  });
+
+  test('real data: every persona home/schedule + initial knower resolves',
+      () async {
+    // Data-integrity on the shipped JSON — catches typos in homes,
+    // schedule POIs, and initially_known_by without a widget harness.
+    final personas = (jsonDecode(
+            File('assets/data/personas.json').readAsStringSync())
+        as List)
+        .cast<Map<String, dynamic>>();
+    final secrets = (jsonDecode(
+            File('assets/data/secrets.json').readAsStringSync())
+        as List)
+        .cast<Map<String, dynamic>>();
+    final agentIds = personas.map((p) => p['id'] as String).toSet();
+    final secretIds = secrets.map((s) => s['id'] as String).toSet();
+    const realPois = {
+      'bridge', 'flower_stall', 'cantina', 'curiosity_shop', 'fountain',
+      'gravedigger_hut', 'cemetery_lane', 'grave_37', 'ancient_tree',
+      'ofrenda', 'plaza',
+    };
+    for (final p in personas) {
+      expect(realPois, contains(p['home']),
+          reason: '${p['id']} home ${p['home']} must be a real POI');
+      for (final sc in (p['schedule'] as List? ?? const [])) {
+        expect(realPois, contains(sc['poi']),
+            reason: '${p['id']} schedule POI ${sc['poi']} must exist');
+      }
+      for (final s in (p['initial_secrets'] as List? ?? const [])) {
+        expect(secretIds, contains(s),
+            reason: '${p['id']} initial secret $s must exist');
+      }
+    }
+    for (final s in secrets) {
+      for (final k in (s['initially_known_by'] as List? ?? const [])) {
+        expect(agentIds, contains(k),
+            reason: '${s['id']} knower $k must be a real agent');
+      }
+    }
   });
 }

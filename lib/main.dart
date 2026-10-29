@@ -139,6 +139,7 @@ class _PuebloAppState extends State<PuebloApp> {
   int petals = 0;
   int? remembered, fadedCount;
   String? verdictNote; // the arc's resolution, if a verdict fired tonight
+  bool rosterOpen = false;
 
   SimEngine get engine => widget.bundle.engine;
 
@@ -164,6 +165,7 @@ class _PuebloAppState extends State<PuebloApp> {
       final dir = await getApplicationDocumentsDirectory();
       return '${dir.path}/pueblo_frame.png';
     };
+    PuebloGame.rosterHook = () => setState(() => rosterOpen = true);
     // SHOT=<sec> → first capture delay. SHOTN=<n> frames, SHOTEACH=<ms>
     // spacing (default 1000). Files: pueblo_frame.png, pueblo_frame_1.png…
     const shotSec = int.fromEnvironment('SHOT');
@@ -249,7 +251,11 @@ class _PuebloAppState extends State<PuebloApp> {
               Positioned(
                 top: 10,
                 left: 10,
-                child: _Hud(engine: engine, petals: petals),
+                child: _Hud(
+                  engine: engine,
+                  petals: petals,
+                  onRoster: () => setState(() => rosterOpen = true),
+                ),
               ),
 
               // Town log — hidden per request; the sim still narrates
@@ -320,6 +326,15 @@ class _PuebloAppState extends State<PuebloApp> {
                         PuebloGame.personaSprite[engaged] ?? 'sk_base',
                     spiritDye: PuebloGame.personaDye[engaged],
                     onEnd: _endInteraction,
+                  ),
+                ),
+
+              // Roster sheet — the remembered, card-select style
+              if (rosterOpen)
+                Center(
+                  child: _RosterSheet(
+                    engine: engine,
+                    onClose: () => setState(() => rosterOpen = false),
                   ),
                 ),
 
@@ -399,7 +414,12 @@ class _PuebloAppState extends State<PuebloApp> {
 class _Hud extends StatelessWidget {
   final SimEngine engine;
   final int petals;
-  const _Hud({required this.engine, required this.petals});
+  final VoidCallback onRoster;
+  const _Hud({
+    required this.engine,
+    required this.petals,
+    required this.onRoster,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -442,6 +462,8 @@ class _Hud extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           _CuadernoChip(engine: engine),
+          const SizedBox(width: 12),
+          _RosterChip(onOpen: onRoster),
           const SizedBox(width: 12),
           _SpeedChip(engine: engine),
         ],
@@ -500,49 +522,58 @@ class _CuadernoChip extends StatelessWidget {
                             Text(
                               '${s.tier == 'rumor' ? '🕯 ' : ''}${s.shareText}',
                               style: const TextStyle(
-                                  fontSize: 12, color: Color(0xFFDCD4F0)),
+                                fontSize: 12,
+                                color: Color(0xFFDCD4F0),
+                              ),
                             ),
                             if (s.unlocksPoiLore != null)
                               Text(
                                 'worth a look: ${engine.pois[s.unlocksPoiLore]?.name ?? s.unlocksPoiLore}',
                                 style: const TextStyle(
-                                    fontSize: 10.5, color: Color(0xFF6A6088)),
+                                  fontSize: 10.5,
+                                  color: Color(0xFF6A6088),
+                                ),
                               ),
                           ],
                         ),
                       ),
                   // Rumors you've planted — free whispers that live or die
                   // in other mouths. Mouths = spirits repeating them now.
-                  Builder(builder: (context) {
-                    final loose = engine.claimsForCuaderno();
-                    if (loose.isEmpty) return const SizedBox.shrink();
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 8),
-                        const Divider(color: Color(0xFF3A2C50), height: 14),
-                        const Text(
-                          'rumors you\'ve set loose',
-                          key: Key('cuadernoRumors'),
-                          style: TextStyle(
-                              fontSize: 11, color: Color(0xFFF5A95B)),
-                        ),
-                        const SizedBox(height: 6),
-                        for (final c in loose)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 5),
-                            child: Text(
-                              '“${c.text}” — ${c.mouths} mouth${c.mouths == 1 ? '' : 's'} repeat${c.mouths == 1 ? 's' : ''} it',
-                              key: Key('cuaderno_claim'),
-                              style: const TextStyle(
-                                  fontSize: 11.5,
-                                  color: Color(0xFFB0A6D8),
-                                  fontStyle: FontStyle.italic),
+                  Builder(
+                    builder: (context) {
+                      final loose = engine.claimsForCuaderno();
+                      if (loose.isEmpty) return const SizedBox.shrink();
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 8),
+                          const Divider(color: Color(0xFF3A2C50), height: 14),
+                          const Text(
+                            'rumors you\'ve set loose',
+                            key: Key('cuadernoRumors'),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFFF5A95B),
                             ),
                           ),
-                      ],
-                    );
-                  }),
+                          const SizedBox(height: 6),
+                          for (final c in loose)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 5),
+                              child: Text(
+                                '“${c.text}” — ${c.mouths} mouth${c.mouths == 1 ? '' : 's'} repeat${c.mouths == 1 ? 's' : ''} it',
+                                key: Key('cuaderno_claim'),
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  color: Color(0xFFB0A6D8),
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
                 ],
               ),
             ),
@@ -556,6 +587,358 @@ class _CuadernoChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The village roster — every spirit on a card, tap one for its dossier:
+/// persona, stat stars, what it's carrying, and whether the night has
+/// taught it anything. Data-driven off engine.agents so a bigger cast
+/// needs no UI changes.
+class _RosterChip extends StatelessWidget {
+  final VoidCallback onOpen;
+  const _RosterChip({required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onOpen,
+      child: const Text(
+        '🕯️',
+        key: Key('rosterChip'),
+        style: TextStyle(fontSize: 13),
+      ),
+    );
+  }
+}
+
+class _RosterSheet extends StatefulWidget {
+  final SimEngine engine;
+  final VoidCallback onClose;
+  const _RosterSheet({required this.engine, required this.onClose});
+
+  @override
+  State<_RosterSheet> createState() => _RosterSheetState();
+}
+
+class _RosterSheetState extends State<_RosterSheet> {
+  String? _selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final spirits = widget.engine.agents.values.toList();
+    final sel = _selected ?? spirits.first.id;
+    return Container(
+      key: const Key('rosterSheet'),
+      width: 640,
+      height: 420,
+      decoration: BoxDecoration(
+        color: const Color(0xF51A1430),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF3A2C50)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 12, 8, 4),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'the remembered — who walks tonight',
+                    style: TextStyle(fontSize: 14, color: Color(0xFFFFC233)),
+                  ),
+                ),
+                GestureDetector(
+                  key: const Key('rosterClose'),
+                  onTap: widget.onClose,
+                  child: const Padding(
+                    padding: EdgeInsets.all(6),
+                    child: Icon(
+                      Icons.close,
+                      size: 16,
+                      color: Color(0xFF8D84B0),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Row(
+              children: [
+                // roster grid — portrait cards like a character select
+                SizedBox(
+                  width: 268,
+                  child: GridView.builder(
+                    padding: const EdgeInsets.all(10),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          mainAxisSpacing: 8,
+                          crossAxisSpacing: 8,
+                          childAspectRatio: 0.82,
+                        ),
+                    itemCount: spirits.length,
+                    itemBuilder: (_, i) => _RosterCard(
+                      key: Key('rosterCard_${spirits[i].id}'),
+                      agent: spirits[i],
+                      selected: spirits[i].id == sel,
+                      onTap: () => setState(() => _selected = spirits[i].id),
+                    ),
+                  ),
+                ),
+                Container(width: 1, color: const Color(0xFF3A2C50)),
+                // dossier — everything the night knows about this spirit
+                Expanded(
+                  child: _Dossier(engine: widget.engine, id: sel),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RosterCard extends StatelessWidget {
+  final Agent agent;
+  final bool selected;
+  final VoidCallback onTap;
+  const _RosterCard({
+    super.key,
+    required this.agent,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sprite = PuebloGame.personaSprite[agent.id] ?? 'sk_base';
+    final dye = PuebloGame.personaDye[agent.id];
+    Widget img = Image.asset(
+      'assets/sprites/chars/${sprite}_idle.png',
+      fit: BoxFit.cover,
+      alignment: Alignment.centerLeft,
+      filterQuality: FilterQuality.none,
+    );
+    if (dye != null) {
+      img = ColorFiltered(
+        colorFilter: ColorFilter.mode(Color(dye), BlendMode.modulate),
+        child: img,
+      );
+    }
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFF3A2C50) : const Color(0xFF241C40),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? const Color(0xFFFFC233) : const Color(0xFF3A2C50),
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        padding: const EdgeInsets.all(5),
+        child: Column(
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Opacity(opacity: agent.faded ? 0.45 : 1, child: img),
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              agent.name.split(' ').first,
+              style: const TextStyle(fontSize: 10, color: Color(0xFFDCD4F0)),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Dossier extends StatelessWidget {
+  final SimEngine engine;
+  final String id;
+  const _Dossier({required this.engine, required this.id});
+
+  @override
+  Widget build(BuildContext context) {
+    final a = engine.agents[id]!;
+    return FutureBuilder<SpiritDossier>(
+      future: engine.spiritDossier(id),
+      builder: (_, snap) {
+        final d = snap.data;
+        return ListView(
+          key: const Key('rosterDetail'),
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+          children: [
+            Text(
+              a.name,
+              style: const TextStyle(fontSize: 16, color: Color(0xFFFFC233)),
+            ),
+            Text(
+              '${a.role} · ${a.condition}${a.solidified ? ' · solid' : ''} · 🕯${a.battery.toInt()}',
+              style: const TextStyle(fontSize: 11, color: Color(0xFF8D84B0)),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              a.persona,
+              style: const TextStyle(
+                fontSize: 11.5,
+                height: 1.4,
+                color: Color(0xFFDCD4F0),
+              ),
+            ),
+            if (a.hook != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'hook: ${a.hook}',
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  fontStyle: FontStyle.italic,
+                  color: Color(0xFF8D84B0),
+                ),
+              ),
+            ],
+            if (a.mood != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'feeling: ${a.mood}',
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    color: Color(0xFFF5A95B),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 10),
+            _statStars(a.stats),
+            const SizedBox(height: 10),
+            if (d == null)
+              const Text('…', style: TextStyle(color: Color(0xFF8D84B0)))
+            else ...[
+              _line(
+                '🧠 memories',
+                '${d.memoryCount} stored · weight ${d.importanceSum}',
+              ),
+              _line(
+                '📖 secrets',
+                '${a.knownSecrets.length} held '
+                    '(${d.initialSecrets} from the start, ${d.learnedSecrets.length} learned tonight)',
+              ),
+              if (d.heldClaims.isNotEmpty)
+                _line(
+                  '🗣️ rumors',
+                  '${d.heldClaims.length} carried'
+                      '${d.heldClaims.any((c) => c.believes) ? ' — believes ${d.heldClaims.where((c) => c.believes).length}' : ''}',
+                ),
+              if (d.verifiedPois > 0)
+                _line('👣 went to see', '${d.verifiedPois} places'),
+              if (a.warmth.isNotEmpty)
+                _line(
+                  '💛 closest to',
+                  (a.warmth.entries.toList()
+                        ..sort((x, y) => y.value.compareTo(x.value)))
+                      .take(3)
+                      .map(
+                        (e) =>
+                            '${engine.agents[e.key]?.name.split(' ').first ?? e.key} (${e.value})',
+                      )
+                      .join(', '),
+                ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Text(
+                    '🌱 grown tonight? ',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF8D84B0)),
+                  ),
+                  Text(
+                    '${d.learningLevel} (${d.learningScore})',
+                    key: const Key('dossierLearning'),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFB8E8A0),
+                    ),
+                  ),
+                ],
+              ),
+              if (d.latestReflection != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  '“${d.latestReflection}”',
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontStyle: FontStyle.italic,
+                    height: 1.35,
+                    color: Color(0xFFB0A6D8),
+                  ),
+                ),
+              ],
+            ],
+            if (a.goal != null || a.errand != null) ...[
+              const SizedBox(height: 8),
+              _line(
+                '🎯 up to',
+                a.errand != null
+                    ? '${a.errand!.kind} → ${a.errand!.targetId}'
+                    : a.goal!,
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _statStars(Stats s) {
+    String stars(int v) => '★' * v.clamp(0, 5) + '☆' * (5 - v.clamp(0, 5));
+    Widget row(String label, int v) => Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 82,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 10.5, color: Color(0xFF8D84B0)),
+            ),
+          ),
+          Text(
+            stars(v),
+            style: const TextStyle(
+              fontSize: 10.5,
+              color: Color(0xFFFFC233),
+              letterSpacing: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+    return Column(
+      children: [
+        row('curiosity', s.curiosity),
+        row('wit', s.wit),
+        row('warmth', s.warmth),
+        row('spirit sight', s.spiritSight),
+        row('mischief', s.mischief),
+        row('grump', s.grump),
+      ],
+    );
+  }
+
+  Widget _line(String label, String value) => Padding(
+    padding: const EdgeInsets.only(bottom: 3),
+    child: Text(
+      '$label  ·  $value',
+      style: const TextStyle(fontSize: 11, color: Color(0xFFDCD4F0)),
+    ),
+  );
 }
 
 /// Sim-speed toggle — cycles 1× → 2× → 4× → 8× so you can fast-forward
@@ -577,8 +960,7 @@ class _SpeedChipState extends State<_SpeedChip> {
     return GestureDetector(
       onTap: () => setState(() {
         final i = _steps.indexOf(speed);
-        widget.engine.timeScale =
-            _steps[(i < 0 ? 0 : i + 1) % _steps.length];
+        widget.engine.timeScale = _steps[(i < 0 ? 0 : i + 1) % _steps.length];
       }),
       child: Text(
         '${speed.toInt()}×',

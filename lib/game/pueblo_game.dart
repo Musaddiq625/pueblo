@@ -252,6 +252,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   /// DRIVER 'shot' command → writes a frame PNG, returns its path.
   /// Wired to _PuebloAppState._dumpFrame in main.dart.
   static Future<String> Function()? shotHook;
+  static void Function()? rosterHook; // DRIVER 'roster' → open the sheet
 
   // ---------------- driver bridge (DRIVER=true runs only) ----------------
   //
@@ -379,6 +380,9 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         if (tx == null || ty == null) return 'ERR look <tx> <ty>';
         camera.viewfinder.position = Vector2(tx * 32 + 16, ty * 32 + 16);
         return 'ok look $tx $ty';
+      case 'roster':
+        rosterHook?.call();
+        return 'ok roster';
       case 'shot':
         final hook = shotHook;
         if (hook == null) return 'ERR shot hook not wired';

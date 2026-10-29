@@ -261,6 +261,42 @@ class Claim {
   }
 }
 
+/// Everything the roster sheet shows for one spirit — the dynamic fields,
+/// grounded in persisted memory/knowledge rather than invented.
+class SpiritDossier {
+  final int memoryCount;
+  final int importanceSum;
+  final String? latestReflection;
+
+  /// Secrets they woke up knowing (authored baseline).
+  final int initialSecrets;
+
+  /// Secret ids they learned tonight — beyond their baseline.
+  final List<String> learnedSecrets;
+
+  /// Rumors they're carrying: their heard version + whether they believe it.
+  final List<({String text, bool believes})> heldClaims;
+
+  /// POIs they went to check for themselves.
+  final int verifiedPois;
+
+  /// Derived "did they get smarter" score + label.
+  final int learningScore;
+  final String learningLevel;
+
+  const SpiritDossier({
+    required this.memoryCount,
+    required this.importanceSum,
+    required this.latestReflection,
+    required this.initialSecrets,
+    required this.learnedSecrets,
+    required this.heldClaims,
+    required this.verifiedPois,
+    required this.learningScore,
+    required this.learningLevel,
+  });
+}
+
 class Poi {
   final String id;
   final String name;
