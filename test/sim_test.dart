@@ -833,8 +833,9 @@ void main() {
     e.engage('a');
     await for (final _ in e.sendPlayerMessage('the ofrenda looks different tonight')) {}
     expect(e.agents['a']!.goal, 'askAbout:ofrenda');
-    // curious spirits also take a claim-tagged verify errand
-    expect(e.agents['a']!.errand?.kind, 'verify');
+    // the planted whisper outranks — they carry it to a confidant first;
+    // the askAbout goal persists and can still send them looking later
+    expect(e.agents['a']!.errand?.kind, 'tell');
     expect(e.agents['a']!.errand?.claim, isTrue);
   });
 
@@ -1169,5 +1170,95 @@ void main() {
             reason: '${s['id']} knower $k must be a real agent');
       }
     }
+  });
+
+  // ==================== speed / spread / 💡 ====================
+
+  test('locomotion scales with timeScale — legs obey the speed chip',
+      () async {
+    // Same walk, two speeds: the 4× run must cover ~4× the ground.
+    final moved = <double, double>{};
+    for (final scale in [1.0, 4.0]) {
+      final llm = _ScriptedLLM();
+      final b = await bootRumor(llm: llm);
+      final e = b.engine;
+      e.timeScale = scale;
+      final a = e.agents['a']!;
+      a.x = 624.0;
+      a.y = 496.0; // real walkable plaza spot
+      a.errand =
+          (kind: 'tend', targetId: 'ofrenda', claim: false, subject: null);
+      a.lastActedAt = -999;
+      llm.forcedDecision = Decision('goto', 'ofrenda', 'to the shrine');
+      // wait until the walk actually starts — decisions fire every 12
+      // sim-s, so pump in half-second steps until a path is set
+      for (var i = 0; i < 120 && a.x == 624.0 && a.y == 496.0; i++) {
+        e.tick(0.5);
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+      final sx = a.x, sy = a.y;
+      for (var i = 0; i < 4; i++) {
+        e.tick(0.1);
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+      moved[scale] = sqrt(pow(a.x - sx, 2) + pow(a.y - sy, 2));
+    }
+    expect(moved[1.0]!, greaterThan(5),
+        reason: 'walk must actually start at 1×');
+    expect(moved[4.0]!, greaterThan(moved[1.0]! * 3),
+        reason: '4× time must move legs ~4× as far');
+  });
+
+  test('a whisper always finds a carrier — best friend if model is silent',
+      () async {
+    final llm = _ScriptedLLM();
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    e.agents['a']!.warmth['b'] = 7; // b is a's closest confidant
+    llm.forcedReply =
+        '{"say":"oh?","react":"curious","believes":true}'; // no share_with
+    e.engage('a');
+    await for (final _ in e.sendPlayerMessage('the bridge hums a name')) {}
+    final cl = e.claims.values.first;
+    final errand = e.agents['a']!.errand;
+    expect(errand?.kind, 'tell',
+        reason: 'a planted whisper must earn at least one hop');
+    expect(errand?.targetId, 'b');
+    expect(errand?.subject, cl.id);
+    expect(errand?.claim, isTrue);
+    e.disengage();
+  });
+
+  test('receiving gossip pops a 💡 over the receiver\'s head', () async {
+    final llm = _ScriptedLLM();
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    final emotes = <Map<String, Object?>>[];
+    e.events.listen((ev) {
+      if (ev.type == SimEventType.emote) emotes.add(ev.data);
+    });
+    final cl = Claim(id: 'claim_9', text: 'the bridge hums', bornTs: 0);
+    cl.version['a'] = 'the bridge hums';
+    e.claims[cl.id] = cl;
+    llm.forcedDecision = Decision('share', 'b', 'psst', subject: 'claim_9');
+    e.agents['a']!.lastActedAt = -999;
+    var moved = false;
+    for (var i = 0; i < 120 && !moved; i++) {
+      e.agents['a']!.x = 624.0;
+      e.agents['a']!.y = 496.0;
+      e.agents['b']!.x = 656.0;
+      e.agents['b']!.y = 496.0;
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+      moved = cl.version.containsKey('b');
+    }
+    expect(moved, isTrue);
+    expect(
+      emotes.any((d) => d['agent'] == 'b' && d['glyph'] == '💡'),
+      isTrue,
+      reason: 'the receiver flashes 💡 the moment news lands',
+    );
+    expect(e.agents['b']!.newsUntil, greaterThan(e.simTs),
+        reason: '…and keeps the 💡 marker under their name');
   });
 }

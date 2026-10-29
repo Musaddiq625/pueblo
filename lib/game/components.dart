@@ -24,6 +24,10 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
   final Color? auraColor;
   final void Function(Agent) onTapped;
 
+  /// Time-scale hook (engine.timeScale) — the speed chip is a real
+  /// fast-forward: legs accelerate with decisions and gossip.
+  final double Function()? speedScale;
+
   /// Ghost form — the bare skeleton every spirit collapses into when
   /// forgotten. When set, fading swaps the whole animation group (and the
   /// cell's display size) rather than just dimming the person sprite.
@@ -56,6 +60,7 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     this.auraColor,
     this.ghostAnims,
     this.ghostSize,
+    this.speedScale,
   }) : super(
          animations: {
            SpiritAnim.idle: idle,
@@ -147,7 +152,8 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
           current = SpiritAnim.idle;
         }
       } else {
-        final step = delta.normalized() * kSpiritSpeed * dt;
+        final step =
+            delta.normalized() * kSpiritSpeed * (speedScale?.call() ?? 1.0) * dt;
         position += step;
         faceToward(target.x);
       }
@@ -245,6 +251,10 @@ class SpiritLabelComponent extends PositionComponent {
 class PlayerComponent extends SpriteAnimationGroupComponent<SpiritAnim> {
   final List<Vector2> _path = [];
   final double _speed = 95;
+
+  /// Time-scale hook (engine.timeScale) — set post-construction by the
+  /// game; fast-forward applies to the living one's legs too.
+  double Function()? speedScale;
   bool walking = false;
 
   PlayerComponent({
@@ -282,7 +292,8 @@ class PlayerComponent extends SpriteAnimationGroupComponent<SpiritAnim> {
           current = SpiritAnim.idle;
         }
       } else {
-        position += delta.normalized() * _speed * dt;
+        position +=
+            delta.normalized() * _speed * (speedScale?.call() ?? 1.0) * dt;
         final faceLeft = target.x < position.x;
         if (faceLeft != scale.x.isNegative) flipHorizontallyAroundCenter();
       }

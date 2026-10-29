@@ -218,7 +218,7 @@ class SimEngine {
     _batteryTimer += dt * timeScale;
     _autosaveTimer += dt * timeScale;
     _petalTimer += dt * timeScale;
-    _ambientTimer += dt;
+    _ambientTimer += dt * timeScale;
 
     if (_convoTimer >= convoEvery) {
       _convoTimer = 0;
@@ -492,6 +492,7 @@ class SimEngine {
         partner.warmth[speaker.id] = (partner.warmth[speaker.id] ?? 0) + 5;
         // …and leaves a 💡 over their head so the player can spot news
         partner.newsUntil = simTs + 90;
+        _emit(partner, SimEventType.emote, {'agent': partner.id, 'glyph': '💡'});
         await store.simLog(
           simTs,
           partner.id,
@@ -526,6 +527,7 @@ class SimEngine {
       final heard = cl.heardBy(speaker.id);
       cl.version[partner.id] = heard;
       partner.newsUntil = simTs + 90; // the 💡 cue — fresh gossip to follow
+      _emit(partner, SimEventType.emote, {'agent': partner.id, 'glyph': '💡'});
       partner.bumpVersion();
       final aboutYou = cl.about.contains(partner.id);
       unawaited(
@@ -1657,7 +1659,9 @@ class SimEngine {
   }
 
   /// Advance every walking agent along its path at the SAME rate the
-  /// renderer lerps (real dt × kSpiritSpeed) — sim and pixels stay in sync.
+  /// renderer lerps (real dt × kSpiritSpeed × timeScale) — sim and pixels
+  /// stay in sync. Locomotion scales with the night clock so 4× is a true
+  /// fast-forward: legs, mouths, and gossip all move faster together.
   void _advanceWalks(double dt) {
     for (final id in _walks.keys.toList()) {
       final a = agents[id];
@@ -1666,7 +1670,7 @@ class SimEngine {
         _walks.remove(id);
         continue;
       }
-      var budget = kSpiritSpeed * dt;
+      var budget = kSpiritSpeed * dt * timeScale;
       while (budget > 0 && path.isNotEmpty) {
         final t = path.first;
         final dx = t[0] - a.x, dy = t[1] - a.y;
@@ -1969,7 +1973,11 @@ class SimEngine {
             store.simLog(simTs, a.id, 'twist', '${planted.id}: $tw'),
           );
         }
-        final target = _fuzzyId(reply.shareWith, agents.keys.toSet());
+        // The words must travel: the model may name a carrier, and if it
+        // doesn't, the spirit still takes the whisper to SOMEONE — their
+        // closest confidant. One whisper always earns at least one hop.
+        var target = _fuzzyId(reply.shareWith, agents.keys.toSet());
+        target ??= _pickConfidant(a);
         if (target != null &&
             target != a.id &&
             !planted.version.containsKey(target)) {
@@ -1978,6 +1986,14 @@ class SimEngine {
             targetId: target,
             claim: true,
             subject: planted.id,
+          );
+          unawaited(
+            store.simLog(
+              simTs,
+              a.id,
+              'errand',
+              'carry ${planted.id} → $target',
+            ),
           );
         }
         _persistClaims();
@@ -2189,6 +2205,19 @@ class SimEngine {
   // holder carries the version they HEARD, so a mischievous spirit's
   // retelling keeps mutating down the line — telephone, authored by the
   // LLM, tracked verbatim by the engine.
+
+  /// Who the spirit takes the living one's words to when the model names
+  /// nobody: their closest living confidant (warmth ledger), else anyone
+  /// still walking. Guarantees a player whisper always earns ≥1 hop.
+  String? _pickConfidant(Agent a) {
+    final others = agents.values
+        .where((o) => o.id != a.id && !o.faded && !o.engaged)
+        .toList();
+    if (others.isEmpty) return null;
+    others.sort((x, y) =>
+        (a.warmth[y.id] ?? 0).compareTo(a.warmth[x.id] ?? 0));
+    return others.first.id;
+  }
 
   /// Register the player's words as a Claim held by [a]. Same-words repeats
   /// just add the holder — one claim per distinct whisper.

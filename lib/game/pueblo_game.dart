@@ -122,6 +122,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       Vector2(tileX(21), tileY(3)),
       PlayerComponent.new,
     );
+    player!.speedScale = () => engine.timeScale;
     await world.add(player!);
 
     // ---- spirits ----
@@ -227,6 +228,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       auraColor: personaTint[a.id] != null ? Color(personaTint[a.id]!) : null,
       ghostAnims: ghost,
       ghostSize: ghostSize,
+      speedScale: () => engine.timeScale,
     );
     // persona dye — a palette swap so spirits sharing a sheet still read
     // as different people (multiply preserves the pixel shading)
@@ -383,6 +385,11 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       case 'roster':
         rosterHook?.call();
         return 'ok roster';
+      case 'speed':
+        final s = double.tryParse(arg);
+        if (s == null) return 'ERR speed <n>';
+        engine.timeScale = s.clamp(0.25, 8.0);
+        return 'ok speed ${engine.timeScale}';
       case 'shot':
         final hook = shotHook;
         if (hook == null) return 'ERR shot hook not wired';
