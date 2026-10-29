@@ -31,6 +31,7 @@ class InspectCard extends StatefulWidget {
 class _InspectCardState extends State<InspectCard> {
   final _ctrl = TextEditingController();
   final _scroll = ScrollController();
+  final _focus = FocusNode();
   final List<(bool user, String text)> _msgs = [];
   String _streaming = '';
   bool _busy = false;
@@ -38,9 +39,19 @@ class _InspectCardState extends State<InspectCard> {
   Agent get a => widget.engine.agents[widget.engine.engagedId]!;
 
   @override
+  void initState() {
+    super.initState();
+    // Tap a spirit → start typing — the field takes focus as the card opens.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus.requestFocus();
+    });
+  }
+
+  @override
   void dispose() {
     _ctrl.dispose();
     _scroll.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -64,6 +75,7 @@ class _InspectCardState extends State<InspectCard> {
     } catch (_) {
       buf.write('· the words fall unheard.');
     } finally {
+      _focus.requestFocus();
       if (mounted) {
         setState(() {
           final reply = buf.toString().trim();
@@ -229,6 +241,7 @@ class _InspectCardState extends State<InspectCard> {
                 child: TextField(
                   key: const Key('playerChatField'),
                   controller: _ctrl,
+                  focusNode: _focus,
                   keyboardType: TextInputType.text,
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => _send(),
