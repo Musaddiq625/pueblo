@@ -67,7 +67,12 @@ class _InspectCardState extends State<InspectCard> {
       if (mounted) {
         setState(() {
           final reply = buf.toString().trim();
-          if (reply.isNotEmpty) _msgs.add((false, reply));
+          // Even an empty stream must be visible — a silent no-op looks
+          // identical to a dead send button.
+          _msgs.add((
+            false,
+            reply.isNotEmpty ? reply : '· no answer stirs in the dark.',
+          ));
           _streaming = '';
           _busy = false;
         });
@@ -224,6 +229,8 @@ class _InspectCardState extends State<InspectCard> {
                 child: TextField(
                   key: const Key('playerChatField'),
                   controller: _ctrl,
+                  keyboardType: TextInputType.text,
+                  textInputAction: TextInputAction.send,
                   onSubmitted: (_) => _send(),
                   style: const TextStyle(fontSize: 13),
                   decoration: InputDecoration(
