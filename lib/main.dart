@@ -92,9 +92,17 @@ Future<void> main() async {
     return;
   }
 
+  // OLLAMA_BASE — where to reach the model server. On a phone, localhost
+  // is the PHONE itself, not the dev machine: pass the host's LAN IP
+  // (--dart-define=OLLAMA_BASE=http://192.168.x.x:11434) or every reply
+  // silently degrades to silence.
+  const ollamaBase = String.fromEnvironment('OLLAMA_BASE');
   final LLMClient llm = llmName == 'mock'
       ? MockLLMClient(seed: seed)
-      : OllamaClient(model: llmName);
+      : OllamaClient(
+          model: llmName,
+          base: ollamaBase.isEmpty ? null : Uri.parse(ollamaBase),
+        );
 
   Future<SimBundle> mkBundle() => bootstrap(
     personasJson: personasJson,
@@ -456,9 +464,20 @@ class _Hud extends StatelessWidget {
             },
           ),
           const SizedBox(width: 12),
-          Text(
-            engine.llm.name,
-            style: const TextStyle(fontSize: 10, color: Color(0xFF5A5078)),
+          ValueListenableBuilder<int>(
+            valueListenable: _clockListenable(engine),
+            builder: (_, _, _) => Text(
+              engine.llmAlive
+                  ? engine.llm.name
+                  : '${engine.llm.name} · offline',
+              key: const Key('llmBadge'),
+              style: TextStyle(
+                fontSize: 10,
+                color: engine.llmAlive
+                    ? const Color(0xFF5A5078)
+                    : const Color(0xFFE06A6A),
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           _CuadernoChip(engine: engine),

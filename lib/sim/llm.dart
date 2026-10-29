@@ -106,6 +106,20 @@ class OllamaClient implements LLMClient {
   @override
   String get name => 'ollama:$model';
 
+  /// Is the server reachable? Lightweight ping used by the HUD's
+  /// offline badge — better to show "offline" than have every spirit
+  /// answer with silence for no visible reason.
+  Future<bool> probe() async {
+    try {
+      final res = await _http
+          .get(base.resolve('/api/tags'))
+          .timeout(const Duration(seconds: 3));
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<String?> _chat(String prompt,
       {double temperature = 0.7,
       int numCtx = 2048,
@@ -188,8 +202,10 @@ class OllamaClient implements LLMClient {
   Stream<String> playerChat(String prompt) async* {
     // Non-streaming for simplicity; chunked yield keeps the same API.
     // Returns the raw JSON/text — the engine parses PlayerReply itself.
+    // Empty on failure → the spirit silently listens rather than literally
+    // saying '...' at the player.
     final content = await _chat(prompt, temperature: 0.85, numPredict: 220);
-    final line = content ?? '...';
+    final line = content ?? '';
     for (var i = 0; i < line.length; i += 12) {
       yield line.substring(i, min(i + 12, line.length));
       await Future.delayed(const Duration(milliseconds: 25));

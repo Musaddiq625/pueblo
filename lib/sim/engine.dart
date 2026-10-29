@@ -97,6 +97,12 @@ class SimEngine {
   final Set<String> giftedAgents = {};
   bool _playerBusy = false; // one player chat in flight at a time
 
+  /// Backend reachability — probed on a real-time timer (not sim-scaled:
+  /// the server is down in wall-clock time). The HUD badges it so an
+  /// unreachable model reads as "offline", not silent spirits.
+  bool llmAlive = true;
+  double _probeTimer = 0;
+
   /// Player-planted rumors — free-text claims that circulate mouth-to-mouth
   /// through the same purpose-convo machinery as secrets, but in their own
   /// ledger: they never unlock POI lore, never touch the verdict, and the
@@ -219,6 +225,11 @@ class SimEngine {
     _autosaveTimer += dt * timeScale;
     _petalTimer += dt * timeScale;
     _ambientTimer += dt * timeScale;
+    _probeTimer += dt; // real seconds — server health isn't a sim concept
+    if (_probeTimer >= 8) {
+      _probeTimer = 0;
+      _probeLlm();
+    }
 
     if (_convoTimer >= convoEvery) {
       _convoTimer = 0;
@@ -742,6 +753,17 @@ class SimEngine {
   final Map<String, String?> _reflCache = {};
   Future<void> _refreshReflection(Agent a) async {
     _reflCache[a.id] = await store.latestReflection(a.id);
+  }
+
+  /// Ping the model server (Ollama only) — flips [llmAlive] so the HUD can
+  /// show "offline" instead of spirits going mute for no visible reason.
+  Future<void> _probeLlm() async {
+    final c = llm;
+    if (c is! OllamaClient) {
+      llmAlive = true;
+      return;
+    }
+    llmAlive = await c.probe();
   }
 
   // ============================ errands (planning) ==========================

@@ -55,18 +55,24 @@ class _InspectCardState extends State<InspectCard> {
     });
     _toBottom();
     final buf = StringBuffer();
-    await for (final chunk in widget.engine.sendPlayerMessage(text)) {
-      buf.write(chunk);
-      if (mounted) setState(() => _streaming = buf.toString());
-      _toBottom();
-    }
-    if (mounted) {
-      setState(() {
-        _msgs.add((false, buf.toString().trim()));
-        _streaming = '';
-        _busy = false;
-      });
-      _toBottom();
+    try {
+      await for (final chunk in widget.engine.sendPlayerMessage(text)) {
+        buf.write(chunk);
+        if (mounted) setState(() => _streaming = buf.toString());
+        _toBottom();
+      }
+    } catch (_) {
+      buf.write('· the words fall unheard.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          final reply = buf.toString().trim();
+          if (reply.isNotEmpty) _msgs.add((false, reply));
+          _streaming = '';
+          _busy = false;
+        });
+        _toBottom();
+      }
     }
   }
 
