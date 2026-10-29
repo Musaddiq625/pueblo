@@ -138,6 +138,7 @@ class _PuebloAppState extends State<PuebloApp> {
   Poi? shoppingAt;
   int petals = 0;
   int? remembered, fadedCount;
+  String? verdictNote; // the arc's resolution, if a verdict fired tonight
 
   SimEngine get engine => widget.bundle.engine;
 
@@ -150,9 +151,10 @@ class _PuebloAppState extends State<PuebloApp> {
       onEngage: _engage,
       onPoiInspect: _inspect,
       onPetalsChanged: () => setState(() => petals = engine.playerPetals),
-      onEndRun: (r, f) => setState(() {
+      onEndRun: (r, f, v) => setState(() {
         remembered = r;
         fadedCount = f;
+        verdictNote = v;
         engine.disengage(); // close any open InspectCard under the dawn card
       }),
     );
@@ -349,6 +351,18 @@ class _PuebloAppState extends State<PuebloApp> {
                           '$remembered spirits remembered · $fadedCount faded',
                           style: const TextStyle(color: Color(0xFFDCD4F0)),
                         ),
+                        if (verdictNote != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            verdictNote!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontStyle: FontStyle.italic,
+                              color: Color(0xFFF5A95B),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 6),
                         const Text(
                           'the town forgot them — names keep the dead alive',
@@ -427,6 +441,8 @@ class _Hud extends StatelessWidget {
             style: const TextStyle(fontSize: 10, color: Color(0xFF5A5078)),
           ),
           const SizedBox(width: 12),
+          _CuadernoChip(engine: engine),
+          const SizedBox(width: 12),
           _SpeedChip(engine: engine),
         ],
       ),
@@ -435,6 +451,79 @@ class _Hud extends StatelessWidget {
 
   ValueNotifier<int> _clockListenable(SimEngine e) =>
       _ClockHolder.instance.notifier(e);
+}
+
+/// The living one's notebook — what the night has taught them. What they
+/// know, where it might be worth a look, and the headline's empty frame.
+class _CuadernoChip extends StatelessWidget {
+  final SimEngine engine;
+  const _CuadernoChip({required this.engine});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        final known = engine.playerKnown
+            .map((id) => engine.secrets[id])
+            .whereType<Secret>()
+            .toList();
+        showModalBottomSheet(
+          context: context,
+          backgroundColor: const Color(0xFF1A1430),
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+          ),
+          builder: (_) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'cuaderno — what you carry',
+                    style: TextStyle(fontSize: 14, color: Color(0xFFFFC233)),
+                  ),
+                  const SizedBox(height: 10),
+                  if (known.isEmpty)
+                    const Text(
+                      'Nothing yet. Ask the spirits what they know — watch for ✨.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF8D84B0)),
+                    )
+                  else
+                    for (final s in known)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${s.tier == 'rumor' ? '🕯 ' : ''}${s.shareText}',
+                              style: const TextStyle(
+                                  fontSize: 12, color: Color(0xFFDCD4F0)),
+                            ),
+                            if (s.unlocksPoiLore != null)
+                              Text(
+                                'worth a look: ${engine.pois[s.unlocksPoiLore]?.name ?? s.unlocksPoiLore}',
+                                style: const TextStyle(
+                                    fontSize: 10.5, color: Color(0xFF6A6088)),
+                              ),
+                          ],
+                        ),
+                      ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+      child: const Text(
+        '📖',
+        key: Key('cuadernoChip'),
+        style: TextStyle(fontSize: 13),
+      ),
+    );
+  }
 }
 
 /// Sim-speed toggle — cycles 1× → 2× → 4× → 8× so you can fast-forward

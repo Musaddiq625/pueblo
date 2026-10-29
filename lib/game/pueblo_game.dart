@@ -25,7 +25,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   final void Function(Agent) onEngage;
   final void Function(Poi) onPoiInspect;
   final void Function() onPetalsChanged;
-  final void Function(int remembered, int faded) onEndRun;
+  final void Function(int remembered, int faded, String? verdict) onEndRun;
 
   final Map<String, SpiritComponent> spirits = {};
   PlayerComponent? player;
@@ -612,8 +612,19 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         if (t.contains('solidifies')) {
           _chispa('Look — the town remembered. That\'s resurrection.');
         }
+      case SimEventType.verdict:
+        // The arc resolves — narrate it and burst petals around the ofrenda
+        // whether the frame fills or stays bare.
+        _chispa(e.data['text'] as String);
+        for (var i = 0; i < 6; i++) {
+          _spawnPetal();
+        }
       case SimEventType.endRun:
-        onEndRun(e.data['remembered'], e.data['faded']);
+        onEndRun(
+          e.data['remembered'],
+          e.data['faded'],
+          e.data['verdict'] as String?,
+        );
       default:
         break;
     }
@@ -706,7 +717,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       for (final petal in world.children.whereType<PetalComponent>().toList()) {
         if (petal.position.distanceToSquared(player!.position) < 900) {
           petal.removeFromParent();
-          engine.playerPetals++;
+          engine.addPetal();
           onPetalsChanged();
         }
       }

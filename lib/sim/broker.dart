@@ -37,52 +37,33 @@ class InferenceBroker {
           : a.enqSeq - b.enqSeq);
   int _seq = 0;
   int _busy = 0;
-  bool _playerInFlight = false;
 
   // Results routed back to the engine via these streams.
   final _decisions = StreamController<(Job, Decision?)>.broadcast();
   final _turns = StreamController<(Job, ConvoTurn?)>.broadcast();
-  final _chats = StreamController<String>.broadcast();
   final _reflections = StreamController<(Job, String?)>.broadcast();
   final _beats = StreamController<Map<String, dynamic>?>.broadcast();
 
   Stream<(Job, Decision?)> get decisions => _decisions.stream;
   Stream<(Job, ConvoTurn?)> get turns => _turns.stream;
-  Stream<String> get chats => _chats.stream;
   Stream<(Job, String?)> get reflections => _reflections.stream;
   Stream<Map<String, dynamic>?> get beats => _beats.stream;
 
-  bool get playerInFlight => _playerInFlight;
   int get queueLength => _q.length;
 
   InferenceBroker(this.llm, {this.workers = 1});
 
-  /// Cancel a playerChat stream early — next queued job starts once the
-  /// current generation drains (model may not interrupt native inference).
+  /// Player chat bypasses the queue entirely — the engine calls
+  /// llm.playerChat directly so the living one's reply never waits behind
+  /// sim work. JobKind.player exists only as the lowest-effort priority tag.
   void push(JobKind kind, String agentId, String prompt, int stateVersion,
       {String? convoId}) {
     _q.add(Job(kind, agentId, prompt, stateVersion, convoId: convoId, enqSeq: _seq++));
     _pump();
   }
 
-  /// Fire-and-forget player chat — streamed through [chats].
-  Future<void> playerChat(String agentId, String prompt) async {
-    _playerInFlight = true;
-    try {
-      await for (final chunk in llm.playerChat(prompt)) {
-        _chats.add(chunk);
-      }
-    } finally {
-      _playerInFlight = false;
-      _pump();
-    }
-  }
-
   void _pump() {
     while (_busy < workers && _q.isNotEmpty) {
-      // Player messages have real priority only while a player generation is
-      // actually in flight; sheet-open alone never freezes the sim.
-      if (_playerInFlight) return;
       final job = _q.removeFirst();
       _busy++;
       unawaited(_run(job));
@@ -101,7 +82,7 @@ class InferenceBroker {
         case JobKind.director:
           _beats.add(await llm.direct(job.prompt));
         case JobKind.player:
-          break; // handled by playerChat()
+          break; // player chat goes through llm.playerChat directly
       }
     } finally {
       _busy--;

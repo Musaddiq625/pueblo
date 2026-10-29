@@ -65,9 +65,10 @@ class Agent {
   String? goal; // e.g. 'askAbout:ancient_tree'
 
   /// Current errand — the agent's plan. (kind: 'tell'|'verify'|'tend'|'seek',
-  /// targetId: agent or POI id). Deterministically assigned, LLM-chosen how
-  /// to pursue. Every walk should have a reason.
-  ({String kind, String targetId})? errand;
+  /// targetId: agent or POI id, claim: came from a player claim rather than
+  /// a known secret — so arrival memories stay neutral, not "the rumor was
+  /// true"). Deterministically assigned, LLM-chosen how to pursue.
+  ({String kind, String targetId, bool claim})? errand;
 
   /// Relationship ledger — who this spirit feels close to. +2 per
   /// meaningful convo, +5 on receiving a secret. Feeds prompts and
@@ -114,23 +115,6 @@ class Agent {
 
   String get condition =>
       faded ? 'fading' : (battery > 55 ? 'lively' : 'dim');
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'stats': {
-          'curiosity': stats.curiosity,
-          'wit': stats.wit,
-          'warmth': stats.warmth,
-          'spirit_sight': stats.spiritSight,
-          'mischief': stats.mischief,
-          'grump': stats.grump,
-        },
-        'battery': battery,
-        'x': x,
-        'y': y,
-        'state_version': stateVersion,
-        'known': knownSecrets.toList(),
-      };
 }
 
 class Secret {
@@ -160,6 +144,13 @@ class Secret {
   final String? verdictOf;
   final String? verdictPass;
   final String? verdictFail;
+
+  /// A distorted telling of another secret — authored lies that travel as
+  /// knowledge. When a teller with mischief≥4 passes the base secret, the
+  /// engine swaps in this variant: the teller invents the embellishment,
+  /// the receiver learns only the lie. Verdicts count truth-knowers only.
+  final String? variantOf;
+
   final String tier;
 
   const Secret({
@@ -175,6 +166,7 @@ class Secret {
     this.verdictOf,
     this.verdictPass,
     this.verdictFail,
+    this.variantOf,
     this.tier = 'town',
   });
 
@@ -191,6 +183,7 @@ class Secret {
         verdictOf: j['verdict_of'],
         verdictPass: j['verdict_pass'],
         verdictFail: j['verdict_fail'],
+        variantOf: j['variant_of'],
         tier: j['tier'] ?? 'town',
       );
 }

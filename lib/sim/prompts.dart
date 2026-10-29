@@ -141,7 +141,8 @@ Beats (choose one):
 - mood(agent,line): a feeling settles on one spirit (≤5 words)
 - gathering(poi): the spirits drift toward a place for a while
 - curiosity_spike(agent,poi): one spirit becomes intent on seeing a place
+- leak(agent,agent2): nudge agent to finally tell agent2 what they carry
 - none: the night breathes on its own
 Stay inside the world — never invent people, places, or secrets.
-Reply ONLY JSON: {"beat":"...","agent":"id|null","poi":"id|null","line":"..|null","why":"≤10 words"}''';
+Reply ONLY JSON: {"beat":"...","agent":"id|null","agent2":"id|null","poi":"id|null","line":"..|null","why":"≤10 words"}''';
 }

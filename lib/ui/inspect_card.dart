@@ -156,6 +156,43 @@ class _InspectCardState extends State<InspectCard> {
               ]),
             );
           }),
+          // tell them about… — secrets the player knows that this spirit
+          // lacks. Persona decides what happens to your words (D1).
+          Builder(builder: (context) {
+            final teachable = widget.engine.playerKnown
+                .where((sid) => !a.knownSecrets.contains(sid))
+                .map((sid) => widget.engine.secrets[sid])
+                .whereType<Secret>()
+                .toList();
+            if (teachable.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Wrap(spacing: 6, children: [
+                for (final s in teachable)
+                  ActionChip(
+                    key: Key('teach_${s.id}'),
+                    avatar: const Icon(Icons.tips_and_updates,
+                        size: 13, color: Color(0xFFF5A95B)),
+                    label: Text(
+                      s.shareText.length > 34
+                          ? '${s.shareText.substring(0, 31)}…'
+                          : s.shareText,
+                      style: const TextStyle(fontSize: 10.5),
+                    ),
+                    tooltip: s.shareText,
+                    backgroundColor: const Color(0xFF2A2145),
+                    side: const BorderSide(color: Color(0xFFF5A95B)),
+                    labelStyle: const TextStyle(color: Color(0xFFF5E3C8)),
+                    onPressed: () async {
+                      final note = await widget.engine.teachSpirit(a.id, s.id);
+                      if (mounted) {
+                        setState(() => _msgs.add((false, '· $note')));
+                      }
+                    },
+                  ),
+              ]),
+            );
+          }),
           // chat
           SizedBox(
             height: 130,

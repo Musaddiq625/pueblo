@@ -560,7 +560,7 @@ void main() {
 [{"id":"a","name":"Ana","role":"s","persona":"cold","stats":{"curiosity":5,"wit":1,"warmth":0,"spirit_sight":0,"mischief":0,"grump":0},"home":"p1","sprite":"sk_base","initial_secrets":[]},
  {"id":"b","name":"Bor","role":"s","persona":"plain","stats":{"curiosity":0,"wit":1,"warmth":0,"spirit_sight":0,"mischief":0,"grump":0},"home":"p2","sprite":"sk_base","initial_secrets":[]},
  {"id":"c","name":"Che","role":"s","persona":"gossip","stats":{"curiosity":3,"wit":1,"warmth":1,"spirit_sight":0,"mischief":4,"grump":0},"home":"p1","sprite":"sk_base","initial_secrets":[]},
- {"id":"d","name":"Del","role":"s","persona":"plain","stats":{"curiosity":1,"wit":1,"warmth":1,"spirit_sight":0,"mischief":0,"grump":0},"home":"p2","sprite":"sk_base","initial_secrets":[]},
+ {"id":"d","name":"Del","role":"s","persona":"skeptic","stats":{"curiosity":3,"wit":4,"warmth":1,"spirit_sight":0,"mischief":0,"grump":0},"home":"p2","sprite":"sk_base","initial_secrets":[]},
  {"id":"e","name":"Eli","role":"s","persona":"plain","stats":{"curiosity":1,"wit":1,"warmth":1,"spirit_sight":0,"mischief":0,"grump":0},"home":"p2","sprite":"sk_base","initial_secrets":[]}]
 ''';
 
@@ -575,7 +575,9 @@ void main() {
   "initially_known_by":["a"],"about_agent":"a","tier":"rumor"},
  {"id":"deep","surface":"name goes quiet","truth":"the betrayal","share_text":"the deep truth",
   "initially_known_by":[$knowers],"about_agent":"b","verdict_of":"head",
-  "verdict_pass":"the photo returns","verdict_fail":"stays dark","tier":"rumor"}]
+  "verdict_pass":"the photo returns","verdict_fail":"stays dark","tier":"rumor"},
+ {"id":"head_lie","surface":"empty frame","truth":"she sold it too","share_text":"b stole the photo outright",
+  "initially_known_by":[],"about_agent":"b","variant_of":"head","tier":"rumor"}]
 ''';
   }
 
@@ -703,5 +705,204 @@ void main() {
     await sub.cancel();
     expect(events.any((ev) => ev.type == SimEventType.log &&
         (ev.data['text'] as String).contains('stays dark')), isTrue);
+  });
+
+  // =============== player-planted rumors (D1/D2) + P0 fixes ===============
+
+  test('mischievous teller passes the embellished variant, not the truth',
+      () async {
+    final llm = _ScriptedLLM()
+      ..forcedDecision = Decision('share', 'b', 'have you heard?');
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    e.agents['c']!.knownSecrets.add('head'); // Che knows the truth…
+    e.agents['c']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    // pin c next to b and let the share → purpose convo complete
+    for (var i = 0; i < 80 && !e.agents['b']!.knownSecrets.contains('head_lie'); i++) {
+      if (i < 20) {
+        e.agents['c']!.x = 0.0;
+        e.agents['c']!.y = 0.0;
+        e.agents['b']!.x = 30.0;
+        e.agents['b']!.y = 0.0;
+      }
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    expect(e.agents['b']!.knownSecrets, contains('head_lie'),
+        reason: 'mischief≥4 passes the lie, not the truth');
+    expect(e.agents['b']!.knownSecrets, isNot(contains('head')));
+    expect(e.agents['c']!.knownSecrets, containsAll(['head', 'head_lie']),
+        reason: 'the teller keeps the truth AND their own embellishment');
+  });
+
+  test('truthful teller never distorts', () async {
+    final llm = _ScriptedLLM()
+      ..forcedDecision = Decision('share', 'b', 'have you heard?');
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    // Ana (mischief 0) knows 'head' — but cold, needs a bond to pass a rumor
+    e.agents['a']!.warmth['b'] = 3;
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    for (var i = 0; i < 80 && !e.agents['b']!.knownSecrets.contains('head'); i++) {
+      if (i < 20) {
+        e.agents['a']!.x = 0.0;
+        e.agents['a']!.y = 0.0;
+        e.agents['b']!.x = 30.0;
+        e.agents['b']!.y = 0.0;
+      }
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    expect(e.agents['b']!.knownSecrets, contains('head'));
+    expect(e.agents['b']!.knownSecrets, isNot(contains('head_lie')),
+        reason: 'warm-bonded truthful teller passes the truth itself');
+  });
+
+  test('player teach: trusting spirit believes and learns', () async {
+    final b = await bootRumor(llm: _ScriptedLLM());
+    final e = b.engine;
+    e.learnSecretAsPlayer('own', 'test');
+    // Del doesn't believe a stranger yet — 3 chats earns rapport
+    e.engage('d');
+    for (var i = 0; i < 3; i++) {
+      await for (final _ in e.sendPlayerMessage('hola $i')) {}
+    }
+    final note = await e.teachSpirit('d', 'own');
+    expect(note, contains('believes'));
+    expect(e.agents['d']!.knownSecrets, contains('own'));
+  });
+
+  test('player teach: skeptic refuses but goes to verify the claim',
+      () async {
+    final b = await bootRumor(llm: _ScriptedLLM());
+    final e = b.engine;
+    e.learnSecretAsPlayer('head', 'test'); // head unlocks ofrenda lore
+    final note = await e.teachSpirit('d', 'head');
+    expect(note, contains('see for themselves'));
+    expect(e.agents['d']!.knownSecrets, isNot(contains('head')),
+        reason: 'wit≥4 skeptics don\'t take a stranger\'s word');
+    expect(e.agents['d']!.goal, 'askAbout:ofrenda');
+  });
+
+  test('hearing their own scandal from the player is a jolt', () async {
+    final b = await bootRumor(deepKnowers: 2, llm: _ScriptedLLM());
+    final e = b.engine;
+    // 'head' is about b but only a knows it — telling b directly
+    e.learnSecretAsPlayer('head', 'test');
+    final note = await e.teachSpirit('b', 'head');
+    expect(note, contains('goes very still'));
+    expect(e.agents['b']!.knownSecrets, contains('head'));
+    expect(e.agents['b']!.mood, 'shaken');
+  });
+
+  test('player ask-and-learn respects the rumor gate (B3)', () async {
+    final b = await bootRumor(llm: _ScriptedLLM());
+    final e = b.engine;
+    e.engage('a');
+    // one message isn't rapport — rumor-tier stays sealed
+    await for (final _ in e.sendPlayerMessage('what do you know?')) {}
+    expect(e.playerKnown, isNot(contains('head')),
+        reason: 'a stranger gets no gossip');
+    // rapport ≥2 opens the rumor channel
+    await for (final _ in e.sendPlayerMessage('what do you know?')) {}
+    expect(e.playerKnown, contains('head'));
+    // the teller's own scandal needs rapport AND a gift
+    await for (final _ in e.sendPlayerMessage('what else do you know?')) {}
+    expect(e.playerKnown, isNot(contains('own')),
+        reason: 'rapport alone doesn\'t open her own scandal');
+    e.playerInventory['bouquet'] = 1;
+    await e.giveGift('a', 'bouquet');
+    await for (final _ in e.sendPlayerMessage('tell me the truth?')) {}
+    expect(e.playerKnown, contains('own'),
+        reason: 'rapport + a kindness earns the confession');
+  });
+
+  test('typed claim naming a place sets a curiosity goal (D2)', () async {
+    final b = await bootRumor(llm: _ScriptedLLM());
+    final e = b.engine;
+    e.engage('a');
+    await for (final _ in e.sendPlayerMessage('the ofrenda looks different tonight')) {}
+    expect(e.agents['a']!.goal, 'askAbout:ofrenda');
+    // curious spirits also take a claim-tagged verify errand
+    expect(e.agents['a']!.errand?.kind, 'verify');
+    expect(e.agents['a']!.errand?.claim, isTrue);
+  });
+
+  test('a nameless greeting does NOT revive a fading spirit (B5)', () async {
+    final llm = _ScriptedLLM()
+      ..forcedDecision = Decision('greet', 'b', 'evening.');
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    final bor = e.agents['b']!;
+    bor.battery = 5; // high enough that +5 would revive under the old rule
+    bor.faded = true;
+    e.agents['a']!.knownSecrets.clear(); // Ana doesn't know the name
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    var greeted = false;
+    for (var i = 0; i < 90; i++) {
+      if (i < 40) {
+        // real walkable plaza coords — nav.route can't reach tile (0,0)
+        e.agents['a']!.x = 624.0;
+        e.agents['a']!.y = 496.0;
+        e.agents['b']!.x = 656.0;
+        e.agents['b']!.y = 496.0;
+      }
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+      if (bor.battery > 5) greeted = true; // the +5 landed
+    }
+    expect(greeted, isTrue, reason: 'the nameless greet should still land');
+    expect(bor.faded, isTrue,
+        reason: 'only a name spoken aloud revives, not any greeting');
+  });
+
+  test('ask-purpose convo cannot end before the holder speaks (B9)', () async {
+    final llm = _ScriptedLLM()..endNow = true; // every turn requests end
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    // ask-purpose: a approaches b to draw out s1 — move ownership to b
+    e.agents['a']!.knownSecrets.remove('s1');
+    e.agents['b']!.knownSecrets.add('s1');
+    e.startConversation('a', 'b',
+        purpose: (holder: 'b', secretId: 's1'));
+    await _pump(e, ticks: 60);
+    expect(e.agents['a']!.knownSecrets, contains('s1'),
+        reason: 'end=true on the asker\'s opener can\'t kill the purpose');
+  });
+
+  test('petals spawn on the economy timer (B1)', () async {
+    final b = await _boot();
+    final e = b.engine;
+    final events = <SimEvent>[];
+    final sub = e.events.listen(events.add);
+    await _pump(e, ticks: 100, dt: 1.0); // >petalEvery sim-seconds
+    await sub.cancel();
+    expect(events.any((ev) => ev.type == SimEventType.petalSpawn), isTrue);
+  });
+
+  test('purchases use the live petal balance (B2)', () async {
+    final b = await _boot();
+    final e = b.engine;
+    e.playerPetals = 10;
+    expect(await e.buyItem('bouquet'), isFalse,
+        reason: '15-petal bouquet unaffordable at 10');
+    expect(await e.buyItem('agua_fresca'), isTrue);
+    expect(e.playerPetals, 2);
+    expect(await e.store.getWorld('petals'), '2',
+        reason: 'world kv mirrors the live balance');
+  });
+
+  test('gifts require engagement (B22)', () async {
+    final b = await _boot();
+    final e = b.engine;
+    e.playerInventory['bouquet'] = 1;
+    expect(await e.giveGift('a', 'bouquet'), isFalse,
+        reason: 'can\'t gift a spirit you\'re not talking to');
+    e.engage('a');
+    expect(await e.giveGift('a', 'bouquet'), isTrue);
+    expect(e.giftedAgents, contains('a'));
   });
 }

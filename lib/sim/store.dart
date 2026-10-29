@@ -77,19 +77,18 @@ class SimStore {
   }
 
   /// Atomic purchase: petals -= price, item → inventory (world kv), optional
-  /// secret → knowledge, in ONE transaction.
+  /// secret → knowledge, in ONE transaction. [balance] is the caller's live
+  /// petal count — the world kv is a mirror written here, never the source.
   Future<bool> purchase(String agent, String itemId, int price, int simTs,
-      {String? secretId, String? secretFrom}) async {
+      {required int balance, String? secretId, String? secretFrom}) async {
     return db.transaction((txn) async {
-      final rows = await txn.query('world', where: 'key = ?', whereArgs: ['petals']);
-      final petals = int.tryParse(rows.isEmpty ? '0' : '${rows.first['value']}') ?? 0;
-      if (petals < price) return false;
+      if (balance < price) return false;
       final eid = _eid();
       await txn.insert('events',
           {'id': eid, 'sim_ts': simTs, 'kind': 'purchase', 'payload': jsonEncode({
             'agent': agent, 'item': itemId, 'price': price,
           })});
-      await txn.insert('world', {'key': 'petals', 'value': '${petals - price}'},
+      await txn.insert('world', {'key': 'petals', 'value': '${balance - price}'},
           conflictAlgorithm: ConflictAlgorithm.replace);
       await txn.insert('world', {'key': 'inv_$itemId', 'value': '1'},
           conflictAlgorithm: ConflictAlgorithm.replace);
@@ -184,13 +183,6 @@ class SimStore {
     }
     scored.sort((x, y) => y.s.compareTo(x.s));
     return scored.take(limit).map((e) => e.m).toList();
-  }
-
-  Future<int> memoryCount(String agent) async {
-    final r = await db.rawQuery(
-        'SELECT COUNT(*) c, COALESCE(SUM(importance),0) s FROM memories WHERE agent = ?',
-        [agent]);
-    return (r.first['c'] as int) + 0; // count; caller also reads importance sum below
   }
 
   Future<({int count, int importanceSum})> memoryStats(String agent) async {
