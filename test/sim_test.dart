@@ -54,6 +54,7 @@ class _ScriptedLLM extends MockLLMClient {
   bool endNow = true;
   Decision? forcedDecision;
   Map<String, dynamic>? forcedBeat;
+  String? forcedReply; // raw playerChat output — may be JSON or plain text
 
   @override
   Future<Decision?> decide(String prompt) async {
@@ -71,6 +72,12 @@ class _ScriptedLLM extends MockLLMClient {
   Future<Map<String, dynamic>?> direct(String prompt) async {
     prompts.add(prompt);
     return forcedBeat ?? {'beat': 'none'};
+  }
+
+  @override
+  Stream<String> playerChat(String prompt) async* {
+    prompts.add(prompt);
+    yield forcedReply ?? 'a canned reply';
   }
 }
 
@@ -128,7 +135,7 @@ void main() {
     final llm = _ScriptedLLM(); // shares_secret stays null on purpose
     final b = await _boot(llm: llm);
     final e = b.engine;
-    e.startConversation('a', 'b', purpose: (holder: 'a', secretId: 's1'));
+    e.startConversation('a', 'b', purpose: (holder: 'a', subject: 's1', isClaim: false));
     // convo needs a couple of turn cycles — pump until transfer lands
     for (var i = 0; i < 160 && !e.agents['b']!.knownSecrets.contains('s1');
         i++) {
@@ -488,7 +495,7 @@ void main() {
     e.events.listen((ev) {
       if (ev.data['purpose'] == true) sawPurpose = true;
     });
-    e.startConversation('a', 'b', purpose: (holder: 'a', secretId: 's1'));
+    e.startConversation('a', 'b', purpose: (holder: 'a', subject: 's1', isClaim: false));
     await Future<void>.delayed(const Duration(milliseconds: 5));
     expect(sawPurpose, isTrue,
         reason: 'pairStart should carry purpose:true for the ✨ cue');
@@ -867,7 +874,7 @@ void main() {
     e.agents['a']!.knownSecrets.remove('s1');
     e.agents['b']!.knownSecrets.add('s1');
     e.startConversation('a', 'b',
-        purpose: (holder: 'b', secretId: 's1'));
+        purpose: (holder: 'b', subject: 's1', isClaim: false));
     await _pump(e, ticks: 60);
     expect(e.agents['a']!.knownSecrets, contains('s1'),
         reason: 'end=true on the asker\'s opener can\'t kill the purpose');
@@ -904,5 +911,195 @@ void main() {
     e.engage('a');
     expect(await e.giveGift('a', 'bouquet'), isTrue);
     expect(e.giftedAgents, contains('a'));
+  });
+
+  // ==================== player-planted rumors (claims) ====================
+
+  test('a declarative message plants a claim the spirit carries', () async {
+    final b = await bootRumor(llm: _ScriptedLLM());
+    final e = b.engine;
+    e.engage('a');
+    await for (final _ in e.sendPlayerMessage('the night air tastes of iron')) {}
+    expect(e.claims, hasLength(1));
+    final cl = e.claims.values.first;
+    expect(cl.version.containsKey('a'), isTrue,
+        reason: 'the hearer carries the claim from that moment');
+    expect(cl.text, 'the night air tastes of iron');
+    // claims never touch the knowledge graph
+    expect(e.agents['a']!.knownSecrets.where((s) => s.startsWith('claim_')),
+        isEmpty);
+    e.disengage();
+  });
+
+  test('questions ask, they don\'t seed — no claim on ?-shaped text',
+      () async {
+    final b = await bootRumor(llm: _ScriptedLLM());
+    final e = b.engine;
+    e.engage('a');
+    await for (final _ in e.sendPlayerMessage('what do you know?')) {}
+    expect(e.claims, isEmpty);
+    e.disengage();
+  });
+
+  test('the spirit may simply react instead of speaking', () async {
+    final llm = _ScriptedLLM()
+      ..forcedReply =
+          '{"say":null,"react":"shock","believes":null,"share_with":null,"twist":null}';
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    final events = <SimEvent>[];
+    final sub = e.events.listen(events.add);
+    e.engage('a');
+    final out = await e.sendPlayerMessage('bor hums the funeral march').toList();
+    await Future<void>.delayed(Duration.zero);
+    expect(out.last, '· gasps softly.',
+        reason: 'a react-only reply renders as a nonverbal beat');
+    expect(
+        events.any((ev) =>
+            ev.type == SimEventType.emote && ev.data['glyph'] == '❗'),
+        isTrue,
+        reason: 'the shock floats over their head in-world');
+    expect(llm.prompts.last, contains('The village:'),
+        reason: 'the cast block gives the model the who\'s-who');
+    await sub.cancel();
+    e.disengage();
+  });
+
+  test('LLM intent drives the spread: believes + names the carrier', () async {
+    final llm = _ScriptedLLM()
+      ..forcedReply =
+          '{"say":"¡Virgencita!","react":"shock","believes":true,"share_with":"b","twist":null}';
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    e.engage('a');
+    final out = await e.sendPlayerMessage('the marigolds wilted early').toList();
+    expect(out.last, '¡Virgencita!');
+    final cl = e.claims.values.first;
+    expect(cl.believers, contains('a'),
+        reason: 'the model declared belief — recorded');
+    final er = e.agents['a']!.errand;
+    expect(er?.kind, 'tell');
+    expect(er?.targetId, 'b');
+    expect(er?.subject, cl.id,
+        reason: 'a claim-tagged tell errand carries the living one\'s words');
+    e.disengage();
+  });
+
+  test('twisted retelling rides the telephone — verbatim stays in the ledger',
+      () async {
+    final llm = _ScriptedLLM()
+      ..forcedReply =
+          '{"say":"hmm","react":"curious","believes":true,"share_with":null,"twist":"the marigolds wilted into BONES"}';
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    e.engage('c'); // Che — mischief 4, twist-capable
+    await for (final _ in e.sendPlayerMessage('the marigolds wilted early')) {}
+    final cl = e.claims.values.first;
+    expect(cl.heardBy('c'), 'the marigolds wilted into BONES',
+        reason: 'the mischievous spirit holds their own embellishment');
+    expect(cl.text, 'the marigolds wilted early',
+        reason: 'the living one\'s verbatim words stay in the ledger');
+    e.disengage();
+    // ...and when Che passes it on, the twist is what travels
+    e.startConversation('c', 'b',
+        purpose: (holder: 'c', subject: cl.id, isClaim: true));
+    await _pump(e, ticks: 60);
+    expect(cl.heardBy('b'), 'the marigolds wilted into BONES',
+        reason: 'telephone: the receiver inherits the twisted version');
+    expect(e.agents['b']!.knownSecrets.where((s) => s.startsWith('claim_')),
+        isEmpty,
+        reason: 'rumors never enter the secret ledger');
+  });
+
+  test('a rumor about you only repeats to a trusted ear', () async {
+    final b = await bootRumor(llm: _ScriptedLLM());
+    final e = b.engine;
+    final cl = Claim(
+        id: 'claim_9', text: 'ana hides things', bornTs: 0, about: const ['a']);
+    cl.version['a'] = 'ana hides things';
+    e.claims[cl.id] = cl;
+    e.startConversation('a', 'b',
+        purpose: (holder: 'a', subject: 'claim_9', isClaim: true));
+    await _pump(e, ticks: 60);
+    expect(cl.version.containsKey('b'), isFalse,
+        reason: 'your own rumor stays sealed to strangers');
+    e.agents['a']!.warmth['b'] = 4; // deep trust opens even your own name
+    e.startConversation('a', 'b',
+        purpose: (holder: 'a', subject: 'claim_9', isClaim: true));
+    await _pump(e, ticks: 60);
+    expect(cl.version.containsKey('b'), isTrue);
+  });
+
+  test('hearing a rumor about yourself is a jolt', () async {
+    final b = await bootRumor(llm: _ScriptedLLM());
+    final e = b.engine;
+    final cl = Claim(
+        id: 'claim_8', text: 'bor digs at night', bornTs: 0, about: const ['b']);
+    cl.version['a'] = 'bor digs at night';
+    e.claims[cl.id] = cl;
+    e.startConversation('a', 'b',
+        purpose: (holder: 'a', subject: 'claim_8', isClaim: true));
+    await _pump(e, ticks: 60);
+    expect(cl.version['b'], 'bor digs at night',
+        reason: 'the rumor reaches its subject — allowed, unlike re-telling');
+    expect(e.agents['b']!.mood, 'shaken');
+  });
+
+  test('planted rumors appear as share() offers to their holders', () async {
+    final llm = _ScriptedLLM();
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    e.engage('c'); // Che — mischief 4, spreads to anyone
+    await for (final _ in e.sendPlayerMessage('something wicked hums tonight')) {}
+    e.disengage();
+    final cl = e.claims.values.first;
+    e.agents['c']!.lastActedAt = -999;
+    var offered = false;
+    for (var i = 0; i < 90 && !offered; i++) {
+      // real walkable plaza coords so the pair reads as nearby
+      e.agents['c']!.x = 624.0;
+      e.agents['c']!.y = 496.0;
+      e.agents['b']!.x = 656.0;
+      e.agents['b']!.y = 496.0;
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+      offered = llm.prompts.any((p) => p.contains('share(b,${cl.id})'));
+    }
+    expect(offered, isTrue,
+        reason: 'a claim holder gets share(b,claim_N) on the menu');
+  });
+
+  test('every prompt carries the village cast', () async {
+    final b = await _boot(llm: _ScriptedLLM());
+    expect(b.engine.prompts.cast, contains('Ana'));
+    expect(b.engine.prompts.cast, contains('Bor'));
+  });
+
+  test('end-to-end: share(x, claim_N) survives dispatch and transfers',
+      () async {
+    // The mock picked a claim offer — the whole pipeline must honor it:
+    // fuzzy-id resolution, share dispatch, purpose convo, the transfer.
+    // Regression for the _fuzzyId subject-set that once ate claim ids.
+    final llm = _ScriptedLLM();
+    final b = await bootRumor(llm: llm);
+    final e = b.engine;
+    final cl = Claim(id: 'claim_7', text: 'the bridge hums', bornTs: 0);
+    cl.version['a'] = 'the bridge hums';
+    e.claims[cl.id] = cl;
+    llm.forcedDecision = Decision('share', 'b', 'line', subject: 'claim_7');
+    e.agents['a']!.lastActedAt = -999;
+    var moved = false;
+    for (var i = 0; i < 120 && !moved; i++) {
+      // real walkable plaza coords so the approach completes
+      e.agents['a']!.x = 624.0;
+      e.agents['a']!.y = 496.0;
+      e.agents['b']!.x = 656.0;
+      e.agents['b']!.y = 496.0;
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+      moved = cl.version.containsKey('b');
+    }
+    expect(moved, isTrue,
+        reason: 'a picked claim share must travel the full pipeline');
   });
 }

@@ -67,8 +67,9 @@ class Agent {
   /// Current errand — the agent's plan. (kind: 'tell'|'verify'|'tend'|'seek',
   /// targetId: agent or POI id, claim: came from a player claim rather than
   /// a known secret — so arrival memories stay neutral, not "the rumor was
-  /// true"). Deterministically assigned, LLM-chosen how to pursue.
-  ({String kind, String targetId, bool claim})? errand;
+  /// true", subject: the specific Claim id a 'tell' errand is carrying).
+  /// Deterministically assigned, LLM-chosen how to pursue.
+  ({String kind, String targetId, bool claim, String? subject})? errand;
 
   /// Relationship ledger — who this spirit feels close to. +2 per
   /// meaningful convo, +5 on receiving a secret. Feeds prompts and
@@ -212,6 +213,52 @@ class ChatMsg {
   final bool isUser;
   final String text;
   const ChatMsg(this.isUser, this.text);
+}
+
+/// A rumor the player planted — free text that circulates mouth-to-mouth
+/// like a secret but lives in a separate ledger: claims never unlock POI
+/// lore, never count toward a verdict, and always trace back to "the living
+/// one". Telephone rules: every holder carries the version they HEARD, so a
+/// mischievous retelling keeps mutating down the line while [text] stays
+/// the verbatim original. The LLM voices it; the engine owns who holds it.
+class Claim {
+  final String id; // claim_<n>
+  final String text; // the living one's verbatim words (≤140 chars)
+  final List<String> about; // agent / about_agent ids mentioned
+  final int bornTs;
+
+  /// holderId -> the version they heard (and will pass on). Keys = holders.
+  final Map<String, String> version = {};
+
+  /// Holders who said they believe it — the rest repeat it as gossip.
+  final Set<String> believers = {};
+
+  Claim({required this.id, required this.text, required this.bornTs, this.about = const []});
+
+  Set<String> get holders => version.keys.toSet();
+
+  String heardBy(String agentId) => version[agentId] ?? text;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'text': text,
+        'about': about,
+        'born_ts': bornTs,
+        'version': version,
+        'believers': believers.toList(),
+      };
+
+  factory Claim.fromJson(Map<String, dynamic> j) {
+    final c = Claim(
+      id: j['id'],
+      text: j['text'],
+      bornTs: j['born_ts'] ?? 0,
+      about: List<String>.from(j['about'] ?? const []),
+    );
+    (j['version'] as Map?)?.forEach((k, v) => c.version['$k'] = '$v');
+    c.believers.addAll(List<String>.from(j['believers'] ?? const []));
+    return c;
+  }
 }
 
 class Poi {

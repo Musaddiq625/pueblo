@@ -49,9 +49,11 @@ class Conversation {
   bool done = false;
   String? askedAbout; // subject when convo was initiated via askAbout
 
-  /// Why this conversation exists — (holder, secretId) means the holder is
-  /// expected to pass secretId to the partner. Null = small talk.
-  final ({String holder, String secretId})? purpose;
+  /// Why this conversation exists — (holder, subject, isClaim) means the
+  /// holder is expected to pass that knowledge to the partner: a Secret id
+  /// when [isClaim] is false, a Claim id (player-planted rumor) when true.
+  /// Null = small talk.
+  final ({String holder, String subject, bool isClaim})? purpose;
 
   /// In a purpose convo the holder must get a turn before 'end' is honored —
   /// an asker who ends their opening line would otherwise kill the declared
@@ -94,6 +96,13 @@ class SimEngine {
   /// the rumor gate (a kindness bought, remembered).
   final Set<String> giftedAgents = {};
   bool _playerBusy = false; // one player chat in flight at a time
+
+  /// Player-planted rumors — free-text claims that circulate mouth-to-mouth
+  /// through the same purpose-convo machinery as secrets, but in their own
+  /// ledger: they never unlock POI lore, never touch the verdict, and the
+  /// telephone-versions each holder carries let the story mutate in transit.
+  final Map<String, Claim> claims = {};
+  int claimSeq = 0;
 
   /// shop catalog — deterministic, zero inference. secret items carry a
   /// warmth gate (seller must have talked to the player already).
@@ -180,7 +189,7 @@ class SimEngine {
     this.dawnAt = 900, // 15 sim-minutes
   }) : nav = nav ?? NavGrid.build(),
        rng = rng ?? Random() {
-    prompts = PromptBuilder(secrets);
+    prompts = PromptBuilder(secrets)..cast = _buildCast();
     broker = InferenceBroker(llm, workers: 1);
     broker.decisions.listen(_onDecision);
     broker.turns.listen(_onTurn);
@@ -252,7 +261,7 @@ class SimEngine {
     String aId,
     String bId, {
     String? askedAbout,
-    ({String holder, String secretId})? purpose,
+    ({String holder, String subject, bool isClaim})? purpose,
   }) {
     final a = agents[aId], b = agents[bId];
     if (a == null || b == null) return;
@@ -361,8 +370,13 @@ class SimEngine {
       shareText: p == null
           ? null
           : (speaker.id == p.holder
-                ? secrets[p.secretId]?.shareText
-                : secrets[p.secretId]?.surface),
+                ? (p.isClaim
+                      ? claims[p.subject]?.heardBy(speaker.id)
+                      : secrets[p.subject]?.shareText)
+                : (p.isClaim
+                      ? 'a rumor going around'
+                      : secrets[p.subject]?.surface)),
+      rumors: _heldRumors(speaker),
     );
     broker.push(
       JobKind.convoTurn,
@@ -399,13 +413,22 @@ class SimEngine {
     //  2. organic convo — the model volunteers shares_secret, validated
     //     the same way.
     String? shared;
+    String? sharedClaim;
     final p = c.purpose;
     if (p != null &&
         speaker.id == p.holder &&
-        speaker.knownSecrets.contains(p.secretId) &&
-        !partner.knownSecrets.contains(p.secretId) &&
-        _canShareRumor(speaker, partner, secrets[p.secretId])) {
-      shared = p.secretId;
+        !p.isClaim &&
+        speaker.knownSecrets.contains(p.subject) &&
+        !partner.knownSecrets.contains(p.subject) &&
+        _canShareRumor(speaker, partner, secrets[p.subject])) {
+      shared = p.subject;
+    } else if (p != null &&
+        speaker.id == p.holder &&
+        p.isClaim &&
+        claims[p.subject]?.version.containsKey(speaker.id) == true &&
+        claims[p.subject]!.version.containsKey(partner.id) != true &&
+        _canPassClaim(speaker, partner, claims[p.subject]!)) {
+      sharedClaim = p.subject;
     } else if (turn.sharesSecret != null &&
         turn.sharesSecret != 'null' &&
         speaker.knownSecrets.contains(turn.sharesSecret) &&
@@ -415,6 +438,12 @@ class SimEngine {
       // A mischievous teller embellishes — the variant commits, not the
       // truth they know.
       shared = _distorted(speaker, partner, turn.sharesSecret!);
+    } else if (turn.sharesSecret != null &&
+        claims[turn.sharesSecret] != null &&
+        claims[turn.sharesSecret]!.version.containsKey(speaker.id) &&
+        claims[turn.sharesSecret]!.version.containsKey(partner.id) != true &&
+        _canPassClaim(speaker, partner, claims[turn.sharesSecret]!)) {
+      sharedClaim = turn.sharesSecret;
     }
 
     // Atomic commit: utterance event + memories + transfer in one logical unit.
@@ -489,9 +518,52 @@ class SimEngine {
         );
       }
     }
+    // A player-planted rumor changes mouths — telephone rules: the receiver
+    // carries the version the speaker HEARD (which may already be twisted).
+    // The claim ledger never touches secrets, POI lore, or the verdict.
+    if (sharedClaim != null) {
+      final cl = claims[sharedClaim]!;
+      final heard = cl.heardBy(speaker.id);
+      cl.version[partner.id] = heard;
+      partner.newsUntil = simTs + 90; // the 💡 cue — fresh gossip to follow
+      partner.bumpVersion();
+      final aboutYou = cl.about.contains(partner.id);
+      unawaited(
+        store.simLog(
+          simTs,
+          partner.id,
+          'rumor',
+          '$sharedClaim via ${speaker.id}${aboutYou ? ' (about them)' : ''}',
+        ),
+      );
+      await store.memory(
+        Memory(
+          agent: partner.id,
+          simTs: simTs,
+          kind: 'heard',
+          source: 'spirit:${speaker.id}',
+          text: aboutYou
+              ? 'the rumor going around is about ME: $heard'
+              : 'rumor from ${speaker.name}: $heard',
+          importance: aboutYou ? 8 : 6,
+          entities: [speaker.id, sharedClaim],
+        ),
+      );
+      if (aboutYou) {
+        // hearing your own name in a stranger's mouth — a jolt
+        partner.mood = 'shaken';
+        _emit(partner, SimEventType.emote, {'agent': partner.id, 'glyph': '!'});
+      }
+      _persistClaims();
+      _events.add(
+        SimEvent(SimEventType.log, {
+          'text': '${speaker.name} passes a rumor to ${partner.name}: $heard',
+        }),
+      );
+    }
     // Batteries: social contact recharges; passing real knowledge is the
     // deepest connection the sim knows.
-    if (shared != null) {
+    if (shared != null || sharedClaim != null) {
       speaker.battery = min(100, speaker.battery + 10);
       partner.battery = min(100, partner.battery + 12);
     } else {
@@ -580,6 +652,18 @@ class SimEngine {
       // Rumor-tier secrets only appear where the persona would tell:
       // gossips leak (mischief), warm souls confide (bonds), and nobody
       // confesses their own scandal to a stranger.
+      // Player-planted rumors lead the menu — the scandal du jour beats
+      // old lore. Same mouth-to-ear machinery, looser gate: gossip travels
+      // easier than confession.
+      var claimOffers = 0;
+      for (final cl in claims.values) {
+        if (cl.version.containsKey(agent.id) &&
+            !cl.version.containsKey(other.id) &&
+            _canPassClaim(agent, other, cl)) {
+          allowed.add('share(${other.id},${cl.id})');
+          claimOffers++;
+        }
+      }
       final shareable = agent.knownSecrets
           .difference(other.knownSecrets)
           .where((sid) => _canShareRumor(agent, other, secrets[sid]))
@@ -598,7 +682,7 @@ class SimEngine {
           simTs - (_pairLastTalked[_pairKey(agent.id, other.id)] ?? -9999);
       if (sinceTalk > pairCooldown) {
         allowed.add('greet(${other.id})');
-        if (agent.stats.grump >= 4 || shareable.isEmpty) {
+        if (agent.stats.grump >= 4 || (shareable.isEmpty && claimOffers == 0)) {
           allowed.add('converse(${other.id})');
         }
       }
@@ -619,6 +703,7 @@ class SimEngine {
         ..remove('idle')
         ..remove('stroll');
     }
+
 
     // Rescue affordance — a fading spirit whose name the decider holds:
     // the single most important fact on the whole decision sheet.
@@ -682,7 +767,7 @@ class SimEngine {
         }
       }
       if (closest != null) {
-        a.errand = (kind: 'seek', targetId: closest.id, claim: false);
+        a.errand = (kind: 'seek', targetId: closest.id, claim: false, subject: null);
         return;
       }
     }
@@ -693,7 +778,7 @@ class SimEngine {
       if (!f.faded || f.id == a.id) continue;
       if (a.knownSecrets.any((s) => secrets[s]?.wakesAgent == f.id)) {
         if (a.errand?.kind != 'seek' || a.errand?.targetId != f.id) {
-          a.errand = (kind: 'seek', targetId: f.id, claim: false);
+          a.errand = (kind: 'seek', targetId: f.id, claim: false, subject: null);
         }
         return;
       }
@@ -704,15 +789,33 @@ class SimEngine {
       // staleness — the reason evaporated
       if (e.kind == 'verify' && a.verifiedPois.contains(e.targetId)) {
         a.errand = null;
+      } else if (e.kind == 'tell' && e.subject != null) {
+        // carrying the living one's words to a named ear — stale when the
+        // rumor's gone, reached them already, or slipped from my mouth
+        final t = agents[e.targetId];
+        final cl = claims[e.subject];
+        if (t == null ||
+            t.faded ||
+            cl == null ||
+            !cl.version.containsKey(a.id) ||
+            cl.version.containsKey(t.id)) {
+          a.errand = null;
+        }
       } else if (e.kind == 'tell' || e.kind == 'seek') {
         final t = agents[e.targetId];
         if (t == null ||
             t.faded ||
             (e.kind == 'tell' &&
                 a.knownSecrets
-                    .difference(t.knownSecrets)
-                    .where((sid) => _canShareRumor(a, t, secrets[sid]))
-                    .isEmpty) ||
+                        .difference(t.knownSecrets)
+                        .where((sid) => _canShareRumor(a, t, secrets[sid]))
+                        .isEmpty &&
+                !claims.values.any(
+                  (cl) =>
+                      cl.version.containsKey(a.id) &&
+                      !cl.version.containsKey(t.id) &&
+                      _canPassClaim(a, t, cl),
+                )) ||
             (e.kind == 'seek' && a.battery > 55)) {
           a.errand = null;
         }
@@ -726,7 +829,7 @@ class SimEngine {
       if (poiId != null &&
           pois.containsKey(poiId) &&
           !a.verifiedPois.contains(poiId)) {
-        a.errand = (kind: 'verify', targetId: poiId, claim: false);
+        a.errand = (kind: 'verify', targetId: poiId, claim: false, subject: null);
         return;
       }
     }
@@ -751,18 +854,18 @@ class SimEngine {
       }
     }
     if (bestT != null) {
-      a.errand = (kind: 'tell', targetId: bestT.id, claim: false);
+      a.errand = (kind: 'tell', targetId: bestT.id, claim: false, subject: null);
       return;
     }
     // 3. gathering — a director-triggered beat, or the scheduled ofrenda
     // moment at 60% of the night. Fires whether or not the player attends
     // (the Majora's Mask rule).
     if (simTs < _gatherUntil) {
-      a.errand = (kind: 'tend', targetId: _gatherPoi, claim: false);
+      a.errand = (kind: 'tend', targetId: _gatherPoi, claim: false, subject: null);
       return;
     }
     if (simTs >= dawnAt * 0.6) {
-      a.errand = (kind: 'tend', targetId: 'ofrenda', claim: false);
+      a.errand = (kind: 'tend', targetId: 'ofrenda', claim: false, subject: null);
       return;
     }
     // 4. schedule — the persona's authored routine for this time of
@@ -772,7 +875,7 @@ class SimEngine {
       if (simTs >= s.at) schedPoi = s.poi;
     }
     if (pois.containsKey(schedPoi)) {
-      a.errand = (kind: 'tend', targetId: schedPoi, claim: false);
+      a.errand = (kind: 'tend', targetId: schedPoi, claim: false, subject: null);
     }
   }
 
@@ -782,8 +885,9 @@ class SimEngine {
     return switch (e.kind) {
       'verify' =>
         'you heard something about ${pois[e.targetId]?.name ?? e.targetId} — go see for yourself',
-      'tell' =>
-        'you carry news ${agents[e.targetId]?.name ?? e.targetId} hasn\'t heard — find them',
+      'tell' => e.subject != null
+          ? 'the living one\'s words burn in you — carry them to ${agents[e.targetId]?.name ?? e.targetId}'
+          : 'you carry news ${agents[e.targetId]?.name ?? e.targetId} hasn\'t heard — find them',
       'seek' => agents[e.targetId]?.faded == true
           ? '${agents[e.targetId]!.name} is fading and you hold their name — reach them'
           : 'you feel dim — find company before the night takes you',
@@ -959,14 +1063,14 @@ class SimEngine {
             .isEmpty) {
           return;
         }
-        h.errand = (kind: 'tell', targetId: r.id, claim: false);
+        h.errand = (kind: 'tell', targetId: r.id, claim: false, subject: null);
         _note('${h.name} has something to tell ${r.name}…');
         landed = true;
       case 'curiosity_spike':
         if (agent == null || poi == null) return;
         final a = agents[agent]!;
         if (!a.faded && !a.verifiedPois.contains(poi)) {
-          a.errand = (kind: 'verify', targetId: poi, claim: false);
+          a.errand = (kind: 'verify', targetId: poi, claim: false, subject: null);
           _note('${a.name} can\'t stop thinking about ${pois[poi]!.name}');
           landed = true;
         }
@@ -1051,10 +1155,11 @@ class SimEngine {
     if (target == 'null' || target == '') target = null;
     if (subject == 'null' || subject == '') subject = null;
     // Small models typo ids ("Solors", "solor_01") — resolve them before
-    // dispatch so intent survives a misspelling.
+    // dispatch so intent survives a misspelling. Claims are legal subjects
+    // too — share(x, claim_N) is how planted rumors travel.
     final allIds = {...agents.keys, ...pois.keys};
     target = _fuzzyId(target, allIds);
-    subject = _fuzzyId(subject, {...allIds, ...secrets.keys});
+    subject = _fuzzyId(subject, {...allIds, ...secrets.keys, ...claims.keys});
     // The model often picks the errand action without filling the
     // destination — the deterministic plan supplies what it meant.
     if (target == null &&
@@ -1155,21 +1260,31 @@ class SimEngine {
           a,
           t,
           onNear: (ag, tt) {
-            // Recompute at arrival — secret sets can shift mid-walk.
+            // Recompute at arrival — knowledge sets can shift mid-walk.
             var sid = subject;
-            if (sid == null ||
-                !ag.knownSecrets.contains(sid) ||
-                tt.knownSecrets.contains(sid)) {
-              final diff = ag.knownSecrets.difference(tt.knownSecrets);
-              sid = diff.isEmpty ? null : diff.first;
+            ({String holder, String subject, bool isClaim})? purp;
+            if (sid != null && claims.containsKey(sid)) {
+              // a player-planted rumor — valid only while the teller still
+              // holds a version the partner lacks
+              final cl = claims[sid]!;
+              if (cl.version.containsKey(ag.id) &&
+                  !cl.version.containsKey(tt.id) &&
+                  _canPassClaim(ag, tt, cl)) {
+                purp = (holder: ag.id, subject: sid, isClaim: true);
+              }
+            } else {
+              if (sid == null ||
+                  !ag.knownSecrets.contains(sid) ||
+                  tt.knownSecrets.contains(sid)) {
+                final diff = ag.knownSecrets.difference(tt.knownSecrets);
+                sid = diff.isEmpty ? null : diff.first;
+              }
+              if (sid != null) sid = _distorted(ag, tt, sid);
+              if (sid != null) {
+                purp = (holder: ag.id, subject: sid, isClaim: false);
+              }
             }
-            if (sid != null) sid = _distorted(ag, tt, sid);
-            startConversation(
-              ag.id,
-              tt.id,
-              purpose:
-                  sid == null ? null : (holder: ag.id, secretId: sid),
-            );
+            startConversation(ag.id, tt.id, purpose: purp);
           },
         );
         return;
@@ -1194,7 +1309,7 @@ class SimEngine {
               ag.id,
               tt.id,
               purpose:
-                  sid == null ? null : (holder: tt.id, secretId: sid),
+                  sid == null ? null : (holder: tt.id, subject: sid, isClaim: false),
             );
           },
         );
@@ -1805,6 +1920,7 @@ class SimEngine {
             ? playerHist.sublist(playerHist.length - 8)
             : playerHist,
         memories: memories.map((m) => m.text).toList(),
+        rumors: _heldRumors(a),
       );
       // Player claim → memory as claim, not fact.
       unawaited(
@@ -1823,25 +1939,89 @@ class SimEngine {
       // Claims move the world — naming a place sends the curious to look;
       // naming a spirit becomes a question to carry (D2).
       _claimCuriosityFromText(a, text);
+      // A declarative message plants a Claim — free text that circulates
+      // mouth-to-mouth. Question-shaped messages ask, not seed (D-rumors).
+      final isAsk = RegExp(
+        r'\?|secret|news|heard|know|tell|learn|rumor|chisme|cuentame|pasa',
+        caseSensitive: false,
+      ).hasMatch(text);
+      final planted = (!isAsk && _normId(text).length >= 6)
+          ? _plantClaim(a, text)
+          : null;
       final buf = StringBuffer();
       await for (final chunk in llm.playerChat(prompt)) {
         buf.write(chunk);
-        yield chunk;
       }
-      playerHist.add(ChatMsg(false, buf.toString()));
-      unawaited(
-        store.memory(
-          Memory(
-            agent: a.id,
-            simTs: simTs,
-            kind: 'said',
-            source: 'self',
-            text: 'to the living one: ${buf.toString()}',
-            importance: 4,
-            entities: ['player'],
+      // The model's reply is richer than words: it may just REACT (no line),
+      // and for a planted claim it declares belief, who to carry it to, and
+      // — for the mischievous — a twisted retelling. The engine owns the
+      // claim ledger; the persona owns the intent.
+      final reply = PlayerReply.parse(buf.toString());
+      if (planted != null) {
+        if (reply.believes == true) planted.believers.add(a.id);
+        final tw = reply.twist;
+        if (tw != null &&
+            a.stats.mischief >= 3 &&
+            tw.length <= 140 &&
+            _normId(tw) != _normId(planted.text)) {
+          planted.version[a.id] = tw;
+          unawaited(
+            store.simLog(simTs, a.id, 'twist', '${planted.id}: $tw'),
+          );
+        }
+        final target = _fuzzyId(reply.shareWith, agents.keys.toSet());
+        if (target != null &&
+            target != a.id &&
+            !planted.version.containsKey(target)) {
+          a.errand = (
+            kind: 'tell',
+            targetId: target,
+            claim: true,
+            subject: planted.id,
+          );
+        }
+        _persistClaims();
+      }
+      final glyph = _reactGlyph(reply.react);
+      if (glyph != null) {
+        _emit(a, SimEventType.emote, {'agent': a.id, 'glyph': glyph});
+      }
+      final say = reply.say;
+      if (say != null && say.isNotEmpty) {
+        playerHist.add(ChatMsg(false, say));
+        unawaited(
+          store.memory(
+            Memory(
+              agent: a.id,
+              simTs: simTs,
+              kind: 'said',
+              source: 'self',
+              text: 'to the living one: $say',
+              importance: 4,
+              entities: ['player'],
+            ),
           ),
-        ),
-      );
+        );
+        yield say;
+      } else {
+        // They just take it in — a nonverbal beat, no invented words.
+        final beat = _reactBeat(reply.react);
+        playerHist.add(ChatMsg(false, beat));
+        unawaited(
+          store.memory(
+            Memory(
+              agent: a.id,
+              simTs: simTs,
+              kind: 'said',
+              source: 'self',
+              text: 'reacted ${reply.react} to the living one\'s words',
+              importance: 4,
+              entities: ['player'],
+            ),
+          ),
+        );
+        yield beat;
+      }
       a.battery = min(100, a.battery + 10);
 
       // Ask and ye shall receive — a question-shaped message draws out a
@@ -1993,13 +2173,142 @@ class SimEngine {
           a.errand == null &&
           !a.verifiedPois.contains(poiId) &&
           !a.faded) {
-        a.errand = (kind: 'verify', targetId: poiId, claim: true);
+        a.errand = (kind: 'verify', targetId: poiId, claim: true, subject: null);
       }
     }
   }
 
   void _claimCuriosityForSecret(Agent a, Secret s) =>
       _claimCuriosity(a, s.unlocksPoiLore);
+
+  // ===================== player-planted rumors (claims) ====================
+  //
+  // Free text the living one whispers becomes a Claim — it circulates
+  // through the same mouth-to-ear machinery as secrets but lives in its own
+  // ledger: never unlocks POI lore, never counts for a verdict. Every
+  // holder carries the version they HEARD, so a mischievous spirit's
+  // retelling keeps mutating down the line — telephone, authored by the
+  // LLM, tracked verbatim by the engine.
+
+  /// Register the player's words as a Claim held by [a]. Same-words repeats
+  /// just add the holder — one claim per distinct whisper.
+  Claim _plantClaim(Agent a, String text) {
+    final norm = _normId(text);
+    for (final cl in claims.values) {
+      if (_normId(cl.text) == norm) {
+        cl.version[a.id] = cl.text;
+        _persistClaims();
+        return cl;
+      }
+    }
+    final t = text.length > 140 ? '${text.substring(0, 137)}…' : text;
+    final cl = Claim(
+      id: 'claim_${++claimSeq}',
+      text: t,
+      bornTs: simTs,
+      about: _claimAbout(text),
+    );
+    cl.version[a.id] = t;
+    claims[cl.id] = cl;
+    _persistClaims();
+    unawaited(store.simLog(simTs, a.id, 'claim', 'the living one planted: $t'));
+    return cl;
+  }
+
+  /// Who a whisper is about — spirit ids and the honored dead, matched the
+  /// conservative way (ids ≥4 chars; "la luz" must not tag Tía Luz).
+  List<String> _claimAbout(String text) {
+    final norm = _normId(text);
+    final out = <String>[];
+    for (final o in agents.values) {
+      if (o.id.length >= 4 && norm.contains(_normId(o.id))) out.add(o.id);
+    }
+    for (final s in secrets.values) {
+      final ab = s.aboutAgent;
+      if (ab != null &&
+          ab.length >= 4 &&
+          !agents.containsKey(ab) &&
+          norm.contains(_normId(ab)) &&
+          !out.contains(ab)) {
+        out.add(ab);
+      }
+    }
+    return out;
+  }
+
+  /// Would this persona pass a rumor to that ear? Looser than the secret
+  /// gate — gossip travels easier than confession. A rumor about yourself
+  /// only crosses to someone you trust deeply.
+  bool _canPassClaim(Agent teller, Agent hearer, Claim c) {
+    if (c.about.contains(teller.id)) {
+      return (teller.warmth[hearer.id] ?? 0) >= 4;
+    }
+    return teller.stats.mischief >= 3 ||
+        teller.stats.curiosity >= 3 ||
+        teller.stats.warmth >= 4 ||
+        (teller.warmth[hearer.id] ?? 0) >= 2;
+  }
+
+  /// The claim versions this spirit carries — surfaced in prompts as
+  /// "rumors the living one fed you", voiceable as gossip, never fact.
+  List<String> _heldRumors(Agent a) => [
+    for (final cl in claims.values)
+      if (cl.version.containsKey(a.id)) cl.heardBy(a.id),
+  ];
+
+  void _persistClaims() {
+    unawaited(
+      store.setWorld(
+        'claims',
+        jsonEncode(claims.values.map((c) => c.toJson()).toList()),
+      ),
+    );
+  }
+
+  /// Cuaderno view — what the player set loose and how far it traveled.
+  List<({String text, int mouths})> claimsForCuaderno() => [
+    for (final cl in claims.values) (text: cl.text, mouths: cl.version.length),
+  ];
+
+  /// Nonverbal player-chat beats — the spirit takes the words in without
+  /// speaking. Glyph floats in-world; the beat line renders in chat.
+  String? _reactGlyph(String react) => switch (react) {
+    'shock' => '❗',
+    'curious' => '❓',
+    'wary' => '👀',
+    'amused' => '😏',
+    'warm' => '🌼',
+    'scared' => '🕯️',
+    _ => null,
+  };
+
+  String _reactBeat(String react) => switch (react) {
+    'shock' => '· gasps softly.',
+    'curious' => '· leans in, eyes bright.',
+    'warm' => '· smiles, candlelight in their eyes.',
+    'wary' => '· studies you a long moment.',
+    'amused' => '· snorts, half a laugh.',
+    'sad' => '· looks away toward the candles.',
+    'scared' => '· pulls their shawl tighter.',
+    _ => '· listens in silence.',
+  };
+
+  /// The village roster every prompt carries — names, ids, roles, plus the
+  /// honored dead the secrets mention (Genero & co.). Base knowledge of
+  /// who's who, so spirits understand what the living one means.
+  String _buildCast() {
+    final souls = agents.values
+        .map((a) => '${a.name} (${a.id} — ${a.role})')
+        .join('; ');
+    final dead = secrets.values
+        .map((s) => s.aboutAgent)
+        .whereType<String>()
+        .where((id) => !agents.containsKey(id))
+        .toSet()
+        .map((d) => '${d[0].toUpperCase()}${d.substring(1)}')
+        .join(', ');
+    return 'The village: $souls.${dead.isEmpty ? '' : ' Honored dead: $dead.'}';
+  }
 
   /// D2 — typed claims move the world: naming a place sends the curious to
   /// look; naming a spirit becomes an askAbout goal. Conservative matching
@@ -2349,6 +2658,7 @@ class SimEngine {
     }
     unawaited(store.setWorld('sim_ts', '$simTs'));
     unawaited(store.setWorld('petals', '$playerPetals'));
+    _persistClaims();
   }
 
   bool _ended = false;

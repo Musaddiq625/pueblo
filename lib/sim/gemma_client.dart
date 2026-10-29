@@ -116,8 +116,9 @@ class GemmaLocalClient implements LLMClient {
 
   @override
   Stream<String> playerChat(String prompt) async* {
-    final j = _json(await _chat(prompt, temperature: 0.85));
-    final line = (j?['line'] ?? j?['reply'] ?? '...').toString();
+    // Raw JSON/text — the engine parses PlayerReply itself.
+    final content = await _chat(prompt, temperature: 0.85);
+    final line = content ?? '...';
     for (var i = 0; i < line.length; i += 12) {
       yield line.substring(i, min(i + 12, line.length));
       await Future.delayed(const Duration(milliseconds: 25));

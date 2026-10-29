@@ -91,5 +91,18 @@ Future<SimBundle> bootstrap({
     timeScale: timeScale,
     dawnAt: dawnAt,
   );
+  // Resume path — planted rumors survive a restart (freshDb wipes them,
+  // which is correct: a new night, new whispers).
+  if (!freshDb) {
+    final raw = await store.getWorld('claims');
+    if (raw != null) {
+      for (final j in jsonDecode(raw) as List) {
+        final cl = Claim.fromJson(j as Map<String, dynamic>);
+        engine.claims[cl.id] = cl;
+        final n = int.tryParse(cl.id.replaceFirst('claim_', ''));
+        if (n != null && n > engine.claimSeq) engine.claimSeq = n;
+      }
+    }
+  }
   return SimBundle(engine, store, sprites, tints, dyes);
 }

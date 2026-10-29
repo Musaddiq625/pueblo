@@ -29,6 +29,56 @@ class ConvoTurn {
   const ConvoTurn(this.line, {this.sharesSecret, this.end = false, this.mood = 'neutral'});
 }
 
+/// The spirit's answer to a player message — richer than a line of text.
+/// The model decides whether it SPEAKS ([say]) or just REACTS ([react]),
+/// whether it believes a claim enough to carry it onward ([believes]),
+/// who it means to tell ([shareWith]), and — for the mischievous — how it
+/// will retell it ([twist]). Engine validates every field; a plain-text
+/// response parses as [say] so simple/mock clients keep working.
+class PlayerReply {
+  final String? say; // spoken line; null = the spirit just takes it in
+  final String react; // shock|curious|warm|wary|amused|none
+  final bool? believes; // takes the claim as true (null = unstated)
+  final String? shareWith; // agent id they mean to tell
+  final String? twist; // their embellished version of the claim
+
+  const PlayerReply({
+    this.say,
+    this.react = 'none',
+    this.believes,
+    this.shareWith,
+    this.twist,
+  });
+
+  static String? _str(Map<String, dynamic> j, String k) {
+    final v = j[k];
+    if (v == null) return null;
+    final s = v.toString().trim();
+    return s.isEmpty || s == 'null' ? null : s;
+  }
+
+  static PlayerReply parse(String raw) {
+    final t = raw.trim();
+    final a = t.indexOf('{'), b = t.lastIndexOf('}');
+    if (a >= 0 && b > a) {
+      try {
+        final j = jsonDecode(t.substring(a, b + 1));
+        if (j is Map<String, dynamic>) {
+          final believe = j['believes'];
+          return PlayerReply(
+            say: _str(j, 'say') ?? _str(j, 'line') ?? _str(j, 'reply'),
+            react: _str(j, 'react') ?? _str(j, 'mood') ?? 'none',
+            believes: believe is bool ? believe : null,
+            shareWith: _str(j, 'share_with') ?? _str(j, 'shareWith'),
+            twist: _str(j, 'twist'),
+          );
+        }
+      } catch (_) {/* fall through — treat the whole thing as a line */}
+    }
+    return PlayerReply(say: t.isEmpty ? null : t);
+  }
+}
+
 abstract class LLMClient {
   String get name;
   Future<Decision?> decide(String prompt);
@@ -137,8 +187,9 @@ class OllamaClient implements LLMClient {
   @override
   Stream<String> playerChat(String prompt) async* {
     // Non-streaming for simplicity; chunked yield keeps the same API.
-    final j = _json(await _chat(prompt, temperature: 0.85, numPredict: 150));
-    final line = (j?['line'] ?? j?['reply'] ?? '...').toString();
+    // Returns the raw JSON/text — the engine parses PlayerReply itself.
+    final content = await _chat(prompt, temperature: 0.85, numPredict: 220);
+    final line = content ?? '...';
     for (var i = 0; i < line.length; i += 12) {
       yield line.substring(i, min(i + 12, line.length));
       await Future.delayed(const Duration(milliseconds: 25));

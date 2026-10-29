@@ -511,6 +511,38 @@ class _CuadernoChip extends StatelessWidget {
                           ],
                         ),
                       ),
+                  // Rumors you've planted — free whispers that live or die
+                  // in other mouths. Mouths = spirits repeating them now.
+                  Builder(builder: (context) {
+                    final loose = engine.claimsForCuaderno();
+                    if (loose.isEmpty) return const SizedBox.shrink();
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 8),
+                        const Divider(color: Color(0xFF3A2C50), height: 14),
+                        const Text(
+                          'rumors you\'ve set loose',
+                          key: Key('cuadernoRumors'),
+                          style: TextStyle(
+                              fontSize: 11, color: Color(0xFFF5A95B)),
+                        ),
+                        const SizedBox(height: 6),
+                        for (final c in loose)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 5),
+                            child: Text(
+                              '“${c.text}” — ${c.mouths} mouth${c.mouths == 1 ? '' : 's'} repeat${c.mouths == 1 ? 's' : ''} it',
+                              key: Key('cuaderno_claim'),
+                              style: const TextStyle(
+                                  fontSize: 11.5,
+                                  color: Color(0xFFB0A6D8),
+                                  fontStyle: FontStyle.italic),
+                            ),
+                          ),
+                      ],
+                    );
+                  }),
                 ],
               ),
             ),

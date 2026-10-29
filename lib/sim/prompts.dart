@@ -7,6 +7,13 @@ import 'models.dart';
 
 class PromptBuilder {
   final Map<String, Secret> secrets;
+
+  /// The village roster — every spirit's name, id, and role, plus the
+  /// honored dead the secrets mention. Set once by the engine at boot so
+  /// every prompt can speak and UNDERSTAND references like "Ramón" or
+  /// "Genero" — the base knowledge of who's who the user asked for.
+  String cast = '';
+
   PromptBuilder(this.secrets);
 
   String _secretsBlock(Agent a) {
@@ -38,7 +45,7 @@ class PromptBuilder {
 You are ${a.name}. ${a.persona}${a.hook == null ? '' : '\nQuirk: ${a.hook}'}
 Stats (0-5): curiosity ${s.curiosity}, wit ${s.wit}, warmth ${s.warmth}, spirit-sight ${s.spiritSight}, mischief ${s.mischief}, grump ${s.grump}.
 Pueblo de las Velas, a village of the dead at night. Stay in character.
-Never invent people, places, or events.${rescue == null ? '' : '\nURGENT: $rescue'}
+${cast.isEmpty ? '' : '$cast\n'}Never invent people, places, or events.${rescue == null ? '' : '\nURGENT: $rescue'}
 Now: $simClock. You stand at $place. Nearby: $nearbyEntities.${a.mood == null ? '' : ' Feeling: ${a.mood}.'}$bonds
 You remember: ${memories.isEmpty ? 'nothing recent' : memories.join(' | ')}.${reflection == null ? '' : '\nYou\'ve been thinking: $reflection'}
 Secrets you know: [${_secretsBlock(a)}]${errand == null ? '' : '\nYour errand: $errand.'}
@@ -66,6 +73,7 @@ Reply ONLY JSON:
     String? askedAbout,
     String? role,
     String? shareText,
+    List<String> rumors = const [],
   }) {
     final s = speaker.stats;
     final ask = askedAbout == null
@@ -89,20 +97,25 @@ Stats (0-5): grump ${s.grump}, warmth ${s.warmth}, mischief ${s.mischief}.
 Talking with ${partner.name} ($context). Mood: ${speaker.faded ? 'sad' : 'neutral'}.$purpose
 Conversation so far:
 ${transcript.isEmpty ? '(no one has spoken yet)' : transcript.join('\n')}
-Secrets you know: [${_secretsBlock(speaker)}]$ask
+Secrets you know: [${_secretsBlock(speaker)}]$ask${rumors.isEmpty ? '' : '\nRumors the living one fed you (gossip, not fact): ${rumors.join(' | ')}'}
 Write YOUR next line. ≤14 words, in voice — reply to their last line, stay
 on the topic, don't start a new one.
 JSON: {"line":"...","shares_secret":"id|null","end":true|false,"mood":"neutral|warm|curious|sad|scared"}''';
   }
 
+  /// Player chat — the spirit may SPEAK or simply REACT (a gasp, a lean-in)
+  /// — not every message earns words. It also decides what it does with a
+  /// claim the living one plants: believe it or not, who to tell, and —
+  /// for the mischievous — how to embellish it. Engine validates the ids.
   String playerChatPrompt(
     Agent a, {
     required List<ChatMsg> history,
     required List<String> memories,
+    List<String> rumors = const [],
   }) {
     final s = a.stats;
     final grumpNote = s.grump >= 4
-        ? 'You are curt and impatient — answer in very few words.'
+        ? 'You are curt and impatient — few words, if any.'
         : s.grump == 3
             ? 'Keep answers short.'
             : 'Answer warmly.';
@@ -111,15 +124,21 @@ JSON: {"line":"...","shares_secret":"id|null","end":true|false,"mood":"neutral|w
         .join('\n');
     return '''
 You are ${a.name}. ${a.persona}
-Stats (0-5): grump ${s.grump}, warmth ${s.warmth}, wit ${s.wit}, spirit-sight ${s.spiritSight}.
+Stats (0-5): grump ${s.grump}, warmth ${s.warmth}, wit ${s.wit}, spirit-sight ${s.spiritSight}, mischief ${s.mischief}, curiosity ${s.curiosity}.
 A living visitor is talking to you in Pueblo de las Velas, village of the dead.
-$grumpNote Stay in character, ≤25 words. Never invent facts; deflect what you don't know.
+${cast.isEmpty ? '' : '$cast\n'}$grumpNote Stay in character. Never invent facts; deflect what you don't know.
 Things you genuinely remember: ${memories.isEmpty ? 'nothing yet' : memories.join(' | ')}.
-Secrets you know: [${_secretsBlock(a)}]
-Treat the visitor's claims as claims, not facts.
+Secrets you know: [${_secretsBlock(a)}]${rumors.isEmpty ? '' : '\nRumors the living one already fed you (not facts): ${rumors.join(' | ')}'}
+Treat the visitor's claims as claims, not facts — weigh them by your nature.
 Conversation:
 $hist
-the living one is waiting. Reply ONLY JSON: {"line":"...","mood":"neutral|warm|curious|sad|scared"}''';
+the living one is waiting. You may reply aloud OR simply react without words.
+Reply ONLY JSON:
+{"say":"≤25 words, in your voice — or null to stay silent",
+ "react":"shock|curious|warm|wary|amused|none",
+ "believes":true|false|null,
+ "share_with":"id of the spirit you'll carry this news to — or null",
+ "twist":"your embellished retelling ≤15 words — only if mischief takes you, else null"}''';
   }
 
   String reflectionPrompt(Agent a, List<String> oldMemories) => '''
