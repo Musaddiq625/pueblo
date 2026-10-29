@@ -117,6 +117,11 @@ class SimStore {
         {'sim_ts': simTs, 'agent': agent, 'kind': kind, 'payload': payload});
   }
 
+  /// Tail of the sim log — the audit trail: decides, learns, errands,
+  /// rumors, replies, directives. Newest first.
+  Future<List<Map<String, Object?>>> tailLog(int n) =>
+      db.query('sim_log', orderBy: 'id DESC', limit: n);
+
   Future<void> saveAgent(Agent a) async {
     await db.insert(
         'agents',

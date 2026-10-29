@@ -390,6 +390,16 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         if (s == null) return 'ERR speed <n>';
         engine.timeScale = s.clamp(0.25, 8.0);
         return 'ok speed ${engine.timeScale}';
+      case 'log':
+        // audit tail — decides, learns, errands, replies, directives
+        final n = int.tryParse(arg) ?? 20;
+        final rows = await engine.store.tailLog(n);
+        return rows
+            .map((r) =>
+                '${r['sim_ts']} ${r['agent']} ${r['kind']}: ${r['payload']}')
+            .toList()
+            .reversed
+            .join('\n');
       case 'shot':
         final hook = shotHook;
         if (hook == null) return 'ERR shot hook not wired';

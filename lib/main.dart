@@ -514,6 +514,8 @@ class _Hud extends StatelessWidget {
           const SizedBox(width: 12),
           _CuadernoChip(engine: engine),
           const SizedBox(width: 12),
+          _LogChip(engine: engine),
+          const SizedBox(width: 12),
           _RosterChip(onOpen: onRoster),
           const SizedBox(width: 12),
           _SpeedChip(engine: engine),
@@ -1039,5 +1041,157 @@ class _ClockHolder {
           .listen((_) => _n.value = e.simTs);
     }
     return _n;
+  }
+}
+
+/// Live audit tail — the sim_log sheet: decides, learns, errands,
+/// rumors, replies, directives. Polls the store every 2s while open so
+/// a whisper's chain is watchable end-to-end on-device.
+class _LogChip extends StatelessWidget {
+  final SimEngine engine;
+  const _LogChip({required this.engine});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      key: const Key('logChip'),
+      onTap: () => showModalBottomSheet(
+        context: context,
+        backgroundColor: const Color(0xFF1A1430),
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+        ),
+        builder: (_) => _LogSheet(engine: engine),
+      ),
+      child: const Text('📜', style: TextStyle(fontSize: 13)),
+    );
+  }
+}
+
+class _LogSheet extends StatefulWidget {
+  final SimEngine engine;
+  const _LogSheet({required this.engine});
+
+  @override
+  State<_LogSheet> createState() => _LogSheetState();
+}
+
+class _LogSheetState extends State<_LogSheet> {
+  List<Map<String, Object?>> _rows = const [];
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+    _poll = Timer.periodic(const Duration(seconds: 2), (_) => _refresh());
+  }
+
+  Future<void> _refresh() async {
+    final r = await widget.engine.store.tailLog(60);
+    if (mounted) setState(() => _rows = r);
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  Color _kindColor(String kind) => switch (kind) {
+        'directive' || 'curious' => const Color(0xFF7FD4A8),
+        'claim' || 'rumor' || 'twist' => const Color(0xFFF5A95B),
+        'reply' => const Color(0xFF9EC8F0),
+        'learn' => const Color(0xFFFFC233),
+        _ => const Color(0xFF8D84B0),
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.5,
+        maxChildSize: 0.9,
+        builder: (_, scroll) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'the village, audited',
+                style: TextStyle(fontSize: 14, color: Color(0xFFFFC233)),
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                child: _rows.isEmpty
+                    ? const Text(
+                        'nothing logged yet — talk to a spirit.',
+                        style:
+                            TextStyle(fontSize: 12, color: Color(0xFF8D84B0)),
+                      )
+                    : ListView.builder(
+                        controller: scroll,
+                        itemCount: _rows.length,
+                        itemBuilder: (_, i) {
+                          final r = _rows[i];
+                          final kind = '${r['kind']}';
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 5),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  width: 38,
+                                  child: Text(
+                                    '${r['sim_ts']}',
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      color: Color(0xFF5A5078),
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 68,
+                                  child: Text(
+                                    '${r['agent']}',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      color: Color(0xFF6A6088),
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 62,
+                                  child: Text(
+                                    kind,
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      color: _kindColor(kind),
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    '${r['payload']}',
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      color: Color(0xFFDCD4F0),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

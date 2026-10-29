@@ -180,8 +180,7 @@ class SimEngine {
   /// at the initiator's next decision slot, then the moment passes (§11.9).
   final Map<String, Decision> _pendingApproach = {};
 
-  String _pairKey(String a, String b) =>
-      a.compareTo(b) < 0 ? '$a:$b' : '$b:$a';
+  String _pairKey(String a, String b) => a.compareTo(b) < 0 ? '$a:$b' : '$b:$a';
 
   SimEngine({
     required this.store,
@@ -312,16 +311,16 @@ class SimEngine {
     a.bumpVersion();
     b.bumpVersion();
     // face each other
-    _emit(
-      a,
-      SimEventType.state,
-      {'agent': aId, 'fx': (b.x - a.x).sign, 'fy': (b.y - a.y).sign},
-    );
-    _emit(
-      b,
-      SimEventType.state,
-      {'agent': bId, 'fx': (a.x - b.x).sign, 'fy': (a.y - b.y).sign},
-    );
+    _emit(a, SimEventType.state, {
+      'agent': aId,
+      'fx': (b.x - a.x).sign,
+      'fy': (b.y - a.y).sign,
+    });
+    _emit(b, SimEventType.state, {
+      'agent': bId,
+      'fx': (a.x - b.x).sign,
+      'fy': (a.y - b.y).sign,
+    });
     _events.add(
       SimEvent(SimEventType.pairStart, {
         'a': aId,
@@ -374,10 +373,10 @@ class SimEngine {
       role: p == null
           ? null
           : speaker.id == p.holder
-              ? 'tell'
-              : speaker.id == c.aId
-                  ? 'ask'
-                  : 'hear',
+          ? 'tell'
+          : speaker.id == c.aId
+          ? 'ask'
+          : 'hear',
       shareText: p == null
           ? null
           : (speaker.id == p.holder
@@ -402,7 +401,10 @@ class SimEngine {
     final (job, turn) = rec;
     final c = conversations[job.convoId];
     if (c == null || c.done) return;
-    c.pendingJob = false;
+    // pendingJob stays true through the whole commit — clearing it at entry
+    // let the scheduler enqueue the next turn while this one still awaited
+    // sqlite, and two racing turns both passed the version guard → the same
+    // rumor logged 4× at one sim_ts. Dead convos are swept regardless.
     final speaker = agents[job.agentId]!;
     // Stale check: speaker's state changed since job was enqueued (e.g. player
     // engaged them) → drop silently, partner is released via done flag.
@@ -504,7 +506,10 @@ class SimEngine {
         partner.warmth[speaker.id] = (partner.warmth[speaker.id] ?? 0) + 5;
         // …and leaves a 💡 over their head so the player can spot news
         partner.newsUntil = simTs + 90;
-        _emit(partner, SimEventType.emote, {'agent': partner.id, 'glyph': '💡'});
+        _emit(partner, SimEventType.emote, {
+          'agent': partner.id,
+          'glyph': '💡',
+        });
         await store.simLog(
           simTs,
           partner.id,
@@ -534,7 +539,8 @@ class SimEngine {
     // A player-planted rumor changes mouths — telephone rules: the receiver
     // carries the version the speaker HEARD (which may already be twisted).
     // The claim ledger never touches secrets, POI lore, or the verdict.
-    if (sharedClaim != null) {
+    if (sharedClaim != null &&
+        !claims[sharedClaim]!.version.containsKey(partner.id)) {
       final cl = claims[sharedClaim]!;
       final heard = cl.heardBy(speaker.id);
       cl.version[partner.id] = heard;
@@ -602,6 +608,9 @@ class SimEngine {
         c.transcript.length >= (c.purpose != null ? 6 : 4)) {
       c.done = true;
     }
+    // The slot opens only once the commit is fully landed — the next turn
+    // is enqueued on a following tick, after nextSpeaker/version are final.
+    c.pendingJob = false;
   }
 
   /// Player engaged a spirit that was mid-conversation — release the partner.
@@ -629,11 +638,13 @@ class SimEngine {
       // Decision cache — an agent that acted within ~30 sim-s keeps its
       // plan; re-prompting that fast just burns tokens re-deciding walks.
       final free = agents.values
-          .where((a) =>
-              !a.engaged &&
-              !a.inConvo &&
-              a.heldBy == null &&
-              simTs - a.lastActedAt >= 30)
+          .where(
+            (a) =>
+                !a.engaged &&
+                !a.inConvo &&
+                a.heldBy == null &&
+                simTs - a.lastActedAt >= 30,
+          )
           .toList();
       if (free.isEmpty) return;
       free.sort((a, b) => a.lastActedAt.compareTo(b.lastActedAt));
@@ -734,7 +745,6 @@ class SimEngine {
         ..remove('stroll');
     }
 
-
     // Rescue affordance — a fading spirit whose name the decider holds:
     // the single most important fact on the whole decision sheet.
     String? rescue;
@@ -810,7 +820,12 @@ class SimEngine {
         }
       }
       if (closest != null) {
-        a.errand = (kind: 'seek', targetId: closest.id, claim: false, subject: null);
+        a.errand = (
+          kind: 'seek',
+          targetId: closest.id,
+          claim: false,
+          subject: null,
+        );
         return;
       }
     }
@@ -821,7 +836,12 @@ class SimEngine {
       if (!f.faded || f.id == a.id) continue;
       if (a.knownSecrets.any((s) => secrets[s]?.wakesAgent == f.id)) {
         if (a.errand?.kind != 'seek' || a.errand?.targetId != f.id) {
-          a.errand = (kind: 'seek', targetId: f.id, claim: false, subject: null);
+          a.errand = (
+            kind: 'seek',
+            targetId: f.id,
+            claim: false,
+            subject: null,
+          );
         }
         return;
       }
@@ -850,9 +870,9 @@ class SimEngine {
             t.faded ||
             (e.kind == 'tell' &&
                 a.knownSecrets
-                        .difference(t.knownSecrets)
-                        .where((sid) => _canShareRumor(a, t, secrets[sid]))
-                        .isEmpty &&
+                    .difference(t.knownSecrets)
+                    .where((sid) => _canShareRumor(a, t, secrets[sid]))
+                    .isEmpty &&
                 !claims.values.any(
                   (cl) =>
                       cl.version.containsKey(a.id) &&
@@ -872,7 +892,12 @@ class SimEngine {
       if (poiId != null &&
           pois.containsKey(poiId) &&
           !a.verifiedPois.contains(poiId)) {
-        a.errand = (kind: 'verify', targetId: poiId, claim: false, subject: null);
+        a.errand = (
+          kind: 'verify',
+          targetId: poiId,
+          claim: false,
+          subject: null,
+        );
         return;
       }
     }
@@ -888,7 +913,8 @@ class SimEngine {
           .where((sid) => _canShareRumor(a, o, secrets[sid]))
           .length;
       if (n == 0) continue;
-      final score = n -
+      final score =
+          n -
           sqrt(_dist2(a.x, a.y, o.x, o.y)) / (8 * kTile) +
           (a.warmth[o.id] ?? 0) / 10.0;
       if (score > bestScore) {
@@ -897,18 +923,33 @@ class SimEngine {
       }
     }
     if (bestT != null) {
-      a.errand = (kind: 'tell', targetId: bestT.id, claim: false, subject: null);
+      a.errand = (
+        kind: 'tell',
+        targetId: bestT.id,
+        claim: false,
+        subject: null,
+      );
       return;
     }
     // 3. gathering — a director-triggered beat, or the scheduled ofrenda
     // moment late in the festival. Fires whether or not the player attends
     // (the Majora's Mask rule).
     if (simTs < _gatherUntil) {
-      a.errand = (kind: 'tend', targetId: _gatherPoi, claim: false, subject: null);
+      a.errand = (
+        kind: 'tend',
+        targetId: _gatherPoi,
+        claim: false,
+        subject: null,
+      );
       return;
     }
     if (simTs >= festivalAt * 0.6) {
-      a.errand = (kind: 'tend', targetId: 'ofrenda', claim: false, subject: null);
+      a.errand = (
+        kind: 'tend',
+        targetId: 'ofrenda',
+        claim: false,
+        subject: null,
+      );
       return;
     }
     // 4. schedule — the persona's authored routine for this hour of the day
@@ -918,7 +959,12 @@ class SimEngine {
       if (simTs >= s.at) schedPoi = s.poi;
     }
     if (pois.containsKey(schedPoi)) {
-      a.errand = (kind: 'tend', targetId: schedPoi, claim: false, subject: null);
+      a.errand = (
+        kind: 'tend',
+        targetId: schedPoi,
+        claim: false,
+        subject: null,
+      );
     }
   }
 
@@ -928,12 +974,14 @@ class SimEngine {
     return switch (e.kind) {
       'verify' =>
         'you heard something about ${pois[e.targetId]?.name ?? e.targetId} — go see for yourself',
-      'tell' => e.subject != null
-          ? 'the living one\'s words burn in you — carry them to ${agents[e.targetId]?.name ?? e.targetId}'
-          : 'you carry news ${agents[e.targetId]?.name ?? e.targetId} hasn\'t heard — find them',
-      'seek' => agents[e.targetId]?.faded == true
-          ? '${agents[e.targetId]!.name} is fading and you hold their name — reach them'
-          : 'you feel dim — find company before the day takes you',
+      'tell' =>
+        e.subject != null
+            ? 'the living one\'s words burn in you — carry them to ${agents[e.targetId]?.name ?? e.targetId}'
+            : 'you carry news ${agents[e.targetId]?.name ?? e.targetId} hasn\'t heard — find them',
+      'seek' =>
+        agents[e.targetId]?.faded == true
+            ? '${agents[e.targetId]!.name} is fading and you hold their name — reach them'
+            : 'you feel dim — find company before the day takes you',
       _ => 'your routine — check on ${pois[e.targetId]?.name ?? e.targetId}',
     };
   }
@@ -976,8 +1024,9 @@ class SimEngine {
   int get truthCount {
     var n = 0;
     for (final s in secrets.values.where((s) => s.verdictOf != null)) {
-      final k =
-          agents.values.where((a) => a.knownSecrets.contains(s.id)).length;
+      final k = agents.values
+          .where((a) => a.knownSecrets.contains(s.id))
+          .length;
       if (k > n) n = k;
     }
     return n;
@@ -987,8 +1036,9 @@ class SimEngine {
 
   void _verdict() {
     for (final s in secrets.values.where((s) => s.verdictOf != null)) {
-      final knowers =
-          agents.values.where((a) => a.knownSecrets.contains(s.id)).length;
+      final knowers = agents.values
+          .where((a) => a.knownSecrets.contains(s.id))
+          .length;
       final passed = knowers >= 4;
       final text = passed
           ? (s.verdictPass ?? 'the truth traveled far enough today')
@@ -1022,9 +1072,11 @@ class SimEngine {
   /// fast gossip closes the arc early.
   void _checkVerdict() {
     if (_verdictFired) return;
-    final earned = secrets.values.any((s) =>
-        s.verdictOf != null &&
-        agents.values.where((a) => a.knownSecrets.contains(s.id)).length >= 4);
+    final earned = secrets.values.any(
+      (s) =>
+          s.verdictOf != null &&
+          agents.values.where((a) => a.knownSecrets.contains(s.id)).length >= 4,
+    );
     if (earned) {
       _verdictFired = true;
       _verdict();
@@ -1083,8 +1135,12 @@ class SimEngine {
         // memory stream and can surface in later prompts/turns.
         final near = agents.values.where((a) => !a.faded).toList()
           ..sort(
-            (x, y) => _dist2(x.x, x.y, p.x, p.y)
-                .compareTo(_dist2(y.x, y.y, p.x, p.y)),
+            (x, y) => _dist2(
+              x.x,
+              x.y,
+              p.x,
+              p.y,
+            ).compareTo(_dist2(y.x, y.y, p.x, p.y)),
           );
         for (final a in near.take(2)) {
           unawaited(
@@ -1142,7 +1198,12 @@ class SimEngine {
         if (agent == null || poi == null) return;
         final a = agents[agent]!;
         if (!a.faded && !a.verifiedPois.contains(poi)) {
-          a.errand = (kind: 'verify', targetId: poi, claim: false, subject: null);
+          a.errand = (
+            kind: 'verify',
+            targetId: poi,
+            claim: false,
+            subject: null,
+          );
           _note('${a.name} can\'t stop thinking about ${pois[poi]!.name}');
           landed = true;
         }
@@ -1251,9 +1312,7 @@ class SimEngine {
     // cheapest believability in the genre.
     final th = d.thought;
     if (th != null && th.isNotEmpty) {
-      _events.add(
-        SimEvent(SimEventType.thought, {'agent': a.id, 'text': th}),
-      );
+      _events.add(SimEvent(SimEventType.thought, {'agent': a.id, 'text': th}));
     }
     switch (action) {
       case 'converse':
@@ -1388,8 +1447,9 @@ class SimEngine {
             startConversation(
               ag.id,
               tt.id,
-              purpose:
-                  sid == null ? null : (holder: tt.id, subject: sid, isClaim: false),
+              purpose: sid == null
+                  ? null
+                  : (holder: tt.id, subject: sid, isClaim: false),
             );
           },
         );
@@ -1399,7 +1459,8 @@ class SimEngine {
         // decision. A faded spirit is approachable when we carry their
         // wake-name (the rescue-seek errand).
         final t = agents[target];
-        final canWake = t != null &&
+        final canWake =
+            t != null &&
             t.faded &&
             a.knownSecrets.any((s) => secrets[s]?.wakesAgent == t.id);
         if (t == null || (t.faded && !canWake) || t.inConvo || t.engaged) {
@@ -1526,7 +1587,13 @@ class SimEngine {
       }
     }
     if (wakeSecret != null) {
-      _say(a, d.line.isEmpty ? '¡${t.name.split(' ').first}! Still with us?' : _cleanLine(d.line), 'warm');
+      _say(
+        a,
+        d.line.isEmpty
+            ? '¡${t.name.split(' ').first}! Still with us?'
+            : _cleanLine(d.line),
+        'warm',
+      );
       t.battery = min(100, t.battery + 25);
       unawaited(
         store.memory(
@@ -1562,9 +1629,7 @@ class SimEngine {
   /// Renderer-side stop — sim walks and visual lerps are separate; when
   /// the sim cancels a path the component must be told to stand down.
   void _stopVisual(Agent a) {
-    _events.add(
-      SimEvent(SimEventType.move, {'agent': a.id, 'path': const []}),
-    );
+    _events.add(SimEvent(SimEventType.move, {'agent': a.id, 'path': const []}));
   }
 
   /// Walk to a spirit, then run [onNear]. The target is "held" — stops
@@ -1583,6 +1648,7 @@ class SimEngine {
         _fallbackStroll(a);
       }
     }
+
     if (t.heldBy != null || t.engaged || t.inConvo) {
       fail();
       return;
@@ -1599,8 +1665,14 @@ class SimEngine {
     (int, int)? best;
     var bd = double.infinity;
     for (final d in const [
-      (0, -1), (0, 1), (-1, 0), (1, 0),
-      (-1, -1), (1, -1), (-1, 1), (1, 1),
+      (0, -1),
+      (0, 1),
+      (-1, 0),
+      (1, 0),
+      (-1, -1),
+      (1, -1),
+      (-1, 1),
+      (1, 1),
     ]) {
       final nx = tx + d.$1, ny = ty + d.$2;
       if (!nav.walkable(nx, ny)) continue;
@@ -1789,14 +1861,19 @@ class SimEngine {
       final r = rng.nextDouble();
       // An active errand steers the ambient hop — the walk has a reason.
       final e = a.errand;
-      final errandPoi = e != null &&
+      final errandPoi =
+          e != null &&
               (e.kind == 'verify' || e.kind == 'tend') &&
               pois[e.targetId] != null
           ? pois[e.targetId]
           : null;
       if (errandPoi != null && r < 0.8) {
-        _visitSlot(a, errandPoi.id, onArrive: _browse(errandPoi),
-            onFail: _fallbackStroll);
+        _visitSlot(
+          a,
+          errandPoi.id,
+          onArrive: _browse(errandPoi),
+          onFail: _fallbackStroll,
+        );
       } else if (r < 0.65) {
         // visit a POI — weight stalls & anomalies, but any POI qualifies
         final targets = pois.values
@@ -1868,10 +1945,7 @@ class SimEngine {
     line = _cleanLine(line);
     if (line.isEmpty) return;
     final heard = agents.values.any(
-      (o) =>
-          o.id != a.id &&
-          !o.faded &&
-          _dist2(a.x, a.y, o.x, o.y) < 120 * 120,
+      (o) => o.id != a.id && !o.faded && _dist2(a.x, a.y, o.x, o.y) < 120 * 120,
     );
     if (heard || a.stats.grump >= 3) {
       _say(a, line, mood);
@@ -1995,7 +2069,11 @@ class SimEngine {
         }
         break;
       }
-      final memories = await store.recall(a, simTs, contextEntities: {'player'});
+      final memories = await store.recall(
+        a,
+        simTs,
+        contextEntities: {'player'},
+      );
       final prompt = prompts.playerChatPrompt(
         a,
         history: playerHist.length > 8
@@ -2021,15 +2099,76 @@ class SimEngine {
       // Claims move the world — naming a place sends the curious to look;
       // naming a spirit becomes a question to carry (D2).
       _claimCuriosityFromText(a, text);
+      // The living one's imperative is an order, not a suggestion — "ask
+      // Bruno", "tell Sefa", "go see Ramón" sets the spirit walking NOW.
+      // 'ask' verbs open a convo where the named spirit shares; anything
+      // else carries the whisper itself — to its subject, if that's who
+      // was named (the rumor-meets-its-subject shock). Detection runs
+      // before claim-planting: "tell X about Y" *seeds* Y — it is not a
+      // question even though 'tell' reads interrogative alone.
+      var directiveTo = false;
+      Agent? directiveTarget;
+      var asking = false;
+      if (RegExp(
+        r'\b(ask|tell|go|find|visit|talk|speak|fetch|bring|pregunta|dile|habla|busca|anda)\b',
+        caseSensitive: false,
+      ).hasMatch(text)) {
+        final norm = _normId(text);
+        for (final o in agents.values) {
+          if (o.id == a.id || o.id.length < 4) continue;
+          if (norm.contains(_normId(o.id))) {
+            directiveTarget = o;
+            break;
+          }
+        }
+        asking = RegExp(
+          r'\b(ask|pregunta|averigua|find)\b',
+          caseSensitive: false,
+        ).hasMatch(text);
+        directiveTo = directiveTarget != null;
+      }
       // A declarative message plants a Claim — free text that circulates
-      // mouth-to-mouth. Question-shaped messages ask, not seed (D-rumors).
+      // mouth-to-mouth. Question-shaped messages ask, not seed (D-rumors) —
+      // unless the shape is a tell-directive, whose payload IS the rumor.
       final isAsk = RegExp(
         r'\?|secret|news|heard|know|tell|learn|rumor|chisme|cuentame|pasa',
         caseSensitive: false,
       ).hasMatch(text);
-      final planted = (!isAsk && _normId(text).length >= 6)
+      final planted =
+          ((!isAsk || (directiveTo && !asking)) && _normId(text).length >= 6)
           ? _plantClaim(a, text)
           : null;
+      final t = directiveTarget;
+      if (t != null) {
+        a.errand = (
+          kind: 'seek',
+          targetId: t.id,
+          claim: false,
+          subject: planted?.id,
+        );
+        unawaited(
+          store.simLog(
+            simTs,
+            a.id,
+            'directive',
+            '${asking ? 'ask' : 'tell'} → ${t.id}',
+          ),
+        );
+        // The spirit is mid-conversation with the living one — walking
+        // is impossible while engaged, so the order queues as a deferred
+        // approach. On release it fires on the next decision slot: 'ask'
+        // opens a convo where the named spirit shares what it holds;
+        // 'share' carries the whisper itself — to its subject, if that
+        // is who was named (the rumor-meets-its-subject shock).
+        _pendingApproach[a.id] = asking
+            ? Decision('ask', t.id, 'the living one sent me')
+            : Decision(
+                'share',
+                t.id,
+                'the living one sent me',
+                subject: planted?.id,
+              );
+      }
       final buf = StringBuffer();
       await for (final chunk in llm.playerChat(prompt)) {
         buf.write(chunk);
@@ -2039,6 +2178,20 @@ class SimEngine {
       // — for the mischievous — a twisted retelling. The engine owns the
       // claim ledger; the persona owns the intent.
       final reply = PlayerReply.parse(buf.toString());
+      final sayPrev = reply.say == null
+          ? '—'
+          : (reply.say!.length > 40
+                ? '${reply.say!.substring(0, 40)}…'
+                : reply.say!);
+      unawaited(
+        store.simLog(
+          simTs,
+          a.id,
+          'reply',
+          'say=$sayPrev react=${reply.react} believes=${reply.believes} '
+              'to=${reply.shareWith ?? '—'}${reply.twist != null ? ' twist' : ''}',
+        ),
+      );
       if (planted != null) {
         if (reply.believes == true) planted.believers.add(a.id);
         final tw = reply.twist;
@@ -2047,9 +2200,7 @@ class SimEngine {
             tw.length <= 140 &&
             _normId(tw) != _normId(planted.text)) {
           planted.version[a.id] = tw;
-          unawaited(
-            store.simLog(simTs, a.id, 'twist', '${planted.id}: $tw'),
-          );
+          unawaited(store.simLog(simTs, a.id, 'twist', '${planted.id}: $tw'));
         }
         // The words must travel: the model may name a carrier, and if it
         // doesn't, the spirit still takes the whisper to SOMEONE — their
@@ -2058,7 +2209,8 @@ class SimEngine {
         target ??= _pickConfidant(a);
         if (target != null &&
             target != a.id &&
-            !planted.version.containsKey(target)) {
+            !planted.version.containsKey(target) &&
+            !directiveTo) {
           a.errand = (
             kind: 'tell',
             targetId: target,
@@ -2245,7 +2397,13 @@ class SimEngine {
       'listeners': [a.id],
       'secret': s.id,
     });
-    final learned = await store.transferKnowledge(a.id, s.id, 'player', simTs, eid);
+    final learned = await store.transferKnowledge(
+      a.id,
+      s.id,
+      'player',
+      simTs,
+      eid,
+    );
     if (!learned) return;
     a.knownSecrets.add(s.id);
     a.newsUntil = simTs + 90;
@@ -2254,7 +2412,9 @@ class SimEngine {
     _checkSolidify();
     _emit(a, SimEventType.emote, {'agent': a.id, 'glyph': '✨'});
     _events.add(
-      SimEvent(SimEventType.log, {'text': 'you tell ${a.name}: ${s.shareText}'}),
+      SimEvent(SimEventType.log, {
+        'text': 'you tell ${a.name}: ${s.shareText}',
+      }),
     );
   }
 
@@ -2268,7 +2428,14 @@ class SimEngine {
           a.errand == null &&
           !a.verifiedPois.contains(poiId) &&
           !a.faded) {
-        a.errand = (kind: 'verify', targetId: poiId, claim: true, subject: null);
+        a.errand = (
+          kind: 'verify',
+          targetId: poiId,
+          claim: true,
+          subject: null,
+        );
+        _emit(a, SimEventType.emote, {'agent': a.id, 'glyph': '❓'});
+        unawaited(store.simLog(simTs, a.id, 'curious', 'goes to see $poiId'));
       }
     }
   }
@@ -2293,8 +2460,7 @@ class SimEngine {
         .where((o) => o.id != a.id && !o.faded && !o.engaged)
         .toList();
     if (others.isEmpty) return null;
-    others.sort((x, y) =>
-        (a.warmth[y.id] ?? 0).compareTo(a.warmth[x.id] ?? 0));
+    others.sort((x, y) => (a.warmth[y.id] ?? 0).compareTo(a.warmth[x.id] ?? 0));
     return others.first.id;
   }
 
@@ -2397,15 +2563,18 @@ class SimEngine {
         .map((c) => (text: c.heardBy(id), believes: c.believers.contains(id)))
         .toList();
     final learning =
-        st.count + learned.length * 5 + heldClaims.length * 2 +
-        a.verifiedPois.length * 3 + (st.importanceSum ~/ 10);
+        st.count +
+        learned.length * 5 +
+        heldClaims.length * 2 +
+        a.verifiedPois.length * 3 +
+        (st.importanceSum ~/ 10);
     final level = learning >= 40
         ? 'sage of the festival'
         : learning >= 20
-            ? 'remembering much'
-            : learning >= 8
-                ? 'starting to see'
-                : 'still just a spark';
+        ? 'remembering much'
+        : learning >= 8
+        ? 'starting to see'
+        : 'still just a spark';
     return SpiritDossier(
       memoryCount: st.count,
       importanceSum: st.importanceSum,
@@ -2459,6 +2628,23 @@ class SimEngine {
     return 'The village: $souls.${dead.isEmpty ? '' : ' Honored dead: $dead.'}';
   }
 
+  /// What the living one means by place-words — ids and display names cover
+  /// "fountain"/"ofrenda", but "the tree" must reach the Old Ceiba and
+  /// "the graveyard" Cemetery Lane. Tokens the player would actually type.
+  static const _poiAliases = <String, List<String>>{
+    'ancient_tree': ['tree', 'ceiba', 'big tree', 'old tree'],
+    'bridge': ['bridge', 'puente'],
+    'fountain': ['fountain', 'fuente'],
+    'ofrenda': ['ofrenda', 'altar', 'shrine'],
+    'grave_37': ['grave 37', 'grave37', 'grave thirty'],
+    'cemetery_lane': ['cemetery', 'graveyard', 'graves', 'cementerio'],
+    'gravedigger_hut': ['hut', 'gravedigger'],
+    'cantina': ['cantina', 'catrina', 'bar'],
+    'flower_stall': ['flower', 'flowers', 'stall', 'flores'],
+    'curiosity_shop': ['shop', 'store', 'curiosity'],
+    'plaza': ['plaza', 'square'],
+  };
+
   /// D2 — typed claims move the world: naming a place sends the curious to
   /// look; naming a spirit becomes an askAbout goal. Conservative matching
   /// — POIs first (distinctive names), agents ≥4 chars (Tía "Luz" is a
@@ -2466,6 +2652,13 @@ class SimEngine {
   /// spirits chasing candlelight).
   void _claimCuriosityFromText(Agent a, String text) {
     final norm = _normId(text);
+    for (final e in _poiAliases.entries) {
+      if (pois.containsKey(e.key) &&
+          e.value.any((al) => norm.contains(_normId(al)))) {
+        _claimCuriosity(a, e.key);
+        return;
+      }
+    }
     for (final p in pois.values) {
       if (norm.contains(_normId(p.id)) || norm.contains(_normId(p.name))) {
         _claimCuriosity(a, p.id);
@@ -2487,9 +2680,7 @@ class SimEngine {
     final p = pois[poiId];
     if (p == null) return '';
     final known = secrets.values
-        .where(
-          (s) => s.unlocksPoiLore == poiId && playerKnown.contains(s.id),
-        )
+        .where((s) => s.unlocksPoiLore == poiId && playerKnown.contains(s.id))
         .firstOrNull;
     return known?.truth ?? p.surfaceText;
   }
@@ -2696,9 +2887,7 @@ class SimEngine {
     teller.knownSecrets.add(v.id);
     teller.bumpVersion();
     _checkVerdict();
-    unawaited(
-      store.simLog(simTs, teller.id, 'embellished', '$sid -> ${v.id}'),
-    );
+    unawaited(store.simLog(simTs, teller.id, 'embellished', '$sid -> ${v.id}'));
     return v.id;
   }
 

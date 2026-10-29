@@ -54,7 +54,17 @@ class PlayerReply {
     final v = j[k];
     if (v == null) return null;
     final s = v.toString().trim();
-    return s.isEmpty || s == 'null' ? null : s;
+    // Small models emit "Null", "None", "N/A" for absent fields — a
+    // case-sensitive 'null' check lets the literal word reach the screen.
+    final low = s.toLowerCase();
+    return s.isEmpty ||
+            low == 'null' ||
+            low == 'none' ||
+            low == 'nil' ||
+            low == 'n/a' ||
+            low == '-'
+        ? null
+        : s;
   }
 
   static PlayerReply parse(String raw) {
@@ -75,7 +85,9 @@ class PlayerReply {
         }
       } catch (_) {/* fall through — treat the whole thing as a line */}
     }
-    return PlayerReply(say: t.isEmpty ? null : t);
+    final low = t.toLowerCase();
+    return PlayerReply(
+        say: t.isEmpty || low == 'null' || low == 'none' ? null : t);
   }
 }
 

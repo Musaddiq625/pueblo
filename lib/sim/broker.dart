@@ -84,6 +84,21 @@ class InferenceBroker {
         case JobKind.player:
           break; // player chat goes through llm.playerChat directly
       }
+    } catch (_) {
+      // A throwing backend must still unblock the waiter — a null result
+      // lands as a dropped decision or a dead convo turn, never a wedge.
+      switch (job.kind) {
+        case JobKind.decision:
+          _decisions.add((job, null));
+        case JobKind.convoTurn:
+          _turns.add((job, null));
+        case JobKind.reflection:
+          _reflections.add((job, null));
+        case JobKind.director:
+          _beats.add(null);
+        case JobKind.player:
+          break;
+      }
     } finally {
       _busy--;
       _pump();

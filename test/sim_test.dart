@@ -757,6 +757,98 @@ void main() {
     );
   });
 
+  // ============ reply hygiene, curiosity aliases, directives ============
+
+  test('PlayerReply filters model null-words', () {
+    expect(PlayerReply.parse('Null').say, isNull);
+    expect(PlayerReply.parse('{"say":"Null"}').say, isNull);
+    expect(PlayerReply.parse('{"say":"None"}').say, isNull);
+    expect(PlayerReply.parse('{"say":"N/A"}').say, isNull);
+    expect(PlayerReply.parse('{"say":"hola"}').say, 'hola');
+    expect(PlayerReply.parse('null').say, isNull);
+  });
+
+  test('place-words send the curious to look (alias matching)', () async {
+    final b = await _boot();
+    final e = b.engine;
+    e.engage('a'); // Ana: curiosity 5
+    await for (final _ in e.sendPlayerMessage('the altar glows after dark')) {}
+    expect(e.agents['a']!.errand?.kind, 'verify');
+    expect(e.agents['a']!.errand?.targetId, 'ofrenda',
+        reason: '"altar" is an ofrenda alias — should trigger the verify errand');
+    e.disengage();
+  });
+
+  // Personas with ≥4-char ids — directive matching ignores short ids by
+  // design ("luz" must not match inside everyday words).
+  Future<SimBundle> bootNamed({LLMClient? llm}) async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    final dir = await Directory.systemTemp.createTemp('simtest');
+    const personas = '''
+[{"id":"anita","name":"Anita","role":"s","persona":"kind","stats":{"curiosity":5,"wit":1,"warmth":5,"spirit_sight":0,"mischief":0,"grump":0},"home":"p1","sprite":"sk_base","initial_secrets":[]},
+ {"id":"bruno","name":"Bruno","role":"s","persona":"plain","stats":{"curiosity":1,"wit":1,"warmth":1,"spirit_sight":0,"mischief":0,"grump":0},"home":"p2","sprite":"sk_base","initial_secrets":["s1"]}]
+''';
+    return bootstrap(
+      personasJson: personas,
+      secretsJson: _secrets,
+      pois: const [
+        Poi(id: 'p1', name: 'P1', surfaceText: 'just a lane', x: 0, y: 0),
+        Poi(id: 'p2', name: 'P2', surfaceText: 'just a stall', x: 10, y: 10),
+        Poi(id: 'ofrenda', name: 'Ofrenda', surfaceText: 'the shrine', x: 40, y: 40),
+      ],
+      homePos: const {'p1': [0, 0], 'p2': [10, 10]},
+      llm: llm ?? MockLLMClient(seed: 1),
+      rng: Random(1),
+      freshDb: true,
+      dbPath: '${dir.path}/t.db',
+    );
+  }
+
+  test('"ask bruno about his secret" sends the spirit to him — and it lands',
+      () async {
+    final b = await bootNamed();
+    final e = b.engine;
+    // park them close so the approach resolves fast
+    e.agents['anita']!.x = 0; e.agents['anita']!.y = 0;
+    e.agents['bruno']!.x = 40; e.agents['bruno']!.y = 0;
+    e.engage('anita');
+    await for (final _ in e.sendPlayerMessage('ask bruno about his secret')) {}
+    e.disengage();
+    expect(e.agents['anita']!.errand?.targetId, 'bruno',
+        reason: 'the imperative routes a seek errand to the named spirit');
+    // approach is in flight — pump until the ask-convo lands
+    await _pump(e, ticks: 30);
+    expect(
+      e.conversations.isNotEmpty || e.agents['anita']!.inConvo,
+      isTrue,
+      reason: 'anita should reach bruno and start talking',
+    );
+    // the audit trail shows the routing
+    final log = await b.store.tailLog(10);
+    expect(log.any((r) => r['kind'] == 'directive'), isTrue);
+    expect(log.any((r) => r['kind'] == 'reply'), isTrue);
+  });
+
+  test('a whisper about someone can be sent straight to them', () async {
+    final llm = _ScriptedLLM()
+      ..forcedReply = '{"say":"oh?","react":"curious","believes":true}';
+    final b = await bootNamed(llm: llm);
+    final e = b.engine;
+    e.agents['anita']!.x = 0; e.agents['anita']!.y = 0;
+    e.agents['bruno']!.x = 40; e.agents['bruno']!.y = 0;
+    e.engage('anita');
+    await for (final _ in e.sendPlayerMessage('go tell bruno the fountain is haunted')) {}
+    e.disengage();
+    await _pump(e, ticks: 40);
+    expect(
+      e.claims.values.any((cl) => cl.version.containsKey('bruno')),
+      isTrue,
+      reason: 'the claim should reach its subject via the directed carrier',
+    );
+  });
+
   // =============== player-planted rumors (D1/D2) + P0 fixes ===============
 
   test('mischievous teller passes the embellished variant, not the truth',
