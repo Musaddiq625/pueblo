@@ -255,6 +255,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   /// Wired to _PuebloAppState._dumpFrame in main.dart.
   static Future<String> Function()? shotHook;
   static void Function()? rosterHook; // DRIVER 'roster' → open the sheet
+  static Future<void> Function()? resetHook; // DRIVER 'reset' → fresh world
 
   // ---------------- driver bridge (DRIVER=true runs only) ----------------
   //
@@ -400,6 +401,13 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
             .toList()
             .reversed
             .join('\n');
+      case 'reset':
+        // New day — full fresh world: memories, claims, knowledge, the
+        // lot. Same path as the resolution card's button.
+        final hook = resetHook;
+        if (hook == null) return 'ERR reset hook not wired';
+        await hook();
+        return 'ok world reset';
       case 'shot':
         final hook = shotHook;
         if (hook == null) return 'ERR shot hook not wired';

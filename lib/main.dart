@@ -186,6 +186,8 @@ class _PuebloAppState extends State<PuebloApp> {
       return '${dir.path}/pueblo_frame.png';
     };
     PuebloGame.rosterHook = () => setState(() => rosterOpen = true);
+    // DRIVER 'reset' → same fresh-world path as the resolution card.
+    PuebloGame.resetHook = widget.onNewDay;
     // SHOT=<sec> → first capture delay. SHOTN=<n> frames, SHOTEACH=<ms>
     // spacing (default 1000). Files: pueblo_frame.png, pueblo_frame_1.png…
     const shotSec = int.fromEnvironment('SHOT');

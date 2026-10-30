@@ -913,8 +913,11 @@ void main() {
     await for (final _
         in e.sendPlayerMessage('you have to find out')) {}
     e.disengage();
-    expect(e.claims, isEmpty,
-        reason: 'imperative follow-ups are orders, not rumors to plant');
+    expect(e.claims, hasLength(1),
+        reason: 'the declarative front seeds — only the imperative tail '
+            'stays an order, and "you have to find out" names nothing');
+    expect(e.claims.values.first.text, contains('bruno'),
+        reason: 'the claim carries the rumor, not the order');
     for (var i = 0;
         i < 160 && !e.conversations.isNotEmpty && !e.agents['anita']!.inConvo;
         i++) {

@@ -1499,16 +1499,45 @@ class SimEngine {
           a,
           t,
           onNear: (ag, tt) {
+            // The ask is ABOUT something — the living one's seeded claim
+            // (subject) or a held askAbout goal. Interrogate on topic:
+            // prefer a secret that answers the question, fall back to
+            // whatever they hold. Without this the convo recites an
+            // arbitrary secret while the named topic goes ignored.
+            final aboutClaim = claims[subject];
+            final aboutGoal = ag.goal?.startsWith('askAbout:') == true
+                ? ag.goal!.split(':').last
+                : null;
+            final askedAbout = aboutClaim != null
+                ? aboutClaim.heardBy(ag.id)
+                : aboutGoal;
             final diff = tt.knownSecrets.difference(ag.knownSecrets);
-            var sid = diff.isEmpty ? null : diff.first;
+            String? sid;
+            if (aboutGoal != null) {
+              for (final s in diff) {
+                final sec = secrets[s];
+                if (sec != null &&
+                    (sec.unlocksPoiLore == aboutGoal ||
+                        sec.aboutAgent == aboutGoal)) {
+                  sid = s;
+                  break;
+                }
+              }
+            }
+            sid ??= diff.isEmpty ? null : diff.first;
             if (sid != null) sid = _distorted(tt, ag, sid);
             startConversation(
               ag.id,
               tt.id,
+              askedAbout: askedAbout,
               purpose: sid == null
                   ? null
                   : (holder: tt.id, subject: sid, isClaim: false),
             );
+            if (askedAbout != null) {
+              _emit(ag, SimEventType.emote, {'agent': ag.id, 'glyph': '❓'});
+            }
+            if (aboutGoal != null) ag.goal = null; // the question was asked
           },
         );
         return;
@@ -2143,10 +2172,11 @@ class SimEngine {
       var directiveTo = false;
       Agent? directiveTarget;
       var asking = false;
-      if (RegExp(
+      final imperative = RegExp(
         r'\b(ask|tell|go|find|visit|talk|speak|fetch|bring|pregunta|dile|habla|busca|anda)\b',
         caseSensitive: false,
-      ).hasMatch(text)) {
+      ).firstMatch(text);
+      if (imperative != null) {
         final norm = _normId(text);
         for (final o in agents.values) {
           if (o.id == a.id) continue;
@@ -2178,12 +2208,25 @@ class SimEngine {
         caseSensitive: false,
       ).hasMatch(text);
       // Planting rule: a tell-directive seeds its payload; a plain
-      // declarative seeds itself. Asking never plants — "find out",
-      // "ask Bruno" are orders to inquire, and the imperative tail
-      // ("find out") must not ride along as rumor text.
+      // declarative seeds itself. An ask-order may still CARRY a rumor
+      // in front of it — "Bruno got some secrets, near grave 37, ask
+      // people nearby" — strip the imperative tail and seed what came
+      // before, when it actually names someone or somewhere worth
+      // carrying. Bare "find out"/"you have to find out" leaves nothing
+      // a rumor could hang on, so it plants nothing.
+      var rumorText = text;
+      if (asking && imperative != null) {
+        rumorText = text
+            .substring(0, imperative.start)
+            .replaceAll(RegExp(r'[,\s]+$'), '')
+            .trim();
+        if (rumorText.isNotEmpty && !_mentionsEntity(rumorText)) {
+          rumorText = '';
+        }
+      }
       final planted =
-          (!asking && (directiveTo || !isAsk) && _normId(text).length >= 6)
-              ? _plantClaim(a, text)
+          ((directiveTo || !isAsk) && _normId(rumorText).length >= 6)
+              ? (rumorText.isEmpty ? null : _plantClaim(a, rumorText))
               : null;
       final t = directiveTarget;
       if (t != null) {
@@ -2212,7 +2255,8 @@ class SimEngine {
         // is who was named (the rumor-meets-its-subject shock).
         _directiveRetries.remove(a.id); // a fresh order gets fresh retries
         _pendingApproach[a.id] = asking
-            ? Decision('ask', t.id, 'the living one sent me')
+            ? Decision('ask', t.id, 'the living one sent me',
+                subject: planted?.id)
             : Decision(
                 'share',
                 t.id,
@@ -2788,6 +2832,27 @@ class SimEngine {
         return;
       }
     }
+  }
+
+  /// Does this text name anyone or anywhere the village knows? The gate
+  /// for seeding rumor out of an order — "you have to find out" points
+  /// at nothing and plants nothing.
+  bool _mentionsEntity(String text) {
+    final norm = _normId(text);
+    for (final o in agents.values) {
+      final idNorm = _normId(o.id);
+      final firstNorm = _normId(o.name.split(' ').first);
+      if ((idNorm.length >= 4 && norm.contains(idNorm)) ||
+          (firstNorm.length >= 4 && norm.contains(firstNorm))) {
+        return true;
+      }
+    }
+    for (final p in pois.values) {
+      if (norm.contains(_normId(p.id)) || norm.contains(_normId(p.name))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// POI inspect — deep lore iff player knows an unlocking secret.
