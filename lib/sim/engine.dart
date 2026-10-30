@@ -2287,14 +2287,12 @@ class SimEngine {
           // let it ride so she delivers the whisper AND THEN goes to
           // see for herself. A 'seek'/'tell' errand is the living one's
           // directive — never touched here.
-          if (a.errand == null) {
-            a.errand = (
-              kind: 'tell',
-              targetId: target,
-              claim: true,
-              subject: planted.id,
-            );
-          }
+          a.errand ??= (
+            kind: 'tell',
+            targetId: target,
+            claim: true,
+            subject: planted.id,
+          );
           // An errand is only a suggestion — the next decision could stroll
           // right past it. Queue the approach instead: on release the
           // spirit walks to their confidant and the hop actually lands.
