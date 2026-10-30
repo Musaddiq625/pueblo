@@ -41,9 +41,17 @@ class _InspectCardState extends State<InspectCard> {
   @override
   void initState() {
     super.initState();
-    // Tap a spirit → start typing — the field takes focus as the card opens.
+    // Tap a spirit → start typing — the field takes focus as the card
+    // opens, and their shared history returns with it: a conversation
+    // picks up where it left off instead of starting cold.
+    _msgs.addAll(widget.engine
+        .playerHistoryFor(widget.engine.engagedId ?? '')
+        .map((m) => (m.isUser, m.text)));
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focus.requestFocus();
+      if (mounted) {
+        _focus.requestFocus();
+        _toBottom();
+      }
     });
   }
 

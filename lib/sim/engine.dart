@@ -90,7 +90,19 @@ class SimEngine {
   final Map<String, int> playerInventory = {}; // itemId -> count
   final Map<String, int> playerChatCount = {}; // agentId -> msgs (warmth)
   String? engagedId;
-  final List<ChatMsg> playerHist = [];
+  /// Per-spirit chat history with the living one — a spirit remembers its
+  /// own conversations across engagements (Sefa never sees what you told
+  /// Luz). Capped so a long festival doesn't grow a transcript without
+  /// end; the durable gist lives in the memory store regardless.
+  final Map<String, List<ChatMsg>> _playerHists = {};
+  static const _playerHistCap = 30;
+
+  List<ChatMsg> _hist(String id) => _playerHists.putIfAbsent(id, () => []);
+
+  /// The transcript for a spirit — the inspect card restores it on
+  /// reopen so a returned conversation picks up where it left off.
+  List<ChatMsg> playerHistoryFor(String agentId) =>
+      List.unmodifiable(_playerHists[agentId] ?? const []);
 
   /// Spirits who received a gift from the player — counts as rapport for
   /// the rumor gate (a kindness bought, remembered).
@@ -2051,7 +2063,6 @@ class SimEngine {
       a.faded = false;
     }
     engagedId = agentId;
-    playerHist.clear();
     _events.add(
       SimEvent(SimEventType.state, {
         'agent': agentId,
@@ -2086,7 +2097,11 @@ class SimEngine {
     if (a == null || _playerBusy) return;
     _playerBusy = true;
     try {
-      playerHist.add(ChatMsg(true, text));
+      final hist = _hist(a.id);
+      hist.add(ChatMsg(true, text));
+      if (hist.length > _playerHistCap) {
+        hist.removeRange(0, hist.length - _playerHistCap);
+      }
       playerChatCount[a.id] = (playerChatCount[a.id] ?? 0) + 1;
       // Speaking a name: if the player knows a secret that names a fading
       // spirit (wakes_agent) and speaks that spirit's name, the engaged
@@ -2218,9 +2233,7 @@ class SimEngine {
           : null;
       final prompt = prompts.playerChatPrompt(
         a,
-        history: playerHist.length > 8
-            ? playerHist.sublist(playerHist.length - 8)
-            : playerHist,
+        history: hist.length > 8 ? hist.sublist(hist.length - 8) : hist,
         memories: memories.map((m) => m.text).toList(),
         rumors: _heldRumors(a),
         note: note,
@@ -2322,7 +2335,7 @@ class SimEngine {
       }
       final say = reply.say;
       if (say != null && say.isNotEmpty) {
-        playerHist.add(ChatMsg(false, say));
+        hist.add(ChatMsg(false, say));
         unawaited(
           store.memory(
             Memory(
@@ -2340,7 +2353,7 @@ class SimEngine {
       } else {
         // They just take it in — a nonverbal beat, no invented words.
         final beat = _reactBeat(reply.react);
-        playerHist.add(ChatMsg(false, beat));
+        hist.add(ChatMsg(false, beat));
         unawaited(
           store.memory(
             Memory(

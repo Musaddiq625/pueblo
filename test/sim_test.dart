@@ -861,6 +861,24 @@ void main() {
     );
   });
 
+  test('chat history survives release — kept per spirit, not shared',
+      () async {
+    // Regression: playerHist used to clear on every engage — reopening a
+    // spirit forgot the whole conversation and repeats felt bot-like.
+    final b = await bootNamed();
+    final e = b.engine;
+    e.engage('anita');
+    await for (final _ in e.sendPlayerMessage('the fountain is haunted')) {}
+    expect(e.playerHistoryFor('anita'), isNotEmpty);
+    e.engage('bruno'); // auto-releases anita
+    expect(e.playerHistoryFor('bruno'), isEmpty,
+        reason: 'bruno never heard what was said to anita');
+    e.engage('anita'); // back to her — the thread returns
+    final h = e.playerHistoryFor('anita');
+    expect(h.any((m) => m.isUser && m.text.contains('fountain')), isTrue,
+        reason: 'anita remembers what the living one told her earlier');
+  });
+
   test('a whisper about someone can be sent straight to them', () async {
     final llm = _ScriptedLLM()
       ..forcedReply = '{"say":"oh?","react":"curious","believes":true}';
