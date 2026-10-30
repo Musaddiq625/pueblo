@@ -797,6 +797,7 @@ void main() {
         Poi(id: 'p1', name: 'P1', surfaceText: 'just a lane', x: 0, y: 0),
         Poi(id: 'p2', name: 'P2', surfaceText: 'just a stall', x: 10, y: 10),
         Poi(id: 'ofrenda', name: 'Ofrenda', surfaceText: 'the shrine', x: 40, y: 40),
+        Poi(id: 'grave_37', name: 'Grave 37', surfaceText: 'nameless stone', x: 60, y: 60),
       ],
       homePos: const {'p1': [0, 0], 'p2': [10, 10]},
       llm: llm ?? MockLLMClient(seed: 1),
@@ -829,6 +830,35 @@ void main() {
     final log = await b.store.tailLog(10);
     expect(log.any((r) => r['kind'] == 'directive'), isTrue);
     expect(log.any((r) => r['kind'] == 'reply'), isTrue);
+  });
+
+  test('"hiding a secret" is a rumor, not a question — plants, steers reply, sparks curiosity',
+      () async {
+    // Regression: "Bruno hiding a secret near grave 37" contains the word
+    // 'secret' and used to be classified as an ask — no claim planted, no
+    // curiosity, and the model free-associated its own stories instead.
+    final llm = _ScriptedLLM()
+      ..forcedReply = '{"say":"oh?","react":"curious","believes":true}';
+    final b = await bootNamed(llm: llm);
+    final e = b.engine;
+    e.engage('anita');
+    await for (final _
+        in e.sendPlayerMessage('bruno hiding a secret near grave 37')) {}
+    expect(e.claims, isNotEmpty,
+        reason: 'a rumor containing "secret" is still a rumor — it must plant');
+    expect(e.claims.values.first.about, contains('bruno'),
+        reason: 'the claim should tag its named subject');
+    expect(e.agents['anita']!.goal, 'askAbout:grave_37',
+        reason: 'naming a place makes the spirit want to know about it');
+    expect(e.agents['anita']!.errand?.kind, 'tell',
+        reason: 'the rumor earns a carrier — the whisper hop outranks '
+            'ambient verify curiosity, and the goal survives for later');
+    // the prompt tells the model it was handed a rumor — to weigh, not derail
+    expect(
+      llm.prompts.last,
+      contains('RUMOR'),
+      reason: 'the spirit should be told to react to the rumor itself',
+    );
   });
 
   test('a whisper about someone can be sent straight to them', () async {

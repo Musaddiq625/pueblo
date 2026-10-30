@@ -112,6 +112,10 @@ JSON: {"line":"...","shares_secret":"id|null","end":true|false,"mood":"neutral|w
     required List<ChatMsg> history,
     required List<String> memories,
     List<String> rumors = const [],
+    // Engine-classified context for what the message IS — a rumor just
+    // planted, an order just given. The model answers the register the
+    // engine detected instead of guessing off the bare text.
+    String? note,
   }) {
     final s = a.stats;
     final grumpNote = s.grump >= 4
@@ -135,7 +139,7 @@ $hist
 The living one JUST said that last line — respond to IT directly: answer it,
 question it, doubt it, run with it. Do NOT recite your memories or secrets
 unprompted; weave them in only if they answer what was said. You may reply
-aloud OR simply react without words.
+aloud OR simply react without words.${note == null ? '' : '\nNOTE: $note'}
 Reply ONLY JSON:
 {"say":"≤25 words answering their last message, in your voice — or null to stay silent",
  "react":"shock|curious|warm|wary|amused|none",

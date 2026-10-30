@@ -2112,33 +2112,6 @@ class SimEngine {
         }
         break;
       }
-      final memories = await store.recall(
-        a,
-        simTs,
-        contextEntities: {'player'},
-      );
-      final prompt = prompts.playerChatPrompt(
-        a,
-        history: playerHist.length > 8
-            ? playerHist.sublist(playerHist.length - 8)
-            : playerHist,
-        memories: memories.map((m) => m.text).toList(),
-        rumors: _heldRumors(a),
-      );
-      // Player claim → memory as claim, not fact.
-      unawaited(
-        store.memory(
-          Memory(
-            agent: a.id,
-            simTs: simTs,
-            kind: 'heard',
-            source: 'player_claim',
-            text: 'the living one said: $text',
-            importance: 5,
-            entities: ['player'],
-          ),
-        ),
-      );
       // Claims move the world — naming a place sends the curious to look;
       // naming a spirit becomes a question to carry (D2).
       _claimCuriosityFromText(a, text);
@@ -2177,19 +2150,23 @@ class SimEngine {
         directiveTo = directiveTarget != null;
       }
       // A declarative message plants a Claim — free text that circulates
-      // mouth-to-mouth. Question-shaped messages ask, not seed (D-rumors) —
-      // unless the shape is a tell-directive, whose payload IS the rumor.
+      // mouth-to-mouth. Only true question shapes ask instead of seeding:
+      // a '?' mark, an interrogative opener, or an outright demand
+      // ("tell me", "do you know"). A rumor that merely CONTAINS the word
+      // 'secret' is still a rumor — "Bruno hiding a secret" must plant.
       final isAsk = RegExp(
-        r'\?|secret|news|heard|know|tell|learn|rumor|chisme|cuentame|pasa',
+        r'\?|^(who|what|where|when|why|how|did|does|do|is|are|was|were|can|could|should|would|que|quien|donde|como|cuando)\b'
+        r'|\b(tell me|do you|have you|got any|any news|any secret|any rumor|know any|cuentame|dime)\b',
         caseSensitive: false,
       ).hasMatch(text);
-      // And an ask-shaped imperative with no target ("find out", "go see")
-      // is an order to THIS spirit — not a whisper to plant and carry.
-      final planted = ((!isAsk || (directiveTo && !asking)) &&
-              !(asking && !directiveTo) &&
-              _normId(text).length >= 6)
-          ? _plantClaim(a, text)
-          : null;
+      // Planting rule: a tell-directive seeds its payload; a plain
+      // declarative seeds itself. Asking never plants — "find out",
+      // "ask Bruno" are orders to inquire, and the imperative tail
+      // ("find out") must not ride along as rumor text.
+      final planted =
+          (!asking && (directiveTo || !isAsk) && _normId(text).length >= 6)
+              ? _plantClaim(a, text)
+              : null;
       final t = directiveTarget;
       if (t != null) {
         a.errand = (
@@ -2222,6 +2199,50 @@ class SimEngine {
                 subject: planted?.id,
               );
       }
+      final memories = await store.recall(
+        a,
+        simTs,
+        contextEntities: {'player'},
+      );
+      // The model is told WHAT the message was — a rumor demands a
+      // reaction to the rumor itself; an order demands acknowledgment.
+      // Without this the spirit free-associates off its memory block and
+      // steers back to its own thread instead of following the player's.
+      final note = planted != null
+          ? 'The living one just handed you a RUMOR'
+                '${planted.about.isNotEmpty ? ' about ${planted.about.map((e) => agents[e]?.name.split(' ').first ?? e).join(', ')}' : ''}'
+                ' ("$text"). Weigh it out loud — believe it, doubt it, or'
+                ' want the rest — but stay on THEIR thread, not yours. Do'
+                ' not pivot to an unrelated story of your own.'
+          : t != null
+          ? 'The living one just gave you an order — '
+                '${asking ? 'go question ${t.name}' : 'carry their whisper to ${t.name}'}.'
+                ' Acknowledge the task in your own voice — accept, balk,'
+                ' or bargain — but acknowledge it.'
+          : null;
+      final prompt = prompts.playerChatPrompt(
+        a,
+        history: playerHist.length > 8
+            ? playerHist.sublist(playerHist.length - 8)
+            : playerHist,
+        memories: memories.map((m) => m.text).toList(),
+        rumors: _heldRumors(a),
+        note: note,
+      );
+      // Player claim → memory as claim, not fact.
+      unawaited(
+        store.memory(
+          Memory(
+            agent: a.id,
+            simTs: simTs,
+            kind: 'heard',
+            source: 'player_claim',
+            text: 'the living one said: $text',
+            importance: 5,
+            entities: ['player'],
+          ),
+        ),
+      );
       final buf = StringBuffer();
       await for (final chunk in llm.playerChat(prompt)) {
         buf.write(chunk);
