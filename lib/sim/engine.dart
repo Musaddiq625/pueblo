@@ -821,6 +821,7 @@ class SimEngine {
       errand: _describeErrand(agent),
       rescue: rescue,
       reflection: _reflCache[agent.id],
+      rumors: _heldRumors(agent),
     );
     broker.push(JobKind.decision, agent.id, prompt, agent.stateVersion);
     _refreshMemories(agent);
@@ -1034,7 +1035,9 @@ class SimEngine {
             ? 'the living one\'s words burn in you — carry them to ${agents[e.targetId]?.name ?? e.targetId}'
             : 'you carry news ${agents[e.targetId]?.name ?? e.targetId} hasn\'t heard — find them',
       'seek' =>
-        agents[e.targetId]?.faded == true
+        _pendingApproach[a.id]?.thought == 'the living one sent me'
+            ? 'the living one asked you to reach ${agents[e.targetId]?.name ?? e.targetId} — go'
+            : agents[e.targetId]?.faded == true
             ? '${agents[e.targetId]!.name} is fading and you hold their name — reach them'
             : 'you feel dim — find company before the day takes you',
       _ => 'your routine — check on ${pois[e.targetId]?.name ?? e.targetId}',
@@ -2184,7 +2187,10 @@ class SimEngine {
               : null;
       final t = directiveTarget;
       if (t != null) {
-        a.errand = (
+        // The pending approach below executes the order — the errand is
+        // bookkeeping only. A verify errand from the same message ("near
+        // grave 37") rides underneath: question first, then go look.
+        a.errand ??= (
           kind: 'seek',
           targetId: t.id,
           claim: false,

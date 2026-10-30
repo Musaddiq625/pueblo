@@ -34,6 +34,7 @@ class PromptBuilder {
     String? errand,
     String? rescue,
     String? reflection,
+    List<String> rumors = const [],
   }) {
     final s = a.stats;
     final warm = a.warmth.entries.where((e) => e.value > 0).toList()
@@ -48,7 +49,7 @@ Pueblo de las Velas, a village of the dead at festival. Stay in character.
 ${cast.isEmpty ? '' : '$cast\n'}Never invent people, places, or events.${rescue == null ? '' : '\nURGENT: $rescue'}
 Now: $simClock. You stand at $place. Nearby: $nearbyEntities.${a.mood == null ? '' : ' Feeling: ${a.mood}.'}$bonds
 You remember: ${memories.isEmpty ? 'nothing recent' : memories.join(' | ')}.${reflection == null ? '' : '\nYou\'ve been thinking: $reflection'}
-Secrets you know: [${_secretsBlock(a)}]${errand == null ? '' : '\nYour errand: $errand.'}
+Secrets you know: [${_secretsBlock(a)}]${rumors.isEmpty ? '' : '\nRumors you carry (gossip, not fact): ${rumors.join(' | ')}'}${errand == null ? '' : '\nYour errand: $errand.'}
 Choose ONE of: ${allowedActions.join(', ')}.
 - share(who,secret_id): tell them a secret they haven't heard — knowledge passes mouth to ear.
 - ask(who): draw out something they know that you don't.
@@ -58,7 +59,7 @@ Choose ONE of: ${allowedActions.join(', ')}.
 - inspect(poi)/shop(poi)/stroll/idle: move or observe.
 For share() put the who in "target" and the secret_id in "subject".
 Reply ONLY JSON:
-{"thought":"≤15 tokens","action":"...","target":"..|null","subject":"..|null","line":"≤12 words","mood":"neutral|warm|curious|sad|scared"}''';
+{"thought":"≤15 tokens — inner voice tied to your errand, a rumor you carry, or who stands near; never generic filler","action":"...","target":"..|null","subject":"..|null","line":"≤12 words — what you'd say aloud, about YOUR business here","mood":"neutral|warm|curious|sad|scared"}''';
   }
 
   /// ONE speaker's next turn — partner's private state never appears here.
