@@ -192,9 +192,17 @@ class SimEngine {
   /// at the initiator's next decision slot, then the moment passes (§11.9).
   final Map<String, Decision> _pendingApproach = {};
 
-  /// Player-issued directive retries — a queued order gets up to 3 shots at
-  /// a busy target before it is dropped (and the drop is logged).
+  /// Player-issued directive retries — a queued order gets up to 6 shots at
+  /// a busy target, spaced by [_directiveBackoff] so a long convo doesn't
+  /// burn them all in consecutive ticks (and the drop is logged).
   final Map<String, int> _directiveRetries = {};
+  final Map<String, double> _directiveBackoff = {};
+
+  /// A player order that found legs — an arrival walk is in flight. If an
+  /// outside interruption kills the walk (another spirit pulls them into
+  /// a convo, or the living one grabs them), the order re-queues from
+  /// here instead of vanishing. Cleared when the arrival actually fires.
+  final Map<String, Decision> _directiveWalks = {};
 
   String _pairKey(String a, String b) => a.compareTo(b) < 0 ? '$a:$b' : '$b:$a';
 
@@ -320,6 +328,12 @@ class SimEngine {
     _walks.remove(bId);
     _arrivals.remove(aId);
     _arrivals.remove(bId);
+    // A convo just stole their legs — if either was carrying out the
+    // living one's order, queue it back so it survives the small talk.
+    for (final id in [aId, bId]) {
+      final lost = _directiveWalks.remove(id);
+      if (lost != null) _pendingApproach[id] = lost;
+    }
     _releaseSlot(aId);
     _releaseSlot(bId);
     a.heldBy = b.heldBy = null;
@@ -646,7 +660,11 @@ class SimEngine {
     final Agent agent;
     final pendingIds = _pendingApproach.keys.where((id) {
       final a = agents[id];
-      return a != null && !a.engaged && !a.inConvo && a.heldBy == null;
+      return a != null &&
+          !a.engaged &&
+          !a.inConvo &&
+          a.heldBy == null &&
+          simTs >= (_directiveBackoff[id] ?? 0);
     });
     if (pendingIds.isNotEmpty) {
       agent = agents[pendingIds.first]!;
@@ -673,17 +691,21 @@ class SimEngine {
     // bounded retry — a dropped directive reads as "they ignored me".
     final pending = _pendingApproach.remove(agent.id);
     if (pending != null) {
+      _directiveBackoff.remove(agent.id);
       _execute(agent, pending, canDefer: false);
       // Success = an arrival walk or a convo in flight; anything else means
       // the target was busy and the intent fell to _fallbackStroll.
       final inFlight = _arrivals.containsKey(agent.id) ||
           agent.inConvo ||
           _pendingApproach.containsKey(agent.id);
-      if (!inFlight && pending.thought == 'the living one sent me') {
-        final tries =
-            (_directiveRetries[agent.id] ?? 0) + 1;
-        if (tries <= 3) {
+      final isOrder = pending.thought == 'the living one sent me';
+      if (!inFlight && isOrder) {
+        // Busy target — re-try on an 8-sim-s backoff so a long convo
+        // doesn't eat all three retries inside three ticks.
+        final tries = (_directiveRetries[agent.id] ?? 0) + 1;
+        if (tries <= 6) {
           _directiveRetries[agent.id] = tries;
+          _directiveBackoff[agent.id] = simTs + 8;
           _pendingApproach[agent.id] = pending;
           unawaited(
             store.simLog(
@@ -706,6 +728,12 @@ class SimEngine {
         }
       } else {
         _directiveRetries.remove(agent.id);
+        // A real walk in flight — track it: if an outside convo (or the
+        // living one grabbing them) kills the legs, the order re-queues
+        // instead of vanishing.
+        if (isOrder && _arrivals.containsKey(agent.id)) {
+          _directiveWalks[agent.id] = pending;
+        }
       }
       return;
     }
@@ -1744,6 +1772,10 @@ class SimEngine {
     t.heldUntil = simTs + holdFor;
     _walks.remove(t.id); // pause mid-path — someone is coming to talk
     _arrivals.remove(t.id);
+    // Same for the approached: a held spirit's directive-walk re-queues
+    // so the living one's order outlives the interruption.
+    final heldOrder = _directiveWalks.remove(t.id);
+    if (heldOrder != null) _pendingApproach[t.id] = heldOrder;
     _releaseSlot(t.id);
     _stopVisual(t);
 
@@ -1927,6 +1959,7 @@ class SimEngine {
         _walks.remove(id);
         final arrive = _arrivals.remove(id);
         if (arrive != null) {
+          _directiveWalks.remove(id); // landed — the order reached its mark
           arrive(this, a);
         } else {
           // dwell a beat, then the ambient brain picks the next hop
@@ -2082,6 +2115,10 @@ class SimEngine {
     _abortConvoWith(agentId); // releases partner with a memory below
     _walks.remove(agentId); // freeze mid-path at current position
     _arrivals.remove(agentId);
+    // The living one interrupted a walking order — re-queue it so it
+    // fires when this engagement ends.
+    final grabbedOrder = _directiveWalks.remove(agentId);
+    if (grabbedOrder != null) _pendingApproach[agentId] = grabbedOrder;
     _stopVisual(a); // sim froze — the renderer must not finish the lerp
     _releaseSlot(agentId);
     a.heldBy = null; // being held no longer applies — the player wins
@@ -2254,15 +2291,14 @@ class SimEngine {
         // 'share' carries the whisper itself — to its subject, if that
         // is who was named (the rumor-meets-its-subject shock).
         _directiveRetries.remove(a.id); // a fresh order gets fresh retries
+        // The order marker must sit in `thought` — Decision's third
+        // positional is `line`, which is why retries/interruption-recovery
+        // (and the hop's don't-stomp-orders check) could never see it.
         _pendingApproach[a.id] = asking
-            ? Decision('ask', t.id, 'the living one sent me',
-                subject: planted?.id)
-            : Decision(
-                'share',
-                t.id,
-                'the living one sent me',
-                subject: planted?.id,
-              );
+            ? Decision('ask', t.id, '',
+                thought: 'the living one sent me', subject: planted?.id)
+            : Decision('share', t.id, '',
+                thought: 'the living one sent me', subject: planted?.id);
       }
       final memories = await store.recall(
         a,

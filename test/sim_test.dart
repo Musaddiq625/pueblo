@@ -788,7 +788,8 @@ void main() {
     final dir = await Directory.systemTemp.createTemp('simtest');
     const personas = '''
 [{"id":"anita","name":"Anita","role":"s","persona":"kind","stats":{"curiosity":5,"wit":1,"warmth":5,"spirit_sight":0,"mischief":0,"grump":0},"home":"p1","sprite":"sk_base","initial_secrets":[]},
- {"id":"bruno","name":"Bruno","role":"s","persona":"plain","stats":{"curiosity":1,"wit":1,"warmth":1,"spirit_sight":0,"mischief":0,"grump":0},"home":"p2","sprite":"sk_base","initial_secrets":["s1"]}]
+ {"id":"bruno","name":"Bruno","role":"s","persona":"plain","stats":{"curiosity":1,"wit":1,"warmth":1,"spirit_sight":0,"mischief":0,"grump":0},"home":"p2","sprite":"sk_base","initial_secrets":["s1"]},
+ {"id":"carmen","name":"Carmen","role":"s","persona":"warm","stats":{"curiosity":1,"wit":1,"warmth":3,"spirit_sight":0,"mischief":0,"grump":0},"home":"p1","sprite":"sk_base","initial_secrets":[]}]
 ''';
     return bootstrap(
       personasJson: personas,
@@ -819,12 +820,22 @@ void main() {
     e.disengage();
     expect(e.agents['anita']!.errand?.targetId, 'bruno',
         reason: 'the imperative routes a seek errand to the named spirit');
-    // approach is in flight — pump until the ask-convo lands
-    await _pump(e, ticks: 30);
+    // approach is in flight — pump until the ask-convo lands and the
+    // secret transfers (done convos are swept, so inConvo is transient)
+    for (var i = 0;
+        i < 160 &&
+            !e.agents['anita']!.knownSecrets.contains('s1') &&
+            e.conversations.isEmpty;
+        i++) {
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
     expect(
-      e.conversations.isNotEmpty || e.agents['anita']!.inConvo,
+      e.agents['anita']!.knownSecrets.contains('s1') ||
+          e.conversations.isNotEmpty ||
+          e.agents['anita']!.inConvo,
       isTrue,
-      reason: 'anita should reach bruno and start talking',
+      reason: 'anita should reach bruno and draw out his secret',
     );
     // the audit trail shows the routing
     final log = await b.store.tailLog(10);
@@ -877,6 +888,47 @@ void main() {
     final h = e.playerHistoryFor('anita');
     expect(h.any((m) => m.isUser && m.text.contains('fountain')), isTrue,
         reason: 'anita remembers what the living one told her earlier');
+  });
+
+  test('a directive walk interrupted by another convo re-queues and lands',
+      () async {
+    // Regression: the order marker sat in Decision.line (a positional
+    // arg), so `thought` was null — retries, interruption-recovery, and
+    // the hop's don't-stomp-orders check never armed. A pulled-aside
+    // carrier lost the order forever.
+    final llm = _ScriptedLLM()
+      ..forcedReply = '{"say":"hm?","react":"curious","believes":true}';
+    final b = await bootNamed(llm: llm);
+    final e = b.engine;
+    e.agents['anita']!.x = 0; e.agents['anita']!.y = 0;
+    e.agents['bruno']!.x = 200; e.agents['bruno']!.y = 0; // far — walk takes a while
+    e.agents['carmen']!.x = 20; e.agents['carmen']!.y = 0;
+    e.engage('anita');
+    await for (final _ in e.sendPlayerMessage('ask bruno about his secret')) {}
+    e.disengage();
+    // let the directive fire and the walk get underway
+    for (var i = 0; i < 6 && !e.agents['anita']!.inConvo; i++) {
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    // carmen pulls her aside mid-walk — the order must survive the theft
+    e.startConversation('carmen', 'anita');
+    await _pump(e, ticks: 20); // let the interlude end + the order re-fire
+    for (var i = 0; i < 200; i++) {
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+      final hit = e.conversations.values.any(
+          (c) => (c.aId == 'anita' && c.bId == 'bruno') ||
+              (c.aId == 'bruno' && c.bId == 'anita'));
+      if (hit) break;
+    }
+    expect(
+      e.conversations.values.any((c) =>
+          (c.aId == 'anita' && c.bId == 'bruno') ||
+          (c.aId == 'bruno' && c.bId == 'anita')),
+      isTrue,
+      reason: 'the stolen walk re-queues — anita reaches bruno anyway',
+    );
   });
 
   test('a whisper about someone can be sent straight to them', () async {
