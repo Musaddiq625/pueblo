@@ -2115,8 +2115,14 @@ class SimEngine {
       ).hasMatch(text)) {
         final norm = _normId(text);
         for (final o in agents.values) {
-          if (o.id == a.id || o.id.length < 4) continue;
-          if (norm.contains(_normId(o.id))) {
+          if (o.id == a.id) continue;
+          // The living one names people the way people are named — "Bruno",
+          // "Abuela", "Violeta" — match id or first name, same ≥4-char
+          // guard against noise words.
+          final idNorm = _normId(o.id);
+          final firstNorm = _normId(o.name.split(' ').first);
+          if ((idNorm.length >= 4 && norm.contains(idNorm)) ||
+              (firstNorm.length >= 4 && norm.contains(firstNorm))) {
             directiveTarget = o;
             break;
           }
@@ -2215,6 +2221,15 @@ class SimEngine {
             kind: 'tell',
             targetId: target,
             claim: true,
+            subject: planted.id,
+          );
+          // An errand is only a suggestion — the next decision could stroll
+          // right past it. Queue the approach instead: on release the
+          // spirit walks to their confidant and the hop actually lands.
+          _pendingApproach[a.id] = Decision(
+            'share',
+            target,
+            'this cannot stay with me',
             subject: planted.id,
           );
           unawaited(
@@ -2489,13 +2504,19 @@ class SimEngine {
     return cl;
   }
 
-  /// Who a whisper is about — spirit ids and the honored dead, matched the
-  /// conservative way (ids ≥4 chars; "la luz" must not tag Tía Luz).
+  /// Who a whisper is about — spirit ids, first names, and the honored
+  /// dead, matched the conservative way (≥4 chars; "la luz" must not tag
+  /// Tía Luz).
   List<String> _claimAbout(String text) {
     final norm = _normId(text);
     final out = <String>[];
     for (final o in agents.values) {
-      if (o.id.length >= 4 && norm.contains(_normId(o.id))) out.add(o.id);
+      final idNorm = _normId(o.id);
+      final firstNorm = _normId(o.name.split(' ').first);
+      if ((idNorm.length >= 4 && norm.contains(idNorm)) ||
+          (firstNorm.length >= 4 && norm.contains(firstNorm))) {
+        out.add(o.id);
+      }
     }
     for (final s in secrets.values) {
       final ab = s.aboutAgent;
@@ -2666,8 +2687,11 @@ class SimEngine {
       }
     }
     for (final o in agents.values) {
-      if (o.id == a.id || o.id.length < 4) continue;
-      if (norm.contains(_normId(o.id))) {
+      if (o.id == a.id) continue;
+      final idNorm = _normId(o.id);
+      final firstNorm = _normId(o.name.split(' ').first);
+      if ((idNorm.length >= 4 && norm.contains(idNorm)) ||
+          (firstNorm.length >= 4 && norm.contains(firstNorm))) {
         a.goal ??= 'askAbout:${o.id}';
         return;
       }

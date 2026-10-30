@@ -1,264 +1,264 @@
 [
-  {
-    "id": "luz",
-    "name": "Tía Luz",
-    "role": "flower_seller",
-    "persona": "Warm, nosy, speaks in proverbs. Misses her kitchen and feeds everyone gossip like tortillas.",
-    "stats": {
-      "curiosity": 4,
-      "wit": 2,
-      "warmth": 5,
-      "spirit_sight": 1,
-      "mischief": 2,
-      "grump": 1
-    },
-    "home": "flower_stall",
-    "sprite": "tavern_b",
-    "initial_secrets": [],
-    "tint": "#F5A95B",
-    "hook": "feeds everyone gossip like tortillas; can't keep a secret past supper",
-    "schedule": [
-      {
-        "at": 180,
-        "poi": "plaza"
-      },
-      {
-        "at": 400,
-        "poi": "flower_stall"
-      }
-    ]
+ {
+  "id": "luz",
+  "name": "Tía Luz",
+  "role": "flower_seller",
+  "persona": "Warm, nosy, speaks in proverbs. Misses her kitchen and feeds everyone gossip like tortillas.",
+  "stats": {
+   "curiosity": 4,
+   "wit": 2,
+   "warmth": 5,
+   "spirit_sight": 1,
+   "mischief": 2,
+   "grump": 1
   },
-  {
-    "id": "bruno",
-    "name": "Bruno el Sepulturero",
-    "role": "gravedigger",
-    "persona": "Gruff, slow to trust, talks to graves more than people. Knows where every story is buried.",
-    "stats": {
-      "curiosity": 2,
-      "wit": 4,
-      "warmth": 1,
-      "spirit_sight": 3,
-      "mischief": 1,
-      "grump": 4
-    },
-    "home": "gravedigger_hut",
-    "sprite": "tavern_a",
-    "initial_secrets": [
-      "tree_is_hollow",
-      "grave_37_name"
-    ],
-    "tint": "#8E9AA8",
-    "hook": "counts graves when nervous; trusts stones more than spirits",
-    "schedule": [
-      {
-        "at": 200,
-        "poi": "cemetery_lane"
-      },
-      {
-        "at": 420,
-        "poi": "grave_37"
-      }
-    ]
+  "home": "flower_stall",
+  "sprite": "tavern_b",
+  "initial_secrets": [],
+  "tint": "#F5A95B",
+  "hook": "feeds everyone gossip like tortillas; can't keep a secret past supper",
+  "schedule": [
+   {
+    "at": 180,
+    "poi": "plaza"
+   },
+   {
+    "at": 400,
+    "poi": "flower_stall"
+   }
+  ]
+ },
+ {
+  "id": "bruno",
+  "name": "Bruno el Sepulturero",
+  "role": "gravedigger",
+  "persona": "Gruff, slow to trust, talks to graves more than people. Knows where every story is buried.",
+  "stats": {
+   "curiosity": 4,
+   "wit": 4,
+   "warmth": 1,
+   "spirit_sight": 3,
+   "mischief": 1,
+   "grump": 4
   },
-  {
-    "id": "sefa",
-    "name": "Doña Sefa",
-    "role": "cantina_owner",
-    "persona": "Serves aguas frescas and sharp observations. Nothing gets past the counter of La Catrina Feliz.",
-    "stats": {
-      "curiosity": 3,
-      "wit": 2,
-      "warmth": 3,
-      "spirit_sight": 1,
-      "mischief": 3,
-      "grump": 2
-    },
-    "home": "cantina",
-    "sprite": "tavern_b",
-    "initial_secrets": [
-      "cantina_recipe"
-    ],
-    "tint": "#5FD0BC",
-    "hook": "keeps her recipe closer than her rosary",
-    "schedule": [
-      {
-        "at": 240,
-        "poi": "flower_stall"
-      },
-      {
-        "at": 480,
-        "poi": "cantina"
-      }
-    ],
-    "dye": "#5FD0BC"
+  "home": "gravedigger_hut",
+  "sprite": "tavern_a",
+  "initial_secrets": [
+   "tree_is_hollow",
+   "grave_37_name"
+  ],
+  "tint": "#8E9AA8",
+  "hook": "counts graves when nervous; trusts stones more than spirits",
+  "schedule": [
+   {
+    "at": 200,
+    "poi": "cemetery_lane"
+   },
+   {
+    "at": 420,
+    "poi": "grave_37"
+   }
+  ]
+ },
+ {
+  "id": "sefa",
+  "name": "Doña Sefa",
+  "role": "cantina_owner",
+  "persona": "Serves aguas frescas and sharp observations. Nothing gets past the counter of La Catrina Feliz.",
+  "stats": {
+   "curiosity": 4,
+   "wit": 2,
+   "warmth": 3,
+   "spirit_sight": 1,
+   "mischief": 3,
+   "grump": 2
   },
-  {
-    "id": "ramon",
-    "name": "Ramón el Trovador",
-    "role": "musician",
-    "persona": "Turns everything he hears into verses. Would sing his own epitaph if it rhymed.",
-    "stats": {
-      "curiosity": 3,
-      "wit": 3,
-      "warmth": 4,
-      "spirit_sight": 2,
-      "mischief": 4,
-      "grump": 1
-    },
-    "home": "plaza",
-    "sprite": "tavern_a",
-    "initial_secrets": [],
-    "tint": "#E87AB8",
-    "hook": "versifies everything — a bad secret keeper in perfect meter",
-    "schedule": [
-      {
-        "at": 300,
-        "poi": "cantina"
-      },
-      {
-        "at": 500,
-        "poi": "plaza"
-      }
-    ],
-    "dye": "#E87AB8"
+  "home": "cantina",
+  "sprite": "tavern_b",
+  "initial_secrets": [
+   "cantina_recipe"
+  ],
+  "tint": "#5FD0BC",
+  "hook": "keeps her recipe closer than her rosary",
+  "schedule": [
+   {
+    "at": 240,
+    "poi": "flower_stall"
+   },
+   {
+    "at": 480,
+    "poi": "cantina"
+   }
+  ],
+  "dye": "#5FD0BC"
+ },
+ {
+  "id": "ramon",
+  "name": "Ramón el Trovador",
+  "role": "musician",
+  "persona": "Turns everything he hears into verses. Would sing his own epitaph if it rhymed.",
+  "stats": {
+   "curiosity": 4,
+   "wit": 3,
+   "warmth": 4,
+   "spirit_sight": 2,
+   "mischief": 4,
+   "grump": 1
   },
-  {
-    "id": "ines",
-    "name": "Abuela Inés",
-    "role": "memory_keeper",
-    "persona": "Sits by the fountain counting what the water remembers. Sees more than she says.",
-    "stats": {
-      "curiosity": 4,
-      "wit": 5,
-      "warmth": 4,
-      "spirit_sight": 4,
-      "mischief": 0,
-      "grump": 1
-    },
-    "home": "fountain",
-    "sprite": "wizzard",
-    "initial_secrets": [
-      "fountain_whisper",
-      "tree_watcher_hint"
-    ],
-    "tint": "#A98BE0",
-    "hook": "believes the fountain talks back — she's usually right",
-    "schedule": [
-      {
-        "at": 350,
-        "poi": "ofrenda"
-      }
-    ]
+  "home": "plaza",
+  "sprite": "tavern_a",
+  "initial_secrets": [],
+  "tint": "#E87AB8",
+  "hook": "versifies everything — a bad secret keeper in perfect meter",
+  "schedule": [
+   {
+    "at": 300,
+    "poi": "cantina"
+   },
+   {
+    "at": 500,
+    "poi": "plaza"
+   }
+  ],
+  "dye": "#E87AB8"
+ },
+ {
+  "id": "ines",
+  "name": "Abuela Inés",
+  "role": "memory_keeper",
+  "persona": "Sits by the fountain counting what the water remembers. Sees more than she says.",
+  "stats": {
+   "curiosity": 4,
+   "wit": 5,
+   "warmth": 4,
+   "spirit_sight": 4,
+   "mischief": 0,
+   "grump": 1
   },
-  {
-    "id": "solorio",
-    "name": "Solorio",
-    "role": "forgotten",
-    "persona": "Barely there, barely remembered. Answers in half sentences, hopes someone says his name.",
-    "stats": {
-      "curiosity": 1,
-      "wit": 2,
-      "warmth": 1,
-      "spirit_sight": 5,
-      "mischief": 0,
-      "grump": 2
-    },
-    "home": "cemetery_lane",
-    "sprite": "wizzard",
-    "initial_secrets": [],
-    "tint": "#9FC4E8",
-    "hook": "forgot his own name; follows whoever smells of marigold",
-    "schedule": [],
-    "dye": "#9FC4E8"
+  "home": "fountain",
+  "sprite": "wizzard",
+  "initial_secrets": [
+   "fountain_whisper",
+   "tree_watcher_hint"
+  ],
+  "tint": "#A98BE0",
+  "hook": "believes the fountain talks back — she's usually right",
+  "schedule": [
+   {
+    "at": 350,
+    "poi": "ofrenda"
+   }
+  ]
+ },
+ {
+  "id": "solorio",
+  "name": "Solorio",
+  "role": "forgotten",
+  "persona": "Barely there, barely remembered. Answers in half sentences, hopes someone says his name.",
+  "stats": {
+   "curiosity": 4,
+   "wit": 2,
+   "warmth": 1,
+   "spirit_sight": 5,
+   "mischief": 0,
+   "grump": 2
   },
-  {
-    "id": "violeta",
-    "name": "Violeta",
-    "role": "child_spirit",
-    "persona": "Young, wide-eyed, repeats whatever she last heard like it's gospel. Collects petals and stories with equal delight.",
-    "stats": {
-      "curiosity": 5,
-      "wit": 1,
-      "warmth": 4,
-      "spirit_sight": 2,
-      "mischief": 2,
-      "grump": 0
-    },
-    "home": "curiosity_shop",
-    "sprite": "tavern_b",
-    "dye": "#B57EDC",
-    "initial_secrets": [],
-    "tint": "#C9A0F0",
-    "hook": "repeats the last thing she heard as if it's gospel — the village's fastest ear",
-    "schedule": [
-      {
-        "at": 150,
-        "poi": "plaza"
-      },
-      {
-        "at": 450,
-        "poi": "curiosity_shop"
-      }
-    ]
+  "home": "cemetery_lane",
+  "sprite": "wizzard",
+  "initial_secrets": [],
+  "tint": "#9FC4E8",
+  "hook": "forgot his own name; follows whoever smells of marigold",
+  "schedule": [],
+  "dye": "#9FC4E8"
+ },
+ {
+  "id": "violeta",
+  "name": "Violeta",
+  "role": "child_spirit",
+  "persona": "Young, wide-eyed, repeats whatever she last heard like it's gospel. Collects petals and stories with equal delight.",
+  "stats": {
+   "curiosity": 5,
+   "wit": 1,
+   "warmth": 4,
+   "spirit_sight": 2,
+   "mischief": 2,
+   "grump": 0
   },
-  {
-    "id": "aurelio",
-    "name": "Padre Aurelio",
-    "role": "ofrenda_keeper",
-    "persona": "Solemn keeper of the candles. Believes remembrance is a duty, not gossip — but he notices everything and forgives slowly.",
-    "stats": {
-      "curiosity": 2,
-      "wit": 4,
-      "warmth": 3,
-      "spirit_sight": 4,
-      "mischief": 0,
-      "grump": 3
-    },
-    "home": "ofrenda",
-    "sprite": "wizzard",
-    "dye": "#8A5A2B",
-    "initial_secrets": [],
-    "tint": "#D98E4A",
-    "hook": "hears confessions and keeps them all — mostly",
-    "schedule": [
-      {
-        "at": 240,
-        "poi": "ofrenda"
-      },
-      {
-        "at": 480,
-        "poi": "cemetery_lane"
-      }
-    ]
+  "home": "curiosity_shop",
+  "sprite": "tavern_b",
+  "dye": "#B57EDC",
+  "initial_secrets": [],
+  "tint": "#C9A0F0",
+  "hook": "repeats the last thing she heard as if it's gospel — the village's fastest ear",
+  "schedule": [
+   {
+    "at": 150,
+    "poi": "plaza"
+   },
+   {
+    "at": 450,
+    "poi": "curiosity_shop"
+   }
+  ]
+ },
+ {
+  "id": "aurelio",
+  "name": "Padre Aurelio",
+  "role": "ofrenda_keeper",
+  "persona": "Solemn keeper of the candles. Believes remembrance is a duty, not gossip — but he notices everything and forgives slowly.",
+  "stats": {
+   "curiosity": 4,
+   "wit": 4,
+   "warmth": 3,
+   "spirit_sight": 4,
+   "mischief": 0,
+   "grump": 3
   },
-  {
-    "id": "carmen",
-    "name": "La Viuda Carmen",
-    "role": "grave_tender",
-    "persona": "Quiet, spectral-calm. She leaves candles on graves nobody else visits and can hear the spirits who are fading before anyone else sees it.",
-    "stats": {
-      "curiosity": 1,
-      "wit": 3,
-      "warmth": 2,
-      "spirit_sight": 5,
-      "mischief": 0,
-      "grump": 2
-    },
-    "home": "cemetery_lane",
-    "sprite": "tavern_b",
-    "dye": "#5A3A6E",
-    "initial_secrets": [],
-    "tint": "#7A5A9E",
-    "hook": "leaves marigolds on unmarked graves; whispers to the fading",
-    "schedule": [
-      {
-        "at": 120,
-        "poi": "grave_37"
-      },
-      {
-        "at": 520,
-        "poi": "cemetery_lane"
-      }
-    ]
-  }
+  "home": "ofrenda",
+  "sprite": "wizzard",
+  "dye": "#8A5A2B",
+  "initial_secrets": [],
+  "tint": "#D98E4A",
+  "hook": "hears confessions and keeps them all — mostly",
+  "schedule": [
+   {
+    "at": 240,
+    "poi": "ofrenda"
+   },
+   {
+    "at": 480,
+    "poi": "cemetery_lane"
+   }
+  ]
+ },
+ {
+  "id": "carmen",
+  "name": "La Viuda Carmen",
+  "role": "grave_tender",
+  "persona": "Quiet, spectral-calm. She leaves candles on graves nobody else visits and can hear the spirits who are fading before anyone else sees it.",
+  "stats": {
+   "curiosity": 4,
+   "wit": 3,
+   "warmth": 2,
+   "spirit_sight": 5,
+   "mischief": 0,
+   "grump": 2
+  },
+  "home": "cemetery_lane",
+  "sprite": "tavern_b",
+  "dye": "#5A3A6E",
+  "initial_secrets": [],
+  "tint": "#7A5A9E",
+  "hook": "leaves marigolds on unmarked graves; whispers to the fading",
+  "schedule": [
+   {
+    "at": 120,
+    "poi": "grave_37"
+   },
+   {
+    "at": 520,
+    "poi": "cemetery_lane"
+   }
+  ]
+ }
 ]

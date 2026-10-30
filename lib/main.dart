@@ -342,9 +342,17 @@ class _PuebloAppState extends State<PuebloApp> {
                   child: InspectCard(
                     key: const Key('inspectCard'),
                     engine: engine,
+                    // Match the world sprite — a faded spirit is the naked
+                    // skeleton there, so the portrait shows it too (no dye:
+                    // the ghost has no persona tint left).
                     spiritSprite:
-                        PuebloGame.personaSprite[engaged] ?? 'sk_base',
-                    spiritDye: PuebloGame.personaDye[engaged],
+                        engine.agents[engaged]?.faded == true
+                            ? PuebloGame.kGhostChar
+                            : PuebloGame.personaSprite[engaged] ?? 'sk_base',
+                    spiritDye:
+                        engine.agents[engaged]?.faded == true
+                            ? null
+                            : PuebloGame.personaDye[engaged],
                     onEnd: _endInteraction,
                   ),
                 ),

@@ -1189,20 +1189,25 @@ void main() {
     await for (final _ in e.sendPlayerMessage('something wicked hums tonight')) {}
     e.disengage();
     final cl = e.claims.values.first;
-    e.agents['c']!.lastActedAt = -999;
-    var offered = false;
-    for (var i = 0; i < 90 && !offered; i++) {
-      // real walkable plaza coords so the pair reads as nearby
-      e.agents['c']!.x = 624.0;
-      e.agents['c']!.y = 496.0;
-      e.agents['b']!.x = 656.0;
-      e.agents['b']!.y = 496.0;
+    // The confidant hop is guaranteed now — the queued approach executes
+    // and the claim actually changes mouths (no LLM offer needed).
+    e.agents['c']!.x = 624.0;
+    e.agents['c']!.y = 496.0;
+    e.agents['b']!.x = 656.0;
+    e.agents['b']!.y = 496.0;
+    e.agents['a']!.x = 900.0; // parked far — only the named confidant hops
+    e.agents['a']!.y = 900.0;
+    for (var i = 0;
+        i < 120 && cl.version.length == 1;
+        i++) {
       e.tick(0.5);
       await Future<void>.delayed(const Duration(milliseconds: 3));
-      offered = llm.prompts.any((p) => p.contains('share(b,${cl.id})'));
     }
-    expect(offered, isTrue,
-        reason: 'a claim holder gets share(b,claim_N) on the menu');
+    expect(cl.version.length, greaterThan(1),
+        reason: 'the whisper must travel — at least one hop per plant');
+    final log = await b.store.tailLog(30);
+    expect(log.any((r) => r['kind'] == 'errand'), isTrue,
+        reason: 'the carry errand lands in the audit trail');
   });
 
   test('every prompt carries the village cast', () async {

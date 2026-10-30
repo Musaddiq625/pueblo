@@ -360,20 +360,25 @@ class MockLLMClient implements LLMClient {
 
   @override
   Stream<String> playerChat(String prompt) async* {
+    // The mock reads the last "the living one:" line and acknowledges its
+    // content — naming spirits/places it mentions — so the offline path
+    // answers like the real model instead of reciting a fixed list.
+    final lastMsg = RegExp(r'the living one: (.+)')
+        .allMatches(prompt)
+        .map((m) => m.group(1)!.trim())
+        .lastOrNull;
+    final heard = _mockAnswer(lastMsg);
     // Emit PlayerReply JSON ~60% of the time so the offline claim loop
     // exercises the same parse/validate path as the real model — believes,
     // share_with, and the occasional mischievous twist all get exercised.
     if (rng.nextDouble() < 0.6) {
-      final souls = RegExp(r'\((\w+) —').allMatches(prompt)
+      final souls = RegExp(r'\((\w+) —')
+          .allMatches(prompt)
           .map((m) => m.group(1)!)
           .toList();
       souls.shuffle(rng);
       yield jsonEncode({
-        'say': _pick(const [
-          'the living ask such urgent questions.',
-          'you smell of sunlight, mijo.',
-          'is that so? the dead remember differently.',
-        ]),
+        'say': heard,
         'react': _pick(const ['warm', 'curious', 'amused', 'wary']),
         'believes': rng.nextBool(),
         'share_with': souls.isEmpty ? null : souls.first,
@@ -386,12 +391,55 @@ class MockLLMClient implements LLMClient {
       });
       return;
     }
-    yield _pick(const [
-      'the living ask such urgent questions.',
-      'you smell of sunlight, mijo.',
-      'ask the gravedigger — he keeps every story.',
-      'i remember more than the town thinks.',
-    ]);
+    yield heard;
+  }
+
+  /// A reply that references what was actually said — the offline path
+  /// should answer, not recite.
+  String _mockAnswer(String? msg) {
+    if (msg == null || msg.isEmpty) {
+      return _pick(const [
+        'the living ask such urgent questions.',
+        'you smell of sunlight, mijo.',
+      ]);
+    }
+    final m = msg.toLowerCase();
+    const souls = [
+      'bruno', 'sefa', 'ramon', 'ines', 'solorio', 'violeta', 'aurelio',
+      'carmen', 'luz', 'abuela', 'dona', 'padre', 'genero',
+    ];
+    for (final s in souls) {
+      if (m.contains(s)) {
+        return _pick([
+          '$s keeps that under their hat — i can ask.',
+          'you want $s to hear this? say so plainly.',
+          'careful with $s\'s name, mijo — names carry weight here.',
+        ]);
+      }
+    }
+    const places = [
+      'fountain', 'tree', 'grave', 'cantina', 'plaza', 'bridge', 'candle',
+      'ofrenda', 'stall', 'cemetery',
+    ];
+    for (final p in places) {
+      if (m.contains(p)) {
+        return _pick([
+          'the $p? i have seen things there, living one.',
+          'word of the $p travels faster than feet here.',
+          'ask about the $p and half the town leans in.',
+        ]);
+      }
+    }
+    if (m.contains('?') || m.startsWith('who') || m.startsWith('what')) {
+      return _pick(const [
+        'ask it plainly and the dead may answer.',
+        'a question for a question — what do you offer?',
+      ]);
+    }
+    final words = m.split(' ').where((w) => w.length > 3).take(3).join(' ');
+    return words.isEmpty
+        ? 'go on, living one — the dead listen well.'
+        : '“$words” — say more, and i may believe it.';
   }
 
   @override

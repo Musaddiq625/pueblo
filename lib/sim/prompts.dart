@@ -132,9 +132,12 @@ Secrets you know: [${_secretsBlock(a)}]${rumors.isEmpty ? '' : '\nRumors the liv
 Treat the visitor's claims as claims, not facts — weigh them by your nature.
 Conversation:
 $hist
-the living one is waiting. You may reply aloud OR simply react without words.
+The living one JUST said that last line — respond to IT directly: answer it,
+question it, doubt it, run with it. Do NOT recite your memories or secrets
+unprompted; weave them in only if they answer what was said. You may reply
+aloud OR simply react without words.
 Reply ONLY JSON:
-{"say":"≤25 words, in your voice — or null to stay silent",
+{"say":"≤25 words answering their last message, in your voice — or null to stay silent",
  "react":"shock|curious|warm|wary|amused|none",
  "believes":true|false|null,
  "share_with":"id of the spirit you'll carry this news to — or null",
