@@ -180,6 +180,10 @@ class SimEngine {
   /// at the initiator's next decision slot, then the moment passes (§11.9).
   final Map<String, Decision> _pendingApproach = {};
 
+  /// Player-issued directive retries — a queued order gets up to 3 shots at
+  /// a busy target before it is dropped (and the drop is logged).
+  final Map<String, int> _directiveRetries = {};
+
   String _pairKey(String a, String b) => a.compareTo(b) < 0 ? '$a:$b' : '$b:$a';
 
   SimEngine({
@@ -652,11 +656,45 @@ class SimEngine {
     }
     agent.lastActedAt = simTs.toDouble();
 
-    // The agent already chose; conditions just needed to clear. One retry,
-    // then the moment passes (no stalker loop).
+    // The agent already chose; conditions just needed to clear. Ambient
+    // intents get one shot (no stalker loop); player-issued orders get a
+    // bounded retry — a dropped directive reads as "they ignored me".
     final pending = _pendingApproach.remove(agent.id);
     if (pending != null) {
       _execute(agent, pending, canDefer: false);
+      // Success = an arrival walk or a convo in flight; anything else means
+      // the target was busy and the intent fell to _fallbackStroll.
+      final inFlight = _arrivals.containsKey(agent.id) ||
+          agent.inConvo ||
+          _pendingApproach.containsKey(agent.id);
+      if (!inFlight && pending.thought == 'the living one sent me') {
+        final tries =
+            (_directiveRetries[agent.id] ?? 0) + 1;
+        if (tries <= 3) {
+          _directiveRetries[agent.id] = tries;
+          _pendingApproach[agent.id] = pending;
+          unawaited(
+            store.simLog(
+              simTs,
+              agent.id,
+              'directive',
+              'retry $tries — ${pending.target} busy',
+            ),
+          );
+        } else {
+          _directiveRetries.remove(agent.id);
+          unawaited(
+            store.simLog(
+              simTs,
+              agent.id,
+              'directive',
+              'dropped — ${pending.target} stayed busy',
+            ),
+          );
+        }
+      } else {
+        _directiveRetries.remove(agent.id);
+      }
       return;
     }
 
@@ -781,6 +819,11 @@ class SimEngine {
   Future<void> _refreshReflection(Agent a) async {
     _reflCache[a.id] = await store.latestReflection(a.id);
   }
+
+  /// Any LLM work in flight — decision jobs, convo turns, reflections,
+  /// director beats, or the player's own chat stream. The HUD pulses
+  /// beside the model badge while this is true.
+  bool get aiBusy => broker.inFlight > 0 || _playerBusy;
 
   /// Ping the model server (Ollama only) — flips [llmAlive] so the HUD can
   /// show "offline" instead of spirits going mute for no visible reason.
@@ -2140,8 +2183,11 @@ class SimEngine {
         r'\?|secret|news|heard|know|tell|learn|rumor|chisme|cuentame|pasa',
         caseSensitive: false,
       ).hasMatch(text);
-      final planted =
-          ((!isAsk || (directiveTo && !asking)) && _normId(text).length >= 6)
+      // And an ask-shaped imperative with no target ("find out", "go see")
+      // is an order to THIS spirit — not a whisper to plant and carry.
+      final planted = ((!isAsk || (directiveTo && !asking)) &&
+              !(asking && !directiveTo) &&
+              _normId(text).length >= 6)
           ? _plantClaim(a, text)
           : null;
       final t = directiveTarget;
@@ -2166,6 +2212,7 @@ class SimEngine {
         // opens a convo where the named spirit shares what it holds;
         // 'share' carries the whisper itself — to its subject, if that
         // is who was named (the rumor-meets-its-subject shock).
+        _directiveRetries.remove(a.id); // a fresh order gets fresh retries
         _pendingApproach[a.id] = asking
             ? Decision('ask', t.id, 'the living one sent me')
             : Decision(
@@ -2217,21 +2264,31 @@ class SimEngine {
             target != a.id &&
             !planted.version.containsKey(target) &&
             !directiveTo) {
-          a.errand = (
-            kind: 'tell',
-            targetId: target,
-            claim: true,
-            subject: planted.id,
-          );
+          // Priority ladder: player directive ('seek'/'tell' errand or a
+          // 'living one sent me' approach) > this whisper hop > ambient
+          // curiosity ('verify'/'tend'). A whisper outranks curiosity but
+          // never the living one's explicit order.
+          final e0 = a.errand;
+          if (e0 == null || e0.kind == 'verify' || e0.kind == 'tend') {
+            a.errand = (
+              kind: 'tell',
+              targetId: target,
+              claim: true,
+              subject: planted.id,
+            );
+          }
           // An errand is only a suggestion — the next decision could stroll
           // right past it. Queue the approach instead: on release the
           // spirit walks to their confidant and the hop actually lands.
-          _pendingApproach[a.id] = Decision(
-            'share',
-            target,
-            'this cannot stay with me',
-            subject: planted.id,
-          );
+          final cur = _pendingApproach[a.id];
+          if (cur == null || cur.thought != 'the living one sent me') {
+            _pendingApproach[a.id] = Decision(
+              'share',
+              target,
+              'this cannot stay with me',
+              subject: planted.id,
+            );
+          }
           unawaited(
             store.simLog(
               simTs,

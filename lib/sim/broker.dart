@@ -51,6 +51,9 @@ class InferenceBroker {
 
   int get queueLength => _q.length;
 
+  /// Jobs running or queued — the HUD's "the dead are thinking" pulse.
+  int get inFlight => _busy + _q.length;
+
   InferenceBroker(this.llm, {this.workers = 1});
 
   /// Player chat bypasses the queue entirely — the engine calls

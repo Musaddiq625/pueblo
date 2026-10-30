@@ -849,6 +849,39 @@ void main() {
     );
   });
 
+  test('a follow-up order does not stomp the directive still queued', () async {
+    // "Bruno got some secrets, find out" then "You have to find out" —
+    // the second message is a targetless order, not a rumor: no claim,
+    // no confidant hop, and the ask(bruno) approach must survive.
+    final llm = _ScriptedLLM()
+      ..forcedReply = '{"say":"hm?","react":"curious","believes":true}';
+    final b = await bootNamed(llm: llm);
+    final e = b.engine;
+    e.agents['anita']!.x = 0; e.agents['anita']!.y = 0;
+    e.agents['bruno']!.x = 40; e.agents['bruno']!.y = 0;
+    e.engage('anita');
+    await for (final _
+        in e.sendPlayerMessage('bruno got some secrets, find out')) {}
+    await for (final _
+        in e.sendPlayerMessage('you have to find out')) {}
+    e.disengage();
+    expect(e.claims, isEmpty,
+        reason: 'imperative follow-ups are orders, not rumors to plant');
+    for (var i = 0;
+        i < 160 && !e.conversations.isNotEmpty && !e.agents['anita']!.inConvo;
+        i++) {
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    final log = await b.store.tailLog(30);
+    expect(log.any((r) => r['kind'] == 'directive'), isTrue);
+    expect(
+      e.conversations.isNotEmpty || e.agents['anita']!.inConvo,
+      isTrue,
+      reason: 'anita should still reach bruno — the order stood',
+    );
+  });
+
   // =============== player-planted rumors (D1/D2) + P0 fixes ===============
 
   test('mischievous teller passes the embellished variant, not the truth',

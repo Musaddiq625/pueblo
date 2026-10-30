@@ -506,17 +506,33 @@ class _Hud extends StatelessWidget {
           const SizedBox(width: 12),
           ValueListenableBuilder<int>(
             valueListenable: _clockListenable(engine),
-            builder: (_, _, _) => Text(
-              engine.llmAlive
-                  ? engine.llm.name
-                  : '${engine.llm.name} · offline',
-              key: const Key('llmBadge'),
-              style: TextStyle(
-                fontSize: 10,
-                color: engine.llmAlive
-                    ? const Color(0xFF5A5078)
-                    : const Color(0xFFE06A6A),
-              ),
+            builder: (_, _, _) => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  engine.llmAlive
+                      ? engine.llm.name
+                      : '${engine.llm.name} · offline',
+                  key: const Key('llmBadge'),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: engine.llmAlive
+                        ? const Color(0xFF5A5078)
+                        : const Color(0xFFE06A6A),
+                  ),
+                ),
+                if (engine.aiBusy) ...[
+                  const SizedBox(width: 5),
+                  const SizedBox(
+                    width: 9,
+                    height: 9,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.4,
+                      color: Color(0xFFFFC233),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           const SizedBox(width: 12),
