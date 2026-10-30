@@ -2682,10 +2682,17 @@ class SimEngine {
 
   /// The claim versions this spirit carries — surfaced in prompts as
   /// "rumors the living one fed you", voiceable as gossip, never fact.
-  List<String> _heldRumors(Agent a) => [
-    for (final cl in claims.values)
-      if (cl.version.containsKey(a.id)) cl.heardBy(a.id),
-  ];
+  /// Rumors this spirit holds — freshest first, capped. Every claim it
+  /// ever heard stays in the ledger and still travels via share offers,
+  /// but the prompt only carries the recent few: a whisper planted an
+  /// hour ago must not crowd out the one the living one just handed.
+  List<String> _heldRumors(Agent a, {int limit = 3}) {
+    final held = claims.values
+        .where((cl) => cl.version.containsKey(a.id))
+        .toList()
+      ..sort((x, y) => y.bornTs.compareTo(x.bornTs));
+    return [for (final cl in held.take(limit)) cl.heardBy(a.id)];
+  }
 
   void _persistClaims() {
     unawaited(
