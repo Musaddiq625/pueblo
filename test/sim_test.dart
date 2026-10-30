@@ -856,7 +856,7 @@ void main() {
     // the prompt tells the model it was handed a rumor — to weigh, not derail
     expect(
       llm.prompts.last,
-      contains('RUMOR'),
+      contains('rumor about Bruno'),
       reason: 'the spirit should be told to react to the rumor itself',
     );
   });
