@@ -2281,12 +2281,13 @@ class SimEngine {
             target != a.id &&
             !planted.version.containsKey(target) &&
             !directiveTo) {
-          // Priority ladder: player directive ('seek'/'tell' errand or a
-          // 'living one sent me' approach) > this whisper hop > ambient
-          // curiosity ('verify'/'tend'). A whisper outranks curiosity but
-          // never the living one's explicit order.
-          final e0 = a.errand;
-          if (e0 == null || e0.kind == 'verify' || e0.kind == 'tend') {
+          // The hop is guaranteed by the pending approach below — the
+          // errand slot is just the "what next" marker. A verify/tend
+          // errand is her own go-look curiosity about the named place;
+          // let it ride so she delivers the whisper AND THEN goes to
+          // see for herself. A 'seek'/'tell' errand is the living one's
+          // directive — never touched here.
+          if (a.errand == null) {
             a.errand = (
               kind: 'tell',
               targetId: target,

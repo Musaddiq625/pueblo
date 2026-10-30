@@ -850,9 +850,9 @@ void main() {
         reason: 'the claim should tag its named subject');
     expect(e.agents['anita']!.goal, 'askAbout:grave_37',
         reason: 'naming a place makes the spirit want to know about it');
-    expect(e.agents['anita']!.errand?.kind, 'tell',
-        reason: 'the rumor earns a carrier — the whisper hop outranks '
-            'ambient verify curiosity, and the goal survives for later');
+    expect(e.agents['anita']!.errand?.kind, 'verify',
+        reason: 'her go-look errand rides — the whisper hop is guaranteed '
+            'by the pending approach, not the errand slot');
     // the prompt tells the model it was handed a rumor — to weigh, not derail
     expect(
       llm.prompts.last,
@@ -1030,9 +1030,9 @@ void main() {
     e.engage('a');
     await for (final _ in e.sendPlayerMessage('the ofrenda looks different tonight')) {}
     expect(e.agents['a']!.goal, 'askAbout:ofrenda');
-    // the planted whisper outranks — they carry it to a confidant first;
-    // the askAbout goal persists and can still send them looking later
-    expect(e.agents['a']!.errand?.kind, 'tell');
+    // the curious keep their go-look errand — the whisper still reaches a
+    // confidant via the guaranteed pending approach, then they go see
+    expect(e.agents['a']!.errand?.kind, 'verify');
     expect(e.agents['a']!.errand?.claim, isTrue);
   });
 
