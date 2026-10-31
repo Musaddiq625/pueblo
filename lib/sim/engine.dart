@@ -231,7 +231,17 @@ class SimEngine {
   void tick(double dt) {
     _advanceWalks(dt); // real-time locomotion — matches render lerp speed
     for (final a in agents.values) {
-      if (a.heldBy != null && simTs >= a.heldUntil) a.heldBy = null;
+      if (a.heldBy != null && simTs >= a.heldUntil) {
+        // The hold renews while the chaser still walks — a spirit held
+        // for someone who is genuinely on the way waits; one held for a
+        // dead walk (diverted, engaged, convo-pulled) is free to go.
+        final holder = agents[a.heldBy];
+        if (holder != null && _walks.containsKey(holder.id)) {
+          a.heldUntil = simTs + holdFor;
+        } else {
+          a.heldBy = null;
+        }
+      }
     }
     _simAcc += dt * timeScale;
     final whole = _simAcc.floor();
@@ -1511,6 +1521,7 @@ class SimEngine {
             }
             startConversation(ag.id, tt.id, purpose: purp);
           },
+          order: d.thought == 'the living one sent me' ? d : null,
         );
         return;
       case 'ask':
@@ -1567,6 +1578,7 @@ class SimEngine {
             }
             if (aboutGoal != null) ag.goal = null; // the question was asked
           },
+          order: d.thought == 'the living one sent me' ? d : null,
         );
         return;
       case 'seek':
@@ -1750,11 +1762,15 @@ class SimEngine {
   /// Walk to a spirit, then run [onNear]. The target is "held" — stops
   /// wandering while the initiator approaches (they see it coming) — so
   /// conversations always happen face to face, never across the plaza.
+  /// [order] marks a living-one directive: if the slot is lost AT the
+  /// doorstep (target slipped into a convo mid-chase), the order goes
+  /// back on the queue instead of dying silently where it arrived.
   void _approachForConvo(
     Agent a,
     Agent t, {
     required void Function(Agent, Agent) onNear,
     void Function(Agent)? onFail,
+    Decision? order,
   }) {
     void fail() {
       if (onFail != null) {
@@ -1811,7 +1827,23 @@ class SimEngine {
       best.$1,
       best.$2,
       onArrive: (e, ag) {
-        if (t.heldBy != ag.id || t.engaged || t.inConvo) return;
+        if (t.heldBy != ag.id || t.engaged || t.inConvo) {
+          // Lost the slot at the doorstep — the living one's order goes
+          // back on the queue for another shot; ambient intent lets the
+          // moment pass.
+          if (order != null && !ag.engaged) {
+            _pendingApproach[ag.id] = order;
+            unawaited(
+              store.simLog(
+                simTs,
+                ag.id,
+                'directive',
+                're-queued — ${t.id} slipped away at the door',
+              ),
+            );
+          }
+          return;
+        }
         t.heldBy = null;
         // face each other
         _emit(ag, SimEventType.state, {

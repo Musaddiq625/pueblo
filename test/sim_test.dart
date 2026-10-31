@@ -389,6 +389,42 @@ void main() {
         reason: 'the deferred converse should retry once B is free');
   });
 
+  test('a held spirit waits while the chaser is still en route', () async {
+    final llm = _ScriptedLLM()
+      ..forcedDecision = Decision('converse', 'b', 'wait for me, compadre');
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    e.agents['a']!.lastActedAt = -999;
+    e.agents['b']!.lastActedAt = 99999;
+    var sawHold = false;
+    var sawRenewal = false;
+    for (var i = 0; i < 120 && e.conversations.isEmpty; i++) {
+      if (i < 6) {
+        // far apart — the chase outlasts a single 14-s hold
+        e.agents['a']!.x = 0;
+        e.agents['a']!.y = 0;
+        e.agents['b']!.x = 656;
+        e.agents['b']!.y = 496;
+      }
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+      final bb = e.agents['b']!;
+      if (bb.heldBy == 'a') sawHold = true;
+      // the chase is on and the hold about to lapse — the engine must
+      // renew it while a still walks, not free b mid-approach
+      if (bb.heldBy == 'a' && i > 10 && !sawRenewal) {
+        bb.heldUntil = e.simTs.toDouble(); // expired now
+        e.tick(0.5);
+        sawRenewal = e.agents['b']!.heldBy == 'a';
+      }
+    }
+    expect(sawHold, isTrue, reason: 'b should be held once a approaches');
+    expect(sawRenewal, isTrue,
+        reason: 'an in-flight chase renews the hold instead of freeing b');
+    expect(e.conversations, isNotEmpty,
+        reason: 'the approach must still land after the hold renews');
+  });
+
   test('fuzzy id resolves a typoed target', () async {
     final llm = _ScriptedLLM()
       ..forcedDecision = Decision('greet', 'b!', 'hola'); // model typo
