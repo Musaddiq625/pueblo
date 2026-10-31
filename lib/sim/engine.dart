@@ -316,6 +316,13 @@ class SimEngine {
       _probeTimer = 0;
       _probeLlm();
     }
+    // staged beats — the confession's second voice lands a beat later
+    for (var i = _queuedSays.length - 1; i >= 0; i--) {
+      if (simTs >= _queuedSays[i].at) {
+        final q = _queuedSays.removeAt(i);
+        _say(q.a, q.line, q.mood);
+      }
+    }
 
     if (_convoTimer >= convoEvery) {
       _convoTimer = 0;
@@ -380,7 +387,7 @@ class SimEngine {
     // means he breaks instead of talking; below that, a proof in the
     // confronter's hand makes this an accusation — deny, then deflect.
     if (bId == culpritId && !_caseResolved && caseProgress >= 3) {
-      _confess(b);
+      _confess(b, accuser: a);
       return;
     }
     final convo = Conversation(
@@ -1275,11 +1282,28 @@ class SimEngine {
   bool get caseResolved => _caseResolved;
 
   /// The thief breaks — an established ledger plus a voice in his face.
-  /// Deterministic: the LLM gets no vote on whether the proof held.
-  void _confess(Agent culprit) {
+  /// Deterministic: the LLM gets no vote on whether the proof held. The
+  /// confession is authored, not generated — accusation, then his own
+  /// words a beat later, so the reveal reads cleanly on camera.
+  void _confess(Agent culprit, {Agent? accuser}) {
     _caseResolved = true;
-    const text =
-        'The proofs were spoken aloud — the frame goes back to its candle.';
+    final name = culprit.name.split(' ').first;
+    if (accuser != null) {
+      _say(
+        accuser,
+        'It was you, $name — the pick beneath her frame, the wax on your sleeve.',
+        'certain',
+      );
+    }
+    _queuedSays.add((
+      a: culprit,
+      line: '…I only wanted them to remember my voice.',
+      mood: 'broken',
+      at: simTs + 3,
+    ));
+    final text =
+        '$name stole La Golondrina\'s portrait and pointed the town at '
+        'Bruno — her candle burned brighter every year while his name dimmed.';
     _note(text);
     _caseNote = text;
     _emit(culprit, SimEventType.thought, {
@@ -1295,6 +1319,39 @@ class SimEngine {
     );
     _events.add(SimEvent(SimEventType.poiGlow, {'poi': 'ofrenda', 'on': true}));
     _resolution();
+  }
+
+  /// Staged beats — authored speech queued for a sim-second. Used for
+  /// the confession exchange so lines land in order instead of at once.
+  final _queuedSays = <({Agent a, String line, String mood, int at})>[];
+
+  /// DRIVER-ONLY director cut — plants the ledger so the march is
+  /// filmable: each authored proof lands on fitting carriers, private
+  /// ones count as already-leaked, and the next tick launches an
+  /// accuser. Real play resumes the moment he breaks.
+  String directorSolve() {
+    if (_caseResolved) return 'already resolved';
+    const seed = {
+      'guitar_pick': ['ines', 'violeta', 'sefa'],
+      'wax_on_sleeve': ['sefa', 'carmen'],
+      'silver_flash': ['luz', 'violeta'],
+      'frame_crack_slip': ['aurelio', 'ines'],
+      'humming_heard': ['violeta', 'luz'],
+    };
+    for (final e in seed.entries) {
+      for (final id in e.value) {
+        final a = agents[id];
+        if (a == null || a.faded || a.id == culpritId) continue;
+        a.knownSecrets.add(e.key);
+        a.bumpVersion();
+      }
+      // private proofs count only once they leak — the director's cut
+      // says they leaked off-camera.
+      _relayedSecrets.add(e.key);
+      _leakedSecrets.add(e.key);
+    }
+    _maybeConfront();
+    return 'caseProgress=$caseProgress';
   }
 
   /// Soft fail — the festival's moment passed with the case still cold.

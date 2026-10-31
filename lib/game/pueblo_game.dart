@@ -270,6 +270,8 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       'simTs': engine.simTs,
       'petals': engine.playerPetals,
       'engaged': engine.engagedId,
+      'caseProgress': engine.caseProgress,
+      'caseResolved': engine.caseResolved,
       'llm': engine.llm.name,
       'camera': {
         'zoom': camera.viewfinder.zoom,
@@ -394,6 +396,10 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         if (s == null) return 'ERR speed <n>';
         engine.timeScale = s.clamp(0.25, 8.0);
         return 'ok speed ${engine.timeScale}';
+      case 'solve':
+        // director cut — seeds the ledger, launches the march on the
+        // next tick. Filming lever, not gameplay.
+        return 'ok ${engine.directorSolve()}';
       case 'log':
         // audit tail — decides, learns, errands, replies, directives
         final n = int.tryParse(arg) ?? 20;
