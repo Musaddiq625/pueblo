@@ -80,7 +80,9 @@ Future<SimBundle> bootstrap({
       persona: p['persona'],
       stats: Stats.fromJson(p['stats']),
       home: p['home'],
-      battery: p['id'] == 'solorio' ? 6 : 70 + r.nextDouble() * 20,
+      // Solorio starts *low*, not gone — the village meets him as a
+      // person and watches the dimming happen, then can rescue him.
+      battery: p['id'] == 'solorio' ? 16 : 70 + r.nextDouble() * 20,
     );
     a.hook = p['hook'] as String?;
     a.schedule = [

@@ -298,15 +298,90 @@ class MockLLMClient implements LLMClient {
   @override
   String get name => 'mock';
 
-  static const _idleLines = [
-    'the candles keep me company.',
-    'another day, another walk.',
-    'the marigolds smell like home.',
-    'quiet today, compadre.',
-    'someone left pan de muerto at the ofrenda.',
-    'the fountain remembers every coin, you know.',
-    'i keep meaning to visit the old ceiba.',
+  /// Persona-keyed line pools — every spirit wonders about the case in
+  /// their own voice, so no two mouths carry the same sentence. Keyed by
+  /// the name the prompt opens with ("You are NAME.").
+  static const _voiceLines = {
+    'Tía Luz': [
+      'someone took her picture — who would do that?',
+      'i keep thinking about that flash of silver i saw.',
+      'the ofrenda looks wrong with her frame bare.',
+      'tell me if you hear who touched the altar.',
+    ],
+    'Bruno el Sepulturero': [
+      'i was digging a grave — ask Carmen, she knows.',
+      'a sack? i carry tools, not pictures.',
+      'everyone stares at me like i did it.',
+      'the dead are honest. it is the living who lie.',
+    ],
+    'Doña Sefa': [
+      'wax on a sleeve does not lie, my friend.',
+      'half the town blames the other half today.',
+      'her portrait was gold — someone envied that light.',
+      'who profits from a stolen picture? answer me that.',
+    ],
+    'Ramón el Trovador': [
+      'Bruno carried a sack past the altar — i saw it.',
+      'Carmen collects photos for her nameless graves.',
+      'sad about the portrait. La Golondrina deserved better.',
+      'i? i was tuning my guitar all evening.',
+    ],
+    'Abuela Inés': [
+      'La Golondrina sang for us fifty years, and this?',
+      'her candle still burns though her picture is gone.',
+      'a name remembered lives; a picture stolen wounds.',
+      'i knew her voice when it was young. ask me.',
+    ],
+    'Solorio': [
+      'i saw someone at the frames at dusk… or did i dream it?',
+      'the edges of me keep drifting away today.',
+      'say my name — it helps me remember who i was.',
+      'there was humming near the ofrenda. i think.',
+    ],
+    'Violeta': [
+      'someone was humming her tune by the big frames.',
+      'i keep the marigolds fresh — the altar feels wrong.',
+      'a missing portrait… it scares me a little.',
+      'who steals from the dead? that is what i ask.',
+    ],
+    'Padre Aurelio': [
+      'i was saying mass — many souls can vouch for me.',
+      'theft from an ofrenda is a wound on the whole town.',
+      'pray with me that her picture finds its way home.',
+      'the culprit carries a heavy conscience tonight.',
+    ],
+    'La Viuda Carmen': [
+      'i collect photos only for graves that have none.',
+      'someone says it was me? let them say it to my face.',
+      'her frame is bare — i noticed it first thing.',
+      'we owe the dead their faces. someone broke that debt.',
+    ],
+  };
+
+  static const _genericLines = [
+    'the ofrenda is missing a portrait — did you hear?',
+    'everyone keeps asking who touched the altar.',
+    'a picture does not walk off by itself.',
+    'someone in this village is lying about that frame.',
   ];
+
+  /// Inner-voice lines for `thought` — tied to the case, never "wander".
+  static const _thoughtLines = [
+    'who took her picture?',
+    'the altar looked wrong',
+    'someone is lying',
+    'i should ask around',
+    'keep your eyes open',
+    'the frame was bare',
+  ];
+
+  static String _speakerName(String prompt) {
+    final m = RegExp(r'You are ([^\.\n]+)\.').firstMatch(prompt);
+    return m?.group(1)?.trim() ?? '';
+  }
+
+  String _voiceFor(String prompt) =>
+      _pick(_voiceLines[_speakerName(prompt)] ?? _genericLines);
 
   @override
   Future<Decision?> decide(String prompt) async {
@@ -316,15 +391,15 @@ class MockLLMClient implements LLMClient {
     if (prompt.contains('share(') && r < 0.5) {
       final m = RegExp(r'share\((\w+),(\w+)\)').firstMatch(prompt);
       if (m != null) {
-        return Decision('share', m.group(1), _pick(_idleLines),
+        return Decision('share', m.group(1), _voiceFor(prompt),
             subject: m.group(2), thought: 'they haven\'t heard', mood: 'warm');
       }
     }
     if (prompt.contains('converse') && r < 0.45) {
       final m = RegExp(r'converse\((\w+)\)').firstMatch(prompt);
       if (m != null) {
-        return Decision('converse', m.group(1), _pick(_idleLines),
-            thought: 'someone to talk to', mood: 'warm');
+        return Decision('converse', m.group(1), _voiceFor(prompt),
+            thought: _pick(_thoughtLines), mood: 'warm');
       }
     }
     if (prompt.contains('inspect') && r < 0.25) {
@@ -334,7 +409,8 @@ class MockLLMClient implements LLMClient {
             thought: 'that thing looks odd', mood: 'curious');
       }
     }
-    return Decision('stroll', null, _pick(_idleLines), thought: 'wander', mood: 'neutral');
+    return Decision('stroll', null, _voiceFor(prompt),
+        thought: _pick(_thoughtLines), mood: 'neutral');
   }
 
   @override
@@ -344,14 +420,7 @@ class MockLLMClient implements LLMClient {
     final share = (m != null && rng.nextDouble() < 0.4) ? m.group(1) : null;
     final end = rng.nextDouble() < 0.3;
     return ConvoTurn(
-      _pick(const [
-        'you heard anything new today?',
-        'the dead talk slower than the living think.',
-        'i saw the strangest thing near the fountain.',
-        'keep your candle lit, friend.',
-        'the market was busier when i was alive.',
-        'someone on grave lane hums an old song.',
-      ]),
+      _voiceFor(prompt),
       sharesSecret: share,
       end: end,
       mood: 'warm',

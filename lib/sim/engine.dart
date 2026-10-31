@@ -1795,9 +1795,31 @@ class SimEngine {
     }
   }
 
+  /// The first spirit to reach the bare altar says it out loud — the
+  /// discovery beat the intro promised. Everyone after them reacts to a
+  /// fact already known: the frame is still empty.
+  bool _ofrendaAnnounced = false;
+
   /// Standing at a POI → observe it. Curiosity payoff → goal to ask around.
   _Arrival _doInspect(Poi p, String line) => (e, a) {
-    _sayOrNote(a, line.isEmpty ? p.surfaceText : line, 'curious');
+    if (p.id == 'ofrenda') {
+      if (!_ofrendaAnnounced) {
+        _ofrendaAnnounced = true;
+        _say(a, "Oh! La Golondrina's portrait — it's missing from the ofrenda!",
+            'shock');
+        // whoever stands close enough to hear flinches with them
+        for (final o in agents.values) {
+          if (o.id == a.id || o.faded || o.id == culpritId) continue;
+          if (_dist2(o.x, o.y, a.x, a.y) < 150 * 150) {
+            _emit(o, SimEventType.emote, {'agent': o.id, 'glyph': '❗'});
+          }
+        }
+      } else {
+        _say(a, line.isEmpty ? 'her frame is still bare…' : line, 'sad');
+      }
+    } else {
+      _sayOrNote(a, line.isEmpty ? p.surfaceText : line, 'curious');
+    }
     a.verifiedPois.add(p.id);
     // Physical evidence — looking closely uncovers whatever was left
     // behind here (a pick under a frame), no whisper required.

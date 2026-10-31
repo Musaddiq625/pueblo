@@ -1013,23 +1013,40 @@ List<PropComponent> buildProps(TileAssets a) {
           for (var i = 1; i < 6; i++) {
             tile(c, a.tt[i.isEven ? 125 : 126], i * kTile, 8);
           }
-          // framed photos (3)
+          // framed photos — a row of the remembered dead… and one bare
+          // frame. The middle slot is La Golondrina's: stolen, a dark
+          // empty panel where her face hung.
           for (var i = 0; i < 3; i++) {
             final fx = 40.0 + i * 52;
+            final bare = i == 1;
             c.drawRect(
               Rect.fromLTWH(fx, 12, 22, 26),
-              Paint()..color = const Color(0xFF5a4432),
+              Paint()
+                ..color = bare
+                    ? const Color(0xFF2a1f16) // loosened, darker wood
+                    : const Color(0xFF5a4432),
             );
             c.drawRect(
               Rect.fromLTWH(fx + 2, 14, 18, 22),
-              Paint()..color = const Color(0xFFe8dcc8),
+              Paint()
+                ..color = bare
+                    ? const Color(0xFF171320) // the hollow where she was
+                    : const Color(0xFFe8dcc8),
             );
-            c.drawCircle(
-              Offset(fx + 11, 24),
-              5,
-              Paint()..color = const Color(0xFFb0927c),
-            );
+            if (!bare) {
+              c.drawCircle(
+                Offset(fx + 11, 24),
+                5,
+                Paint()..color = const Color(0xFFb0927c),
+              );
+            }
           }
+          // where her portrait stood, a stray petal lodged in the empty frame
+          c.drawCircle(
+            const Offset(40 + 52 + 11, 30),
+            1.6,
+            Paint()..color = const Color(0xFFe8962e),
+          );
           // marigold scatter at the base
           final rr = Random(11);
           for (var i = 0; i < 20; i++) {

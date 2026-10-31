@@ -90,7 +90,9 @@ Reply ONLY JSON:
         '\n${partner.name} sought you out to share something — hear them, respond in kind.',
       _ => s.grump >= 4
           ? '\nNothing pressing — you\'re curt. One short line, then end=true.'
-          : '\nNothing pressing — small talk. Keep it short; set end=true soon.',
+          : '\nNothing pressing — but the stolen portrait is on your mind. '
+              'Wonder aloud about it: who took it, what you noticed, what '
+              'you heard. Stay on the case; set end=true soon.',
     };
     return '''
 You are ${speaker.name}. ${speaker.persona}

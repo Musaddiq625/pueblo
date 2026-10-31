@@ -31,9 +31,42 @@ void main() {
     for (final (row, anim) in [(0, 'idle'), (1, 'walk')]) {
       final out = copyCrop(img,
           x: 0, y: row * cell, width: img.width, height: cell);
+      _stripWhiteOutline(out);
       final name = 'assets/sprites/chars/${e.value}_$anim.png';
       File(name).writeAsBytesSync(encodePng(out));
       stdout.writeln('$name: ${out.width}x${out.height}');
     }
+  }
+}
+
+/// The demo pack bakes a 1-2px cream outline (#F7EDDC) around every
+/// character so they pop on white preview pages — on our dark village it
+/// reads as a white border. Recolor ONLY outline pixels (the cream that
+/// touches transparency) to a dark tone; interior cream (face shine,
+/// shirt trim) survives untouched.
+void _stripWhiteOutline(Image img) {
+  bool isCream(num r, num g, num b) =>
+      r > 225 && g > 215 && b > 195 && r - b < 40;
+  final marks = <({int x, int y})>[];
+  for (var y = 0; y < img.height; y++) {
+    for (var x = 0; x < img.width; x++) {
+      final p = img.getPixel(x, y);
+      if (p.a < 100 || !isCream(p.r, p.g, p.b)) continue;
+      // outline pixel iff any 8-neighbor is transparent
+      var edge = false;
+      for (var dy = -1; dy <= 1 && !edge; dy++) {
+        for (var dx = -1; dx <= 1 && !edge; dx++) {
+          final nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= img.width || ny >= img.height ||
+              img.getPixel(nx, ny).a < 100) {
+            edge = true;
+          }
+        }
+      }
+      if (edge) marks.add((x: x, y: y));
+    }
+  }
+  for (final m in marks) {
+    img.setPixelRgb(m.x, m.y, 0x3A, 0x2C, 0x34); // dark umber outline
   }
 }

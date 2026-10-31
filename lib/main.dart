@@ -229,11 +229,19 @@ class _PuebloAppState extends State<PuebloApp> {
       barrierDismissible: false,
       barrierColor: const Color(0xE6080612),
       builder: (ctx) {
-        final scene = IntroScene(
-          onDone: () {
-            if (ctx.mounted) Navigator.of(ctx).pop();
-          },
-        );
+        var dismissed = false;
+        void dismiss() {
+          if (dismissed) return;
+          dismissed = true;
+          if (ctx.mounted) Navigator.of(ctx).pop();
+        }
+
+        // The scene ends itself — but its timer rides Flame ticks, which
+        // stop cold if the window is occluded (a hidden app gets no
+        // vsync). The wall-clock fallback guarantees the dialog always
+        // dismisses; the cinematic is a promise, not a gate.
+        Timer(const Duration(seconds: 14), dismiss);
+        final scene = IntroScene(onDone: dismiss);
         return Dialog(
           backgroundColor: const Color(0xFF0A0814),
           insetPadding: const EdgeInsets.all(24),
@@ -267,7 +275,7 @@ class _PuebloAppState extends State<PuebloApp> {
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: TextButton(
                     key: const Key('introSkip'),
-                    onPressed: () => Navigator.of(ctx).pop(),
+                    onPressed: dismiss,
                     child: const Text(
                       'begin →',
                       style: TextStyle(
@@ -618,12 +626,17 @@ class _Hud extends StatelessWidget {
                 if (engine.aiBusy) ...[
                   const SizedBox(width: 5),
                   const SizedBox(
-                    width: 9,
-                    height: 9,
+                    width: 12,
+                    height: 12,
                     child: CircularProgressIndicator(
-                      strokeWidth: 1.4,
+                      strokeWidth: 1.8,
                       color: Color(0xFFFFC233),
                     ),
+                  ),
+                  const SizedBox(width: 3),
+                  const Text(
+                    'thinking',
+                    style: TextStyle(fontSize: 9, color: Color(0xFFFFC233)),
                   ),
                 ],
               ],
