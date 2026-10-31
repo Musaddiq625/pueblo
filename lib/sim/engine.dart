@@ -1616,6 +1616,11 @@ class SimEngine {
             p.id,
             onArrive: (e, ag) {
               _sayOrNote(ag, d.line, d.mood); // the flavor they meant to mutter
+              _arrivalMusing(
+                ag,
+                p,
+                errandHere: ag.errand?.targetId == p.id,
+              );
               if (ag.errand?.targetId == p.id) {
                 // arriving IS seeing — the verify errand is satisfied
                 final wasClaim = ag.errand?.claim == true;
@@ -2051,11 +2056,14 @@ class SimEngine {
   /// Reached a POI slot — face it, linger, glow the marker, remember it.
   _Arrival _browse(Poi p, {String line = ''}) => (e, a) {
     _sayOrNote(a, line, 'warm');
-    if (a.errand?.targetId == p.id &&
-        (a.errand?.kind == 'tend' || a.errand?.kind == 'verify')) {
+    final errandHere =
+        a.errand?.targetId == p.id &&
+        (a.errand?.kind == 'tend' || a.errand?.kind == 'verify');
+    if (errandHere) {
       a.verifiedPois.add(p.id);
       a.errand = null;
     }
+    _arrivalMusing(a, p, errandHere: errandHere);
     _emit(a, SimEventType.poiGlow, {'poi': p.id, 'on': true});
     unawaited(
       Future.delayed(
@@ -2078,6 +2086,32 @@ class SimEngine {
       ),
     );
   };
+
+  /// The visible beat of investigation — 💭 first, a floating thought a
+  /// breath later — so arriving on an errand or a carried whisper reads
+  /// as the spirit actually LOOKING, not silently standing on the tile.
+  /// Real-time delay: thought bubbles are a visual beat, not sim-work.
+  void _arrivalMusing(Agent a, Poi p, {required bool errandHere}) {
+    Claim? whisper;
+    for (final c in claims.values) {
+      if (c.version.containsKey(a.id) &&
+          _normId(c.text).contains(_normId(p.id))) {
+        whisper = c;
+        break;
+      }
+    }
+    if (!errandHere && whisper == null) return;
+    _emit(a, SimEventType.emote, {'agent': a.id, 'glyph': '💭'});
+    final musing = whisper != null
+        ? '"${whisper.text}" — let me look.'
+        : 'something here. I can feel it.';
+    unawaited(
+      Future.delayed(
+        const Duration(milliseconds: 1200),
+        () => _emit(a, SimEventType.thought, {'agent': a.id, 'text': musing}),
+      ),
+    );
+  }
 
   /// Small models leak JSON edge punctuation into their lines
   /// ("How's the day?\",") — strip wrapper quotes/stray commas at the

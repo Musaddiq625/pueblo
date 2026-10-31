@@ -34,6 +34,8 @@ Future<SimBundle> _boot({LLMClient? llm}) async {
       Poi(id: 'p1', name: 'P1', surfaceText: 'just a lane', x: 0, y: 0),
       Poi(id: 'p2', name: 'P2', surfaceText: 'just a stall', x: 10, y: 10),
       Poi(id: 'ofrenda', name: 'Ofrenda', surfaceText: 'the shrine', x: 40, y: 40),
+      // a real slot-table entry — goto/visit need a villageSlots POI
+      Poi(id: 'fountain', name: 'Fountain', surfaceText: 'water remembers', x: 19, y: 14),
     ],
     homePos: const {
       'p1': [0, 0],
@@ -423,6 +425,47 @@ void main() {
         reason: 'an in-flight chase renews the hold instead of freeing b');
     expect(e.conversations, isNotEmpty,
         reason: 'the approach must still land after the hold renews');
+  });
+
+  test('errand POI arrival thinks out loud — 💭 then a thought', () async {
+    final llm = _ScriptedLLM()
+      ..forcedDecision = Decision('goto', 'fountain', 'on my way');
+    final b = await _boot(llm: llm);
+    final e = b.engine;
+    e.agents['a']!.errand = (
+      kind: 'verify',
+      targetId: 'fountain',
+      claim: false,
+      subject: null,
+    );
+    final glyphs = <String>[];
+    final thoughts = <String>[];
+    e.events.listen((ev) {
+      if (ev.type == SimEventType.emote && ev.data['agent'] == 'a') {
+        glyphs.add('${ev.data['glyph']}');
+      }
+      if (ev.type == SimEventType.thought && ev.data['agent'] == 'a') {
+        thoughts.add('${ev.data['text']}');
+      }
+    });
+    e.agents['a']!.lastActedAt = -999;
+    for (var i = 0; i < 40; i++) {
+      if (i < 6) {
+        // beside the fountain slots — a short hop to arrival
+        e.agents['a']!.x = 624;
+        e.agents['a']!.y = 496;
+        e.agents['b']!.x = 0;
+        e.agents['b']!.y = 0;
+      }
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    // the thought lands ~1.2 s after the 💭 — real time, not sim time
+    await Future<void>.delayed(const Duration(milliseconds: 1400));
+    expect(glyphs, contains('💭'),
+        reason: 'a spirit arriving on an errand should visibly think');
+    expect(thoughts, isNotEmpty,
+        reason: 'the thinking beat should resolve into a thought bubble');
   });
 
   test('fuzzy id resolves a typoed target', () async {
