@@ -40,18 +40,26 @@ class SimStore {
     return SimStore._(db);
   }
 
+  /// Closed by a world reset or app teardown — `deleteDatabase` on a fresh
+  /// open closes this handle under us. Writes landing after that are
+  /// dropped quietly; the old engine's in-flight futures shouldn't spam
+  /// DatabaseException(database_closed) into the console.
+  bool get _closed => !db.isOpen;
+
   String _eid() => 'e${DateTime.now().microsecondsSinceEpoch}_${_eventSeq++}_${_rng.nextInt(999)}';
 
   /// Append a domain event; returns its id. Idempotent apply = callers write
   /// effects with INSERT OR IGNORE keyed on this id where applicable.
   Future<String> logEvent(int simTs, String kind, Map<String, dynamic> payload) async {
     final id = _eid();
+    if (_closed) return id;
     await db.insert('events',
         {'id': id, 'sim_ts': simTs, 'kind': kind, 'payload': jsonEncode(payload)});
     return id;
   }
 
   Future<void> memory(Memory m) async {
+    if (_closed) return;
     await db.insert('memories', {
       'agent': m.agent,
       'sim_ts': m.simTs,
@@ -67,6 +75,7 @@ class SimStore {
   /// utterance's event id so replay is a no-op.
   Future<bool> transferKnowledge(String agent, String secret, String learnedVia,
       int simTs, String eventId) async {
+    if (_closed) return false;
     final n = await db.insert(
         'knowledge',
         {
@@ -85,6 +94,7 @@ class SimStore {
   /// petal count — the world kv is a mirror written here, never the source.
   Future<bool> purchase(String agent, String itemId, int price, int simTs,
       {required int balance, String? secretId, String? secretFrom}) async {
+    if (_closed) return false;
     return db.transaction((txn) async {
       if (balance < price) return false;
       final eid = _eid();
@@ -113,16 +123,19 @@ class SimStore {
   }
 
   Future<void> simLog(int simTs, String agent, String kind, String payload) async {
+    if (_closed) return;
     await db.insert('sim_log',
         {'sim_ts': simTs, 'agent': agent, 'kind': kind, 'payload': payload});
   }
 
   /// Tail of the sim log — the audit trail: decides, learns, errands,
   /// rumors, replies, directives. Newest first.
-  Future<List<Map<String, Object?>>> tailLog(int n) =>
-      db.query('sim_log', orderBy: 'id DESC', limit: n);
+  Future<List<Map<String, Object?>>> tailLog(int n) => _closed
+      ? Future.value(const [])
+      : db.query('sim_log', orderBy: 'id DESC', limit: n);
 
   Future<void> saveAgent(Agent a) async {
+    if (_closed) return;
     await db.insert(
         'agents',
         {
@@ -141,11 +154,13 @@ class SimStore {
   }
 
   Future<void> setWorld(String key, String value) async {
+    if (_closed) return;
     await db.insert('world', {'key': key, 'value': value},
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<String?> getWorld(String key) async {
+    if (_closed) return null;
     final r = await db.query('world', where: 'key = ?', whereArgs: [key]);
     return r.isEmpty ? null : r.first['value'] as String;
   }
@@ -153,6 +168,7 @@ class SimStore {
   /// The agent's secrets freshest-first — the "new info" the 💡 cue
   /// points at when the player comes asking.
   Future<List<String>> recentSecrets(String agent) async {
+    if (_closed) return const [];
     final r = await db.query('knowledge',
         columns: ['secret'],
         where: 'agent = ?',
@@ -164,6 +180,7 @@ class SimStore {
   /// The agent's newest reflection — surfaced in prompts as its own line
   /// so the synthesis doesn't lose the recall race to fresh observations.
   Future<String?> latestReflection(String agent) async {
+    if (_closed) return null;
     final r = await db.query('memories',
         columns: ['text'],
         where: 'agent = ? AND kind = ?',
@@ -175,6 +192,7 @@ class SimStore {
 
   Future<List<Memory>> recall(Agent a, int nowTs, {int limit = 5,
       Set<String> contextEntities = const {}}) async {
+    if (_closed) return const [];
     final rows = await db.query('memories',
         where: 'agent = ?', whereArgs: [a.id], orderBy: 'sim_ts DESC', limit: 60);
     final tau = 600.0; // sim-seconds decay constant
@@ -195,6 +213,7 @@ class SimStore {
   }
 
   Future<({int count, int importanceSum})> memoryStats(String agent) async {
+    if (_closed) return (count: 0, importanceSum: 0);
     final r = await db.rawQuery(
         'SELECT COUNT(*) c, COALESCE(SUM(importance),0) s FROM memories WHERE agent = ?',
         [agent]);
@@ -203,6 +222,7 @@ class SimStore {
 
   /// Archive oldest `n` memories into `archive`, return their texts.
   Future<List<String>> archiveOldest(String agent, int n) async {
+    if (_closed) return const [];
     final rows = await db.query('memories',
         where: 'agent = ?', whereArgs: [agent],
         orderBy: 'sim_ts ASC', limit: n);

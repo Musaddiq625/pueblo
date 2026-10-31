@@ -224,6 +224,13 @@ class SimEngine {
   final Map<String, double> _nextWanderAt = {}; // agentId -> sim_ts
   final Map<String, _Arrival> _arrivals = {}; // deferred on-arrival actions
 
+  /// Walks parked while the agent's speech bubble is still on screen —
+  /// flushed by tick() once the pin's own expiry passes. `until` is a
+  /// snapshot: later lines re-pin `bubbleUntil`, but a parked walk still
+  /// releases on schedule (a story beat can't wait for total silence).
+  final _deferredWalks =
+      <String, ({List<List<double>> pts, _Arrival? onArrive, double until})>{};
+
   /// Activity-slot reservations — 'poi:tx:ty' -> agentId. A spirit holds
   /// its counter/stand spot until it leaves; nobody double-books a grave.
   final Map<String, String> _slotReserved = {};
@@ -290,12 +297,41 @@ class SimEngine {
         // for someone who is genuinely on the way waits; one held for a
         // dead walk (diverted, engaged, convo-pulled) is free to go.
         final holder = agents[a.heldBy];
-        if (holder != null && _walks.containsKey(holder.id)) {
+        if (holder != null &&
+            (_walks.containsKey(holder.id) ||
+                _deferredWalks.containsKey(holder.id))) {
           a.heldUntil = simTs + holdFor;
         } else {
           a.heldBy = null;
         }
       }
+    }
+    // A spoken bubble pins its speaker — walks issued while the line was
+    // on screen were parked, not dropped. Held/engaged/convo'd speakers
+    // keep their walk waiting rather than losing it; the force-clear
+    // sites (engage, convo start) own true cancellation.
+    for (final id in _deferredWalks.keys.toList()) {
+      final a = agents[id];
+      final d = _deferredWalks[id];
+      if (a == null || d == null) {
+        _deferredWalks.remove(id);
+        continue;
+      }
+      if (a.engaged || a.inConvo || a.heldBy != null) continue;
+      if (simTs < d.until) continue;
+      _deferredWalks.remove(id);
+      _issuePath(a, d.pts, d.onArrive);
+    }
+    // Prune dead marches — a marcher with no walk pending is done
+    // (arrived, faded, doorstep lost). Free the culprit's doorstep hold
+    // too if it points at the dead march, then let the retry refire.
+    for (final id in _marchers.toList()) {
+      final enRoute =
+          _walks.containsKey(id) || _deferredWalks.containsKey(id);
+      if (enRoute) continue;
+      _marchers.remove(id);
+      final c = agents[culpritId];
+      if (c?.heldBy == id) c!.heldBy = null;
     }
     _simAcc += dt * timeScale;
     final whole = _simAcc.floor();
@@ -322,6 +358,12 @@ class SimEngine {
         final q = _queuedSays.removeAt(i);
         _say(q.a, q.line, q.mood);
       }
+    }
+    // The card follows the scene — accusation, confession, witnesses,
+    // then the verdict popup (the festival keeps running either way).
+    if (_resolutionAt != null && simTs >= _resolutionAt!) {
+      _resolutionAt = null;
+      _resolution();
     }
 
     if (_convoTimer >= convoEvery) {
@@ -390,6 +432,12 @@ class SimEngine {
       _confess(b, accuser: a);
       return;
     }
+    // A marcher only talks to the culprit — anything else waits until the
+    // charge lands or dies. Ambient pair-ups fail quietly and retry later.
+    if ((_marchers.contains(aId) && bId != culpritId) ||
+        (_marchers.contains(bId) && aId != culpritId)) {
+      return;
+    }
     final convo = Conversation(
       'c${simTs}_${aId}_$bId',
       aId,
@@ -410,6 +458,8 @@ class SimEngine {
     // both stand where they are — cancel in-flight walks + release slots
     _walks.remove(aId);
     _walks.remove(bId);
+    _deferredWalks.remove(aId);
+    _deferredWalks.remove(bId);
     _arrivals.remove(aId);
     _arrivals.remove(bId);
     // sim and renderer are separate walkers — clear the components'
@@ -1301,6 +1351,33 @@ class SimEngine {
       mood: 'broken',
       at: simTs + 3,
     ));
+    // The town heard it too — the two nearest spirits gasp a beat after
+    // his words, so the reveal plays as a scene, not a silent card.
+    final witnesses = agents.values
+        .where(
+          (o) => o.id != culpritId && o.id != accuser?.id && !o.faded,
+        )
+        .toList()
+      ..sort(
+        (x, y) => _dist2(
+          x.x,
+          x.y,
+          culprit.x,
+          culprit.y,
+        ).compareTo(_dist2(y.x, y.y, culprit.x, culprit.y)),
+      );
+    const gasps = [
+      'Ramón… all this time.',
+      'Her candle — he stole her candle.',
+    ];
+    for (var i = 0; i < gasps.length && i < witnesses.length; i++) {
+      _queuedSays.add((
+        a: witnesses[i],
+        line: gasps[i],
+        mood: 'shaken',
+        at: simTs + 5 + i * 2,
+      ));
+    }
     final text =
         '$name stole La Golondrina\'s portrait and pointed the town at '
         'Bruno — her candle burned brighter every year while his name dimmed.';
@@ -1318,12 +1395,19 @@ class SimEngine {
       }),
     );
     _events.add(SimEvent(SimEventType.poiGlow, {'poi': 'ofrenda', 'on': true}));
-    _resolution();
+    // The card waits for the scene to breathe — accusation, confession,
+    // witnesses — instead of slamming over the dialogue.
+    _resolutionAt = simTs + 9;
+    _marchers.clear();
   }
 
   /// Staged beats — authored speech queued for a sim-second. Used for
   /// the confession exchange so lines land in order instead of at once.
   final _queuedSays = <({Agent a, String line, String mood, int at})>[];
+
+  /// The resolution card's cue — set when the confession scene starts so
+  /// the popup lands after the dialogue, not on top of it.
+  int? _resolutionAt;
 
   /// DRIVER-ONLY director cut — plants the ledger so the march is
   /// filmable: each authored proof lands on fitting carriers, private
@@ -2012,13 +2096,23 @@ class SimEngine {
       }
     }
 
-    if (t.heldBy != null || t.engaged || t.inConvo) {
+    if (t.heldBy != null ||
+        t.engaged ||
+        t.inConvo ||
+        _marchers.contains(t.id)) {
+      fail();
+      return;
+    }
+    // A marcher's only destination is the culprit's doorstep — ambient
+    // errands and gossip approaches can't retask the charge mid-walk.
+    if (_marchers.contains(a.id) && t.id != culpritId) {
       fail();
       return;
     }
     t.heldBy = a.id;
     t.heldUntil = simTs + holdFor;
     _walks.remove(t.id); // pause mid-path — someone is coming to talk
+    _deferredWalks.remove(t.id);
     _arrivals.remove(t.id);
     // Same for the approached: a held spirit's directive-walk re-queues
     // so the living one's order outlives the interruption.
@@ -2186,6 +2280,17 @@ class SimEngine {
       onArrive?.call(this, a);
       return;
     }
+    // Mid-sentence — the bubble is still on screen. Park the walk instead
+    // of issuing it; tick() releases it once the line fades.
+    if (simTs < a.bubbleUntil) {
+      _deferredWalks[a.id] =
+          (pts: pts, onArrive: onArrive, until: a.bubbleUntil);
+      return;
+    }
+    _issuePath(a, pts, onArrive);
+  }
+
+  void _issuePath(Agent a, List<List<double>> pts, _Arrival? onArrive) {
     _walks[a.id] = pts;
     if (onArrive != null) _arrivals[a.id] = onArrive;
     _events.add(SimEvent(SimEventType.move, {'agent': a.id, 'path': pts}));
@@ -2440,9 +2545,18 @@ class SimEngine {
   /// The ledger just filled — the town doesn't wait for the living one.
   /// The first spirit holding an established proof goes to face the
   /// culprit; the confrontation completes what the village assembled.
+  /// Spirits walking the case-march — an approach poaching a marcher kills
+  /// its arrival callback mid-charge (the accuser stops, the culprit's hold
+  /// expires, the case never lands). Marchers refuse visitors until they
+  /// arrive, fade, or the living one takes over.
+  final _marchers = <String>{};
+
+  bool _confrontAnnounced = false;
   void _maybeConfront() {
     if (_caseResolved || caseProgress < 3) return;
-    if (simTs - _confrontAt < 20) return; // one march in flight at a time
+    // A failed march retries while the case is hot — a busy culprit or a
+    // lost doorstep costs seconds, not a 20s dead window.
+    if (simTs - _confrontAt < 6) return;
     final culprit = agents[culpritId];
     if (culprit == null ||
         culprit.faded ||
@@ -2450,9 +2564,22 @@ class SimEngine {
         culprit.inConvo) {
       return;
     }
+    // A march already in flight — the culprit's holder is still en route.
+    final holder = culprit.heldBy == null ? null : agents[culprit.heldBy];
+    if (holder != null &&
+        (_walks.containsKey(holder.id) ||
+            _deferredWalks.containsKey(holder.id))) {
+      return;
+    }
     Agent? accuser;
     for (final a in agents.values) {
-      if (a.id == culpritId || a.faded || a.engaged || a.inConvo) continue;
+      if (a.id == culpritId ||
+          a.faded ||
+          a.engaged ||
+          a.inConvo ||
+          a.heldBy != null) {
+        continue;
+      }
       if (a.knownSecrets.any((sid) {
         final s = secrets[sid];
         return s?.proofFor == culpritId &&
@@ -2476,10 +2603,26 @@ class SimEngine {
       ),
     );
     _emit(acc, SimEventType.emote, {'agent': acc.id, 'glyph': '🕯'});
+    // Announce once per case — the say pins them through its bubble life,
+    // the deferred walk releases right as the words fade. Retries march
+    // quietly; the town already heard the charge.
+    if (!_confrontAnnounced) {
+      _confrontAnnounced = true;
+      _say(
+        acc,
+        'The ledger is full. I know who took her face — come, face him with me.',
+        'certain',
+      );
+    }
+    _marchers.add(acc.id);
     _approachForConvo(
       acc,
       culprit,
-      onNear: (ag, tt) => startConversation(ag.id, tt.id),
+      onNear: (ag, tt) {
+        _marchers.remove(ag.id);
+        startConversation(ag.id, tt.id);
+      },
+      onFail: (_) => _confrontAt = simTs - 5, // culprit busy — retry next tick
     );
   }
 
@@ -2643,6 +2786,10 @@ class SimEngine {
   }
 
   void _say(Agent a, String line, String mood) {
+    // Provisional pin — the renderer re-anchors this to the moment the
+    // bubble actually appears (walkers' lines queue for arrival), but
+    // walks issued in the same call site already defer on this.
+    a.bubbleUntil = simTs + (kBubbleLifeSay + 0.4) * timeScale;
     _emit(a, SimEventType.say, {'agent': a.id, 'line': line, 'mood': mood});
   }
 
@@ -2688,6 +2835,7 @@ class SimEngine {
         if (a.faded) {
           _abortConvoWith(a.id);
           _releaseSlot(a.id);
+          _marchers.remove(a.id); // a ghost can't carry the charge
         }
       }
     }
@@ -2703,6 +2851,8 @@ class SimEngine {
     if (a == null) return;
     _abortConvoWith(agentId); // releases partner with a memory below
     _walks.remove(agentId); // freeze mid-path at current position
+    _deferredWalks.remove(agentId);
+    _marchers.remove(agentId); // the living one outranks the march
     _arrivals.remove(agentId);
     // The living one interrupted a walking order — re-queue it so it
     // fires when this engagement ends.

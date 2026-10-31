@@ -1,13 +1,17 @@
 /// One-off slicer for the tiopalada Tiny RPG CC0 demo sheets.
 ///
 /// Each demo sheet is a 288x192 grid — 6 columns x 4 rows of 48x48 cells,
-/// rows ordered down / left / back / right. Our world walks left-right
-/// only (the engine mirrors), so row 0 becomes `idle` and row 3 becomes
-/// `walk` — right-facing unflipped; the engine flips it for left.
+/// rows ordered down / left / back / right. The pack ships NO idle anim —
+/// the down row is a walk cycle, which read as stepping-in-place when the
+/// spirit stood. So:
+///   idle      = a single frame (row 0, cell 0) — standing, facing viewer
+///   walk      = row 3 (right-facing; the engine flips it for left)
+///   walk_down = row 0 (walk cycle toward the camera)
+///   walk_up   = row 2 (walk cycle away from the camera)
 ///
 /// Run:  dart run tool/slice_trp_chars.dart
 /// Input:  tool/art_src/trp_char00..02.png  (raw demo sheets)
-/// Output: assets/sprites/chars/trp_<key>_idle.png / _walk.png (48x48 cells)
+/// Output: assets/sprites/chars/trp_KEY_{idle,walk,walk_down,walk_up}.png
 library;
 
 import 'dart:io';
@@ -28,7 +32,8 @@ void main() {
       continue;
     }
     final img = decodePng(src.readAsBytesSync())!;
-    for (final (row, anim) in [(0, 'idle'), (3, 'walk')]) {
+    // full-row sheets: walk (right), down, up
+    for (final (row, anim) in [(3, 'walk'), (0, 'walk_down'), (2, 'walk_up')]) {
       final out = copyCrop(img,
           x: 0, y: row * cell, width: img.width, height: cell);
       _stripWhiteOutline(out);
@@ -36,6 +41,12 @@ void main() {
       File(name).writeAsBytesSync(encodePng(out));
       stdout.writeln('$name: ${out.width}x${out.height}');
     }
+    // idle — one standing frame, not a cycle: no more stepping in place
+    final idle = copyCrop(img, x: 0, y: 0, width: cell, height: cell);
+    _stripWhiteOutline(idle);
+    File('assets/sprites/chars/${e.value}_idle.png')
+        .writeAsBytesSync(encodePng(idle));
+    stdout.writeln('${e.value}_idle.png: ${idle.width}x${idle.height}');
   }
 }
 

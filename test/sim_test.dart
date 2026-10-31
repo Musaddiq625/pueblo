@@ -790,7 +790,9 @@ void main() {
     final events = <SimEvent>[];
     final sub = e.events.listen(events.add);
     e.startConversation('a', 'b'); // 'a' goes to face the culprit
-    await Future<void>.delayed(Duration.zero);
+    // The card waits for the staged exchange — accusation, confession,
+    // witnesses — so the endRun lands sim-seconds after the verdict.
+    await _pump(e, ticks: 20);
     await sub.cancel();
     expect(
       events.any((ev) =>
@@ -994,7 +996,9 @@ void main() {
     e.agents['a']!.y = 496.0;
     e.agents['b']!.x = 656.0;
     e.agents['b']!.y = 496.0;
-    for (var i = 0; i < 60 && !e.caseResolved; i++) {
+    // The march announces itself first now (~4s spoken pin) and the nav
+    // path here loops around props — give the walker room to finish it.
+    for (var i = 0; i < 90 && !e.caseResolved; i++) {
       e.tick(0.5);
       await Future<void>.delayed(const Duration(milliseconds: 3));
     }

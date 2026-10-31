@@ -81,16 +81,22 @@ const spec = <String, Map<String, List<int>>>{
   },
   // tiopalada Tiny RPG CC0 demo — sliced by tool/slice_trp_chars.dart
   'trp_hat': {
-    'idle': [6, 48, 48],
+    'idle': [1, 48, 48],
     'walk': [6, 48, 48],
+    'walk_down': [6, 48, 48],
+    'walk_up': [6, 48, 48],
   },
   'trp_bard': {
-    'idle': [6, 48, 48],
+    'idle': [1, 48, 48],
     'walk': [6, 48, 48],
+    'walk_down': [6, 48, 48],
+    'walk_up': [6, 48, 48],
   },
   'trp_veil': {
-    'idle': [6, 48, 48],
+    'idle': [1, 48, 48],
     'walk': [6, 48, 48],
+    'walk_down': [6, 48, 48],
+    'walk_up': [6, 48, 48],
   },
 };
 

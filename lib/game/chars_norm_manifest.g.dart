@@ -60,15 +60,21 @@ const normChars = <String, NormChar>{
     'walk': NormSheet('chars_norm/bodya_walk.png', 6, 18, 32, stepTime: 0.12),
   }),
   'trp_hat': NormChar(32, 43, {
-    'idle': NormSheet('chars_norm/trp_hat_idle.png', 6, 32, 43, stepTime: 0.22),
+    'idle': NormSheet('chars_norm/trp_hat_idle.png', 1, 32, 43, stepTime: 0.22),
     'walk': NormSheet('chars_norm/trp_hat_walk.png', 6, 32, 43, stepTime: 0.12),
+    'walk_down': NormSheet('chars_norm/trp_hat_walk_down.png', 6, 32, 43, stepTime: 0.12),
+    'walk_up': NormSheet('chars_norm/trp_hat_walk_up.png', 6, 32, 43, stepTime: 0.12),
   }),
-  'trp_bard': NormChar(34, 40, {
-    'idle': NormSheet('chars_norm/trp_bard_idle.png', 6, 34, 40, stepTime: 0.22),
-    'walk': NormSheet('chars_norm/trp_bard_walk.png', 6, 34, 40, stepTime: 0.12),
+  'trp_bard': NormChar(34, 41, {
+    'idle': NormSheet('chars_norm/trp_bard_idle.png', 1, 34, 41, stepTime: 0.22),
+    'walk': NormSheet('chars_norm/trp_bard_walk.png', 6, 34, 41, stepTime: 0.12),
+    'walk_down': NormSheet('chars_norm/trp_bard_walk_down.png', 6, 34, 41, stepTime: 0.12),
+    'walk_up': NormSheet('chars_norm/trp_bard_walk_up.png', 6, 34, 41, stepTime: 0.12),
   }),
-  'trp_veil': NormChar(27, 41, {
-    'idle': NormSheet('chars_norm/trp_veil_idle.png', 6, 27, 41, stepTime: 0.22),
-    'walk': NormSheet('chars_norm/trp_veil_walk.png', 6, 27, 41, stepTime: 0.12),
+  'trp_veil': NormChar(27, 42, {
+    'idle': NormSheet('chars_norm/trp_veil_idle.png', 1, 27, 42, stepTime: 0.22),
+    'walk': NormSheet('chars_norm/trp_veil_walk.png', 6, 27, 42, stepTime: 0.12),
+    'walk_down': NormSheet('chars_norm/trp_veil_walk_down.png', 6, 27, 42, stepTime: 0.12),
+    'walk_up': NormSheet('chars_norm/trp_veil_walk_up.png', 6, 27, 42, stepTime: 0.12),
   }),
 };

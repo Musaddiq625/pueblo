@@ -14,7 +14,7 @@ import '../sim/models.dart';
 
 // ---------------------------------------------------------------------------
 
-enum SpiritAnim { idle, walk, death }
+enum SpiritAnim { idle, walk, walkDown, walkUp, death }
 
 class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     with TapCallbacks {
@@ -38,6 +38,11 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
   final List<Vector2> _path = [];
   bool walking = false;
 
+  /// Driver introspection — why a spirit looks stuck is a path question.
+  int get pathLen => _path.length;
+  bool get compFaded => _faded;
+  bool get collapsing => _collapsing;
+
   // Visual state
   double _opacity = 1.0;
   bool _engaged = false;
@@ -55,6 +60,8 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     required SpriteAnimation idle,
     required SpriteAnimation walk,
     required Vector2 displaySize,
+    SpriteAnimation? walkDown,
+    SpriteAnimation? walkUp,
     SpriteAnimation? death,
     this.displayName = '',
     this.auraColor,
@@ -65,6 +72,8 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
          animations: {
            SpiritAnim.idle: idle,
            SpiritAnim.walk: walk,
+           SpiritAnim.walkDown: ?walkDown,
+           SpiritAnim.walkUp: ?walkUp,
            SpiritAnim.death: ?death,
          },
          current: SpiritAnim.idle,
@@ -137,11 +146,25 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
   /// For the world-level name label — mirrors fade/engaged tint.
   double get labelOpacity => opacity;
 
+  bool _isWalkAnim(SpiritAnim? a) =>
+      a == SpiritAnim.walk ||
+      a == SpiritAnim.walkDown ||
+      a == SpiritAnim.walkUp;
+
+  /// Pick the walk cycle for this step — directional sheets (trp) face
+  /// the way they move; side-view sheets stay on the flipped `walk`.
+  SpiritAnim _walkAnimFor(Vector2 delta) {
+    if (delta.y.abs() > delta.x.abs()) {
+      final v = delta.y < 0 ? SpiritAnim.walkUp : SpiritAnim.walkDown;
+      if (animations?.containsKey(v) == true) return v;
+    }
+    return SpiritAnim.walk;
+  }
+
   @override
   void update(double dt) {
     super.update(dt);
     if (walking && _path.isNotEmpty && !_faded) {
-      current = SpiritAnim.walk;
       final target = _path.first;
       final delta = target - position;
       final dist = delta.length;
@@ -152,10 +175,13 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
           current = SpiritAnim.idle;
         }
       } else {
+        current = _walkAnimFor(delta);
         final step =
             delta.normalized() * kSpiritSpeed * (speedScale?.call() ?? 1.0) * dt;
         position += step;
-        faceToward(target.x);
+        // flip only on the horizontal axis — vertical-dominant legs would
+        // flicker the sprite every frame as dx jitters around zero
+        if (delta.x.abs() > delta.y.abs()) faceToward(target.x);
       }
     }
     // ghost collapse finished → the skeleton stands
@@ -165,7 +191,7 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
     }
     // Safety net — any path that ended without flipping `walking` must
     // not leave the run cycle playing under a standing figure.
-    if (!walking && current == SpiritAnim.walk && !_collapsing) {
+    if (!walking && !_collapsing && _isWalkAnim(current)) {
       current = SpiritAnim.idle;
     }
     // depth sort by foot y; engaged pins nothing visually
@@ -267,8 +293,15 @@ class PlayerComponent extends SpriteAnimationGroupComponent<SpiritAnim> {
     required SpriteAnimation idle,
     required SpriteAnimation walk,
     required Vector2 displaySize,
+    SpriteAnimation? walkDown,
+    SpriteAnimation? walkUp,
   }) : super(
-         animations: {SpiritAnim.idle: idle, SpiritAnim.walk: walk},
+         animations: {
+           SpiritAnim.idle: idle,
+           SpiritAnim.walk: walk,
+           SpiritAnim.walkDown: ?walkDown,
+           SpiritAnim.walkUp: ?walkUp,
+         },
          current: SpiritAnim.idle,
          size: displaySize,
          anchor: Anchor.bottomCenter,
@@ -287,7 +320,6 @@ class PlayerComponent extends SpriteAnimationGroupComponent<SpiritAnim> {
   void update(double dt) {
     super.update(dt);
     if (walking && _path.isNotEmpty) {
-      current = SpiritAnim.walk;
       final target = _path.first;
       final delta = target - position;
       if (delta.length < 5) {
@@ -297,15 +329,26 @@ class PlayerComponent extends SpriteAnimationGroupComponent<SpiritAnim> {
           current = SpiritAnim.idle;
         }
       } else {
+        final vertical = delta.y.abs() > delta.x.abs();
+        final v = delta.y < 0 ? SpiritAnim.walkUp : SpiritAnim.walkDown;
+        current =
+            vertical && animations?.containsKey(v) == true ? v : SpiritAnim.walk;
         position +=
             delta.normalized() * _speed * (speedScale?.call() ?? 1.0) * dt;
-        final faceLeft = target.x < position.x;
-        if (faceLeft != scale.x.isNegative) flipHorizontallyAroundCenter();
+        if (!vertical) {
+          final faceLeft = target.x < position.x;
+          if (faceLeft != scale.x.isNegative) {
+            flipHorizontallyAroundCenter();
+          }
+        }
       }
     }
     // Same safety net as the spirits — a path that ends without flipping
     // `walking` must not leave the run cycle under a standing figure.
-    if (!walking && current == SpiritAnim.walk) {
+    if (!walking &&
+        (current == SpiritAnim.walk ||
+            current == SpiritAnim.walkDown ||
+            current == SpiritAnim.walkUp)) {
       current = SpiritAnim.idle;
     }
     priority = position.y.round();
@@ -401,6 +444,11 @@ class ClickMarker extends PositionComponent {
 
 /// Speech/emote bubble floating over a component's head. [speaker] shows a
 /// small name chip over the line — who is talking should never be a guess.
+///
+/// Lives at WORLD level, not parented to the spirit: a child bubble's
+/// priority sorts inside the parent's subtree, so any sprite or prop
+/// standing in front would swallow the line. World-level + tracking keeps
+/// it pinned above the head and above every nameplate in the world.
 class BubbleComponent extends PositionComponent {
   final String text;
   final String speaker;
@@ -408,6 +456,13 @@ class BubbleComponent extends PositionComponent {
 
   /// Thought bubble — dimmer, borderless, drifts faster than speech.
   final bool isThought;
+
+  /// The component whose head this floats over — re-anchored every frame
+  /// so the bubble rides a moving speaker instead of a fixed spot.
+  final PositionComponent? track;
+
+  /// Headroom above the tracked sprite's top edge (world px).
+  final double gap;
   double _ttl;
 
   BubbleComponent(
@@ -415,6 +470,8 @@ class BubbleComponent extends PositionComponent {
     this.speaker = '',
     this.isEmote = false,
     this.isThought = false,
+    this.track,
+    this.gap = 6,
     Vector2? size,
   }) : _ttl = isEmote
            ? kBubbleLifeEmote
@@ -422,32 +479,24 @@ class BubbleComponent extends PositionComponent {
        super(
          size: size ?? Vector2(220, 44),
          anchor: Anchor.bottomCenter,
-         priority: 9999,
+         // above nameplates (3000000) — nothing in the world occludes speech
+         priority: 3000001,
        );
 
   @override
   void update(double dt) {
     _ttl -= dt;
     if (_ttl <= 0) removeFromParent();
+    final t = track;
+    if (t != null) {
+      position = Vector2(t.position.x, t.position.y - t.size.y - gap);
+    }
     // float up gently — thoughts drift faster and fade with the drift
     position.y -= dt * (isThought ? 12 : 6);
   }
 
   @override
-  void render(Canvas canvas) {
-    // parent spirit flips horizontally when walking left — counter-flip
-    // so text never renders mirrored
-    final p = parent;
-    if (p is PositionComponent && p.scale.x.isNegative) {
-      canvas.save();
-      canvas.translate(size.x, 0);
-      canvas.scale(-1, 1);
-      _draw(canvas);
-      canvas.restore();
-    } else {
-      _draw(canvas);
-    }
-  }
+  void render(Canvas canvas) => _draw(canvas);
 
   void _draw(Canvas canvas) {
     final style = TextStyle(

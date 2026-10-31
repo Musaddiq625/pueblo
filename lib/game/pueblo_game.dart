@@ -178,6 +178,8 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       required SpriteAnimation idle,
       required SpriteAnimation walk,
       required Vector2 displaySize,
+      SpriteAnimation? walkDown,
+      SpriteAnimation? walkUp,
     })
     ctor,
   ) async {
@@ -188,6 +190,8 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       pos: pos,
       idle: idle,
       walk: walk,
+      walkDown: def.walkDown == null ? null : await _anim(def.walkDown!),
+      walkUp: def.walkUp == null ? null : await _anim(def.walkUp!),
       displaySize: Vector2(def.displayW, def.displayH),
     );
   }
@@ -220,6 +224,8 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       onTapped: onEngage,
       idle: idle,
       walk: walk,
+      walkDown: def.walkDown == null ? null : await _anim(def.walkDown!),
+      walkUp: def.walkUp == null ? null : await _anim(def.walkUp!),
       death: death,
       displaySize: Vector2(def.displayW, def.displayH),
       // short name under the feet — "Ramón el Trovador" reads as "Ramón"
@@ -294,6 +300,14 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
             'inConvo': a.inConvo,
             'walking': spirits[a.id]?.walking,
             'anim': spirits[a.id]?.current?.name,
+            'pathLen': spirits[a.id]?.pathLen,
+            'compFaded': spirits[a.id]?.compFaded,
+            'collapsing': spirits[a.id]?.collapsing,
+            'compPos': [
+              spirits[a.id]?.position.x.round(),
+              spirits[a.id]?.position.y.round(),
+            ],
+            'bubbleUntil': a.bubbleUntil.round(),
             'facingLeft': (spirits[a.id]?.scale.x ?? 1) < 0,
             'faded': a.faded,
             'solidified': a.solidified,
@@ -694,24 +708,31 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       if (q.length > 2) q.removeAt(0);
       return;
     }
-    for (final b in c.children.whereType<BubbleComponent>()) {
-      b.removeFromParent();
+    for (final b in world.children.whereType<BubbleComponent>()) {
+      if (b.track == c) b.removeFromParent();
     }
-    c.add(
-      BubbleComponent(
-        line,
-        speaker: engine.agents[agentId]?.name.split(' ').first ?? '',
-        size: Vector2(220, 44),
-      )..position = Vector2(0, -c.size.y - 6),
-    );
+    final shown = BubbleComponent(
+      line,
+      speaker: engine.agents[agentId]?.name.split(' ').first ?? '',
+      track: c,
+      size: Vector2(220, 44),
+    )..position = Vector2(c.position.x, c.position.y - c.size.y - 6);
+    world.add(shown);
+    // The line is on screen — the speaker keeps their mark until it
+    // fades. Engine side: _setPath defers new walks while this holds.
+    final a = engine.agents[agentId];
+    if (a != null) {
+      a.bubbleUntil =
+          engine.simTs + (kBubbleLifeSay + 0.4) * engine.timeScale;
+    }
   }
 
   void _emote(String agentId, String glyph) {
     final c = spirits[agentId];
     if (c == null) return;
-    c.add(
-      BubbleComponent(glyph, isEmote: true, size: Vector2(60, 40))
-        ..position = Vector2(0, -c.size.y - 4),
+    world.add(
+      BubbleComponent(glyph, isEmote: true, track: c, gap: 4, size: Vector2(60, 40))
+        ..position = Vector2(c.position.x, c.position.y - c.size.y - 4),
     );
   }
 
@@ -720,12 +741,12 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   void _thought(String agentId, String text) {
     final c = spirits[agentId];
     if (c == null || text.isEmpty) return;
-    for (final b in c.children.whereType<BubbleComponent>()) {
-      if (b.isThought) b.removeFromParent();
+    for (final b in world.children.whereType<BubbleComponent>()) {
+      if (b.track == c && b.isThought) b.removeFromParent();
     }
-    c.add(
-      BubbleComponent(text, isThought: true, size: Vector2(150, 36))
-        ..position = Vector2(0, -c.size.y + 2),
+    world.add(
+      BubbleComponent(text, isThought: true, track: c, gap: -2, size: Vector2(150, 36))
+        ..position = Vector2(c.position.x, c.position.y - c.size.y + 2),
     );
   }
 

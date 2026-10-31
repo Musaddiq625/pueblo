@@ -22,10 +22,18 @@ class SheetDef {
 class CharDef {
   final SheetDef idle;
   final SheetDef walk;
+
+  /// Directional walk cycles — only the trp sheets carry them; everything
+  /// else falls back to the single side-view [walk] + horizontal flip.
+  final SheetDef? walkDown, walkUp;
   final SheetDef? death;
   final double displayW, displayH;
   const CharDef(this.idle, this.walk,
-      {this.death, required this.displayW, required this.displayH});
+      {this.walkDown,
+      this.walkUp,
+      this.death,
+      required this.displayW,
+      required this.displayH});
 }
 
 SheetDef _s(NormSheet n) =>
@@ -37,6 +45,8 @@ CharDef _c(NormChar n) {
   return CharDef(
     _s(n.anims['idle']!),
     _s(walk),
+    walkDown: n.anims['walk_down'] != null ? _s(n.anims['walk_down']!) : null,
+    walkUp: n.anims['walk_up'] != null ? _s(n.anims['walk_up']!) : null,
     death: n.anims['death'] != null ? _s(n.anims['death']!) : null,
     displayW: n.cellW * kCharDisplayH / n.cellH,
     displayH: kCharDisplayH,
