@@ -928,6 +928,62 @@ void main() {
     expect(e.overheardWhispers, contains('w1'));
   });
 
+  test('an unrelayed proof leaks at its moment — the village self-solves',
+      () async {
+    final b = await bootRumor(
+      deepKnowers: 1,
+      whispersJson: '''
+      [{"id":"w1","speaker":"c","line":"a silver flash by the frame","grants":"p4",
+        "canon":["silver flash"],"at":1,"leak":30}]
+      ''',
+    );
+    final e = b.engine;
+    e.simTs = 29;
+    e.tick(0.5); // crosses 30 — c muttered alone; the proof escapes
+    await Future<void>.delayed(Duration.zero);
+    expect(e.caseProgress, 2,
+        reason: 'p4 still has one mouth — leaked but not yet established');
+    // the leak landed: someone near 'c' overheard, and 'c' holds it too
+    expect(
+      e.agents.values.any((a) => a.knownSecrets.contains('p4')),
+      isTrue,
+      reason: 'the mutterer knows what they mutter; a neighbor overheard',
+    );
+    // and a leaked private proof can now travel like any rumor
+    final c = e.agents['c']!;
+    expect(
+      c.knownSecrets.contains('p4') ||
+          e.agents.values.any((a) =>
+              a.id != 'c' && a.id != 'e' && a.knownSecrets.contains('p4')),
+      isTrue,
+    );
+  });
+
+  test('a full ledger sends a proof-holder to face the thief', () async {
+    final b = await bootRumor(deepKnowers: 2); // ledger full from boot
+    final e = b.engine;
+    expect(e.caseProgress, 3);
+    final events = <SimEvent>[];
+    final sub = e.events.listen(events.add);
+    // 'a' holds 'deep' (a proof) — pin her next to 'b' so the march lands
+    e.agents['a']!.x = 624.0;
+    e.agents['a']!.y = 496.0;
+    e.agents['b']!.x = 656.0;
+    e.agents['b']!.y = 496.0;
+    for (var i = 0; i < 60 && !e.caseResolved; i++) {
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    await sub.cancel();
+    expect(e.caseResolved, isTrue,
+        reason: 'the town walked its own proof to the thief');
+    expect(
+      events.any((ev) =>
+          ev.type == SimEventType.verdict && ev.data['passed'] == true),
+      isTrue,
+    );
+  });
+
   // ============ reply hygiene, curiosity aliases, directives ============
 
   test('PlayerReply filters model null-words', () {

@@ -84,6 +84,11 @@ typedef WhisperBeat = ({
   String? grants,
   List<String> canon,
   int at,
+
+  /// sim_ts the confidence stops being a secret even if the living one
+  /// never carried it — the village mutters to itself, and eventually a
+  /// mutter is overheard. The living one is the shortcut, not the lock.
+  int leak,
 });
 
 class SimEngine {
@@ -330,6 +335,7 @@ class SimEngine {
       _whisperDied();
     }
     _tickWhispers();
+    _maybeConfront();
     _tickNudge();
     if (_batteryTimer >= batteryEvery) {
       _batteryTimer = 0;
@@ -738,7 +744,7 @@ class SimEngine {
     if (p != null && speaker.id == p.holder) c.holderSpoke = true;
     c.nextSpeaker = partner.id;
     if ((turn.end && (p == null || c.holderSpoke)) ||
-        c.transcript.length >= (c.purpose != null ? 6 : 4)) {
+        c.transcript.length >= 4) {
       c.done = true;
     }
     // The slot opens only once the commit is fully landed — the next turn
@@ -1213,6 +1219,15 @@ class SimEngine {
   /// flag that makes a confidence admissible as evidence.
   final _relayedSecrets = <String>{};
 
+  /// Proof ids that leaked on their own — a mutter overheard, a
+  /// confidence the holder couldn't keep. Same effect as a player
+  /// relay; the living one speeds this up but isn't required.
+  final _leakedSecrets = <String>{};
+
+  /// The town's accuser — last sim_ts a march was dispatched. Retried on
+  /// a spacing until someone actually lands the confrontation.
+  int _confrontAt = -999;
+
   /// Distinct established proofs fingering [culpritId]: each held by ≥2
   /// non-culprit mouths (one mouth is just a rumor) and — for private
   /// confidences — relayed by the player first.
@@ -1220,7 +1235,11 @@ class SimEngine {
     var n = 0;
     for (final s in secrets.values) {
       if (s.proofFor != culpritId) continue;
-      if (s.private && !_relayedSecrets.contains(s.id)) continue;
+      if (s.private &&
+          !_relayedSecrets.contains(s.id) &&
+          !_leakedSecrets.contains(s.id)) {
+        continue;
+      }
       final holders = agents.values
           .where((a) => a.id != culpritId && a.knownSecrets.contains(s.id))
           .length;
@@ -2221,13 +2240,42 @@ class SimEngine {
   /// Authored private whispers — the beats only the living one sees.
   /// A mutter becomes a floating thought; a confidence is spoken to one
   /// friend and trapped there (private secrets never re-share). Proof
-  /// beats loop until the player relays them — nothing is lost forever.
+  /// beats loop until the player relays them — or until `leak`, when the
+  /// village overhears its own muttering and the proof escapes anyway.
   void _tickWhispers() {
     for (final w in whispers) {
       final sp = agents[w.speaker];
       if (sp == null || sp.faded || sp.engaged || sp.inConvo) continue;
-      // already turned into evidence — the whisper has nothing left to say
-      if (w.grants != null && _relayedSecrets.contains(w.grants)) continue;
+      final gs = w.grants;
+      // already in the open — the whisper has nothing left to say
+      if (gs != null &&
+          (_relayedSecrets.contains(gs) || _leakedSecrets.contains(gs))) {
+        continue;
+      }
+      // Leak: past its moment, an unrelayed proof is overheard by whoever
+      // stands near the mutterer — the village solves it alone, slower.
+      if (gs != null && simTs >= w.leak) {
+        _leakedSecrets.add(gs);
+        overheardWhispers.add(w.id);
+        final ear = _nearestFreeSpirit(sp, exclude: {sp.id, culpritId});
+        if (ear != null &&
+            !ear.knownSecrets.contains(gs) &&
+            secrets.containsKey(gs)) {
+          ear.knownSecrets.add(gs);
+          ear.bumpVersion();
+          ear.newsUntil = simTs + 90;
+          _emit(ear, SimEventType.emote, {'agent': ear.id, 'glyph': '👂'});
+          unawaited(
+            store.simLog(simTs, ear.id, 'leak', '$gs overheard from ${sp.id}'),
+          );
+        }
+        // the mutterer knows what they mutter — it lives in their mouth too
+        if (!sp.knownSecrets.contains(gs) && secrets.containsKey(gs)) {
+          sp.knownSecrets.add(gs);
+          sp.bumpVersion();
+        }
+        continue;
+      }
       final last = _whisperFiredAt[w.id] ?? -999;
       if (simTs < w.at || simTs < last + 240) continue;
       final t = w.to == null ? null : agents[w.to];
@@ -2239,6 +2287,13 @@ class SimEngine {
       overheardWhispers.add(w.id);
       if (t == null) {
         _emit(sp, SimEventType.thought, {'agent': sp.id, 'text': w.line});
+        // the mutterer holds their own secret — sealed while private
+        if (gs != null &&
+            !sp.knownSecrets.contains(gs) &&
+            secrets.containsKey(gs)) {
+          sp.knownSecrets.add(gs);
+          sp.bumpVersion();
+        }
       } else {
         _emit(
           sp,
@@ -2246,7 +2301,6 @@ class SimEngine {
           {'agent': sp.id, 'line': w.line, 'mood': 'whisper'},
         );
         // The confidence lands in exactly one ear — and dies there.
-        final gs = w.grants;
         if (gs != null &&
             !t.knownSecrets.contains(gs) &&
             secrets.containsKey(gs)) {
@@ -2256,6 +2310,74 @@ class SimEngine {
       }
       unawaited(store.simLog(simTs, sp.id, 'whisper', w.id));
     }
+  }
+
+  /// The closest spirit to [a] who could actually hear a mutter — the
+  /// mechanism that turns a private proof into a leaked one.
+  Agent? _nearestFreeSpirit(Agent a, {Set<String> exclude = const {}}) {
+    Agent? best;
+    var bd = double.infinity;
+    for (final o in agents.values) {
+      if (exclude.contains(o.id) ||
+          o.faded ||
+          o.engaged ||
+          o.inConvo ||
+          o.id == a.id) {
+        continue;
+      }
+      final d = (o.x - a.x) * (o.x - a.x) + (o.y - a.y) * (o.y - a.y);
+      if (d < bd) {
+        bd = d;
+        best = o;
+      }
+    }
+    return best;
+  }
+
+  /// The ledger just filled — the town doesn't wait for the living one.
+  /// The first spirit holding an established proof goes to face the
+  /// culprit; the confrontation completes what the village assembled.
+  void _maybeConfront() {
+    if (_caseResolved || caseProgress < 3) return;
+    if (simTs - _confrontAt < 20) return; // one march in flight at a time
+    final culprit = agents[culpritId];
+    if (culprit == null ||
+        culprit.faded ||
+        culprit.engaged ||
+        culprit.inConvo) {
+      return;
+    }
+    Agent? accuser;
+    for (final a in agents.values) {
+      if (a.id == culpritId || a.faded || a.engaged || a.inConvo) continue;
+      if (a.knownSecrets.any((sid) {
+        final s = secrets[sid];
+        return s?.proofFor == culpritId &&
+            (!(s?.private ?? false) ||
+                _relayedSecrets.contains(sid) ||
+                _leakedSecrets.contains(sid));
+      })) {
+        accuser = a;
+        break;
+      }
+    }
+    if (accuser == null) return;
+    _confrontAt = simTs;
+    final acc = accuser;
+    unawaited(
+      store.simLog(
+        simTs,
+        acc.id,
+        'case',
+        'the ledger is full — goes to face $culpritId',
+      ),
+    );
+    _emit(acc, SimEventType.emote, {'agent': acc.id, 'glyph': '🕯'});
+    _approachForConvo(
+      acc,
+      culprit,
+      onNear: (ag, tt) => startConversation(ag.id, tt.id),
+    );
   }
 
   /// A village that hasn't heard the living one in a while wonders
@@ -2288,7 +2410,9 @@ class SimEngine {
           mouths: agents.values
               .where((a) => a.knownSecrets.contains(s.id))
               .length,
-          relayed: !s.private || _relayedSecrets.contains(s.id),
+          relayed: !s.private ||
+              _relayedSecrets.contains(s.id) ||
+              _leakedSecrets.contains(s.id),
           private: s.private,
         ),
   ];
@@ -2309,14 +2433,63 @@ class SimEngine {
         (text: c.text, mouths: c.version.length, about: c.pointsTo),
   ];
 
-  /// Whispers the player has overheard — relayed vs still trapped.
-  List<({String line, bool relayed})> get caseWhispers => [
+  /// What [a] can honestly say about the case when the living one asks —
+  /// proofs and blame they hold, said as a compact prompt digest.
+  String? _caseDigestFor(Agent a) {
+    final bits = <String>[];
+    for (final sid in a.knownSecrets) {
+      final s = secrets[sid];
+      if (s == null) continue;
+      if (s.proofFor != null) {
+        bits.add('proof: ${s.shareText}');
+      } else if (s.accuses != null) {
+        bits.add('blame heard: ${s.shareText} (no proof)');
+      } else if (s.alibiFor != null) {
+        bits.add('alibi: ${s.shareText}');
+      } else if (s.headline) {
+        bits.add(s.shareText);
+      }
+    }
+    for (final c in claims.values) {
+      if (c.version.containsKey(a.id) &&
+          (c.kind == 'proof' || c.kind == 'accusation')) {
+        bits.add('gossip: "${c.heardBy(a.id)}"');
+      }
+    }
+    if (bits.isEmpty) return 'nothing yet — you have heard no proof, no blame';
+    return bits.join(' | ');
+  }
+
+  /// Whispers the player has overheard — speaker, relayed vs trapped.
+  List<({String speaker, String line, bool relayed})> get caseWhispers => [
     for (final w in whispers)
       if (overheardWhispers.contains(w.id))
         (
+          speaker: w.speaker,
           line: w.line,
-          relayed: w.grants == null || _relayedSecrets.contains(w.grants),
+          relayed: w.grants == null ||
+              _relayedSecrets.contains(w.grants) ||
+              _leakedSecrets.contains(w.grants),
         ),
+  ];
+
+  /// The next thing the living one could do — rendered as the sheet's
+  /// task line so the case file reads as a guide, not a scoreboard.
+  List<String> get caseTasks => [
+    if (caseResolved) ...[
+      'the thief confessed — the portrait is home',
+    ] else ...[
+      if (caseProofs.any((p) => p.private && !p.relayed))
+        'carry an overheard whisper to another spirit — it becomes proof',
+      if (caseProofs.any((p) => p.relayed && p.mouths < 2))
+        'let a proof reach one more mouth — two mouths make it count',
+      if (caseProofs.any((p) => p.id == 'guitar_pick' && p.mouths == 0))
+        'inspect the great ofrenda — something was left under the frame',
+      if (caseProgress >= 3)
+        'the ledger is full — face Ramón yourself, or let the town',
+      if (caseProgress < 3 && overheardWhispers.isEmpty)
+        'watch for spirits muttering to themselves — those are clues only you can carry',
+    ],
   ];
 
   /// Small models leak JSON edge punctuation into their lines
@@ -2644,6 +2817,7 @@ class SimEngine {
         history: hist.length > 8 ? hist.sublist(hist.length - 8) : hist,
         memories: memories.map((m) => m.text).toList(),
         rumors: _heldRumors(a),
+        caseFile: _caseDigestFor(a),
         note: note,
       );
       // Player claim → memory as claim, not fact.
@@ -3469,7 +3643,8 @@ class SimEngine {
   /// the same rumor travels differently through every persona.
   bool _canShareRumor(Agent a, Agent b, Secret? s) {
     if (s == null || s.tier != 'rumor') return true;
-    if (s.private) return false; // confidences don't travel — ever
+    // confidences don't travel — until they're overheard into the open
+    if (s.private && !_leakedSecrets.contains(s.id)) return false;
     // An accusation dies in the ear of whoever holds the alibi — Carmen
     // doesn't pass on a blame she can disprove.
     if (s.accuses != null &&

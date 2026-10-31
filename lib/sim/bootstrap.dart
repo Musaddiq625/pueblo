@@ -50,6 +50,8 @@ Future<SimBundle> bootstrap({
           for (final c in (w['canon'] as List? ?? const [])) '$c',
         ],
         at: w['at'] is int ? w['at'] as int : 0,
+        // absent → never leaks on its own; the living one is the only key
+        leak: w['leak'] is int ? w['leak'] as int : 1 << 30,
       ),
   ];
 

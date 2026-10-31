@@ -12,6 +12,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 
+import 'game/intro_scene.dart';
 import 'game/pueblo_game.dart';
 import 'game/world_def.dart';
 import 'sim/bootstrap.dart';
@@ -206,6 +207,75 @@ class _PuebloAppState extends State<PuebloApp> {
         );
       }
     }
+    // The theft — the opening beats the whole case hangs on. A popup
+    // crop of the ofrenda, not a video: same tiles, same sprites.
+    if (!const bool.fromEnvironment('SKIP_INTRO') &&
+        !const bool.fromEnvironment('DRIVER')) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _showIntro());
+    }
+  }
+
+  void _showIntro() {
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: const Color(0xE6080612),
+      builder: (ctx) {
+        final scene = IntroScene(
+          onDone: () {
+            if (ctx.mounted) Navigator.of(ctx).pop();
+          },
+        );
+        return Dialog(
+          backgroundColor: const Color(0xFF0A0814),
+          insetPadding: const EdgeInsets.all(24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: Color(0xFF3A2C50)),
+          ),
+          child: SizedBox(
+            width: 560,
+            height: 340,
+            child: Column(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(14, 10, 14, 6),
+                  child: Text(
+                    'día de los muertos — the night the frame went bare',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Color(0xFF8D84B0),
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: GameWidget(game: scene),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: TextButton(
+                    key: const Key('introSkip'),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text(
+                      'comenzar →',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFFFC233),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _dumpFrame([int idx = 0]) async {
@@ -577,108 +647,113 @@ class _Hud extends StatelessWidget {
       builder: (_) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'el cuadro robado — the case file',
-                style: TextStyle(fontSize: 14, color: Color(0xFFFFC233)),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${engine.caseProgress}/3 proofs weigh against the thief',
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Color(0xFF8D84B0),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'el cuadro robado — the case file',
+                  style: TextStyle(fontSize: 14, color: Color(0xFFFFC233)),
                 ),
-              ),
-              const SizedBox(height: 10),
-              for (final p in proofs)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        p.private && !p.relayed &&
-                                !engine.playerKnown.contains(p.id)
-                            ? '🔒 a whisper trapped in one mouth — overhear it, carry it'
-                            : p.relayed
-                            ? '🕯 ${p.text}'
-                            : p.text,
-                        key: Key('case_row_${p.id}'),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFFDCD4F0),
-                        ),
-                      ),
-                      Text(
-                        'carried by ${p.mouths} mouth${p.mouths == 1 ? '' : 's'}'
-                        '${p.relayed ? ' — weighs on the ledger' : ''}',
-                        style: const TextStyle(
-                          fontSize: 10.5,
-                          color: Color(0xFF6A6088),
-                        ),
-                      ),
-                    ],
+                const SizedBox(height: 4),
+                Text(
+                  engine.caseResolved
+                      ? 'case closed — the thief confessed'
+                      : '${engine.caseProgress}/3 proofs weigh against the thief',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF8D84B0),
                   ),
                 ),
-              if (accusations.isNotEmpty) ...[
-                const Divider(color: Color(0xFF3A2C50), height: 14),
-                const Text(
-                  'accusations — blame without proof',
-                  style: TextStyle(fontSize: 11, color: Color(0xFFB0A6D8)),
-                ),
-                const SizedBox(height: 6),
-                for (final a in accusations)
+                const SizedBox(height: 10),
+                for (final p in proofs)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      '“${a.text}”'
-                      '${a.about != null ? ' — fingers ${engine.agents[a.about]?.name ?? a.about}' : ''}'
-                      ' · ${a.mouths} mouth${a.mouths == 1 ? '' : 's'}',
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        color: Color(0xFF9C8FC0),
-                      ),
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          p.private && !p.relayed &&
+                                  !engine.playerKnown.contains(p.id)
+                              ? '🔒 a whisper trapped in one mouth — overhear it, carry it'
+                              : p.relayed && p.mouths >= 2
+                              ? '🕯 ${p.text}'
+                              : p.text,
+                          key: Key('case_row_${p.id}'),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFDCD4F0),
+                          ),
+                        ),
+                        Text(
+                          'carried by ${p.mouths} mouth${p.mouths == 1 ? '' : 's'}'
+                          '${p.relayed && p.mouths >= 2 ? ' — weighs on the ledger' : p.mouths == 0 && p.id == 'guitar_pick' ? ' — inspect the great ofrenda' : p.mouths < 2 && !p.private ? ' — needs one more mouth' : ''}',
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            color: Color(0xFF6A6088),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-              ],
-              if (whispers.isNotEmpty) ...[
+                if (accusations.isNotEmpty) ...[
+                  const Divider(color: Color(0xFF3A2C50), height: 14),
+                  const Text(
+                    'accusations — blame without proof',
+                    style: TextStyle(fontSize: 11, color: Color(0xFFB0A6D8)),
+                  ),
+                  const SizedBox(height: 6),
+                  for (final a in accusations)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '“${a.text}”'
+                        '${a.about != null ? ' — fingers ${engine.agents[a.about]?.name ?? a.about}' : ''}'
+                        ' · ${a.mouths} mouth${a.mouths == 1 ? '' : 's'}',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF9C8FC0),
+                        ),
+                      ),
+                    ),
+                ],
+                if (whispers.isNotEmpty) ...[
+                  const Divider(color: Color(0xFF3A2C50), height: 14),
+                  const Text(
+                    'overheard whispers — yours to carry',
+                    style: TextStyle(fontSize: 11, color: Color(0xFFB0A6D8)),
+                  ),
+                  const SizedBox(height: 6),
+                  for (final w in whispers)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '${w.relayed ? '✓' : '…'} ${engine.agents[w.speaker]?.name ?? w.speaker}: “${w.line}”',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF9C8FC0),
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                ],
+                const SizedBox(height: 4),
                 const Divider(color: Color(0xFF3A2C50), height: 14),
-                const Text(
-                  'overheard whispers — yours to carry',
-                  style: TextStyle(fontSize: 11, color: Color(0xFFB0A6D8)),
-                ),
-                const SizedBox(height: 6),
-                for (final w in whispers)
+                for (final t in engine.caseTasks)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
+                    padding: const EdgeInsets.only(bottom: 3),
                     child: Text(
-                      '${w.relayed ? '✓' : '…'} “${w.line}”',
+                      '• $t',
                       style: const TextStyle(
                         fontSize: 11.5,
-                        color: Color(0xFF9C8FC0),
+                        color: Color(0xFFB0A6D8),
                         fontStyle: FontStyle.italic,
                       ),
                     ),
                   ),
               ],
-              const SizedBox(height: 4),
-              const Divider(color: Color(0xFF3A2C50), height: 14),
-              Text(
-                engine.caseResolved
-                    ? 'the thief confessed — the portrait is home'
-                    : 'overhear what the spirits keep to themselves — '
-                        'speak it to another, and it becomes proof',
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  color: Color(0xFFB0A6D8),
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),

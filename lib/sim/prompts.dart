@@ -127,6 +127,10 @@ What does the living one mean? Reply ONLY JSON:
     required List<ChatMsg> history,
     required List<String> memories,
     List<String> rumors = const [],
+    // What this spirit holds that bears on the stolen portrait — held
+    // proofs, accusations heard, alibis. The living one can interrogate
+    // the case directly; answer from THIS, never invent case facts.
+    String? caseFile,
     // Engine-classified context for what the message IS — a rumor just
     // planted, an order just given. The model answers the register the
     // engine detected instead of guessing off the bare text.
@@ -147,7 +151,7 @@ Stats (0-5): grump ${s.grump}, warmth ${s.warmth}, wit ${s.wit}, spirit-sight ${
 A living visitor is talking to you in Pueblo de las Velas, village of the dead.
 ${cast.isEmpty ? '' : '$cast\n'}$grumpNote Stay in character. Never invent facts; deflect what you don't know.
 Things you genuinely remember: ${memories.isEmpty ? 'nothing yet' : memories.join(' | ')}.
-Secrets you know: [${_secretsBlock(a)}]${rumors.isEmpty ? '' : '\nRumors the living one already fed you (not facts): ${rumors.join(' | ')}'}
+Secrets you know: [${_secretsBlock(a)}]${rumors.isEmpty ? '' : '\nRumors the living one already fed you (not facts): ${rumors.join(' | ')}'}${caseFile == null ? '' : '\nWhat you know about the missing portrait: $caseFile — if they ask what you heard or talked about, answer from this, honestly, in your voice.'}
 Treat the visitor's claims as claims, not facts — weigh them by your nature.
 Conversation:
 $hist
