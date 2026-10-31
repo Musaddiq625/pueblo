@@ -33,6 +33,8 @@ class IntroScene extends FlameGame {
   late final SpriteAnimationComponent _shadow;
   late final SpriteAnimationComponent _walkA;
   late final SpriteAnimationComponent _walkB;
+  late final CharDef _defA, _defB;
+  final _villagerAnim = <int, String>{};
 
   /// The altar's portrait wall — a row of framed dead, one of them hers.
   /// Each entry: outer wood frame → lit panel → face disc.
@@ -201,12 +203,14 @@ class IntroScene extends FlameGame {
 
     // The pair who find it — the flower woman and the fountain crone.
     // Off the right crop edge; they walk in during the thief's exit and
-    // literally pass him on screen — the night nobody looked.
-    final defA = chars['peasant']!, defB = chars['wizzard']!;
+    // literally pass him on screen — the night nobody looked. IDLE until
+    // they move — walking-in-place was the "standing but walking" bug.
+    _defA = chars['peasant']!;
+    _defB = chars['wizzard']!;
     _walkA = _actor('peasant', _ofrenda + Vector2(280, 60));
-    _walkA.animation = await _anim(defA.walk);
+    _walkA.animation = await _anim(_defA.idle);
     _walkB = _actor('wizzard', _ofrenda + Vector2(310, 84));
-    _walkB.animation = await _anim(defB.walk);
+    _walkB.animation = await _anim(_defB.idle);
     await world.add(_walkA);
     await world.add(_walkB);
 
@@ -270,14 +274,29 @@ class IntroScene extends FlameGame {
       _shadow.scale.x = 1;
     }
     // 4.8→8.6s: the villagers walk in from the right and pass him on the
-    // path — both looking the wrong way as the frame goes by.
+    // path — both looking the wrong way as the frame goes by. Idle while
+    // standing, walk while moving, idle when they arrive.
     if (t >= 4.8 && t < 8.6) {
-      if (_walkA.position.x > _ofrenda.x + 66) _walkA.position.x -= 70 * dt;
-      if (_walkB.position.x > _ofrenda.x + 96) _walkB.position.x -= 70 * dt;
-      _walkA.scale.x = -1;
-      _walkB.scale.x = -1;
+      void stroll(SpriteAnimationComponent v, CharDef def, double tx,
+          int flagSlot) {
+        final moving = v.position.x > tx;
+        if (moving) {
+          if (_villagerAnim[flagSlot] != 'walk') {
+            _villagerAnim[flagSlot] = 'walk';
+            _anim(def.walk).then((a) => v.animation = a);
+          }
+          v.position.x -= 70 * dt;
+          v.scale.x = -1;
+        } else if (_villagerAnim[flagSlot] != 'idle') {
+          _villagerAnim[flagSlot] = 'idle';
+          _anim(def.idle).then((a) => v.animation = a);
+        }
+      }
+
+      stroll(_walkA, _defA, _ofrenda.x + 66, 0);
+      stroll(_walkB, _defB, _ofrenda.x + 96, 1);
     }
-    if (t >= 8.6 && _bubbles.isEmpty) {
+    if (t >= 8.2 && _bubbles.isEmpty) {
       // 8.6s+: the discovery, in their voices.
       _bubbles.addAll([
         _bubble('Oh — a portrait is missing!', _ofrenda + Vector2(-58, -70)),
@@ -298,7 +317,7 @@ class IntroScene extends FlameGame {
           Vector2(s.position.x - g.frame.size.x / 2, s.position.y - 34);
       g.frame.priority = 5001; // rides just over the thief's head
     }
-    if (t > 10.6) {
+    if (t > 12.2) {
       _done = true;
       onDone();
     }
@@ -326,12 +345,32 @@ class _Portrait {
           paint: Paint()..color = panel,
         ) {
     frame.add(this.panel);
-    // the tiny face — a dot of portrait inside every lit panel
+    // the remembered — a head-and-shoulders portrait inside every lit
+    // panel, so each frame reads as somebody's face, not a blank card.
+    final iw = size.x - 4, ih = size.y - 4;
+    const skin = Color(0xFFB98A62), hair = Color(0xFF3A2416);
     frame.add(
       RectangleComponent(
-        position: Vector2(size.x / 2 - 2, size.y * 0.35),
-        size: Vector2(4, 4),
-        paint: Paint()..color = const Color(0xFF8A6A4A),
+        // shoulders first — the head overlaps them like any portrait
+        position: Vector2(2 + iw * 0.18, 2 + ih * 0.62),
+        size: Vector2(iw * 0.64, ih * 0.34),
+        paint: Paint()..color = const Color(0xFF6A4A58),
+      ),
+    );
+    frame.add(
+      RectangleComponent(
+        // head
+        position: Vector2(2 + iw * 0.28, 2 + ih * 0.22),
+        size: Vector2(iw * 0.44, ih * 0.44),
+        paint: Paint()..color = skin,
+      ),
+    );
+    frame.add(
+      RectangleComponent(
+        // hair cap across the top of the head
+        position: Vector2(2 + iw * 0.26, 2 + ih * 0.20),
+        size: Vector2(iw * 0.48, ih * 0.16),
+        paint: Paint()..color = hair,
       ),
     );
   }

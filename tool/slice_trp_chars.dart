@@ -2,8 +2,8 @@
 ///
 /// Each demo sheet is a 288x192 grid — 6 columns x 4 rows of 48x48 cells,
 /// rows ordered down / left / back / right. Our world walks left-right
-/// only (the engine mirrors), so row 0 becomes `idle` and row 1 becomes
-/// `walk` — the engine flips horizontally for the other direction.
+/// only (the engine mirrors), so row 0 becomes `idle` and row 3 becomes
+/// `walk` — right-facing unflipped; the engine flips it for left.
 ///
 /// Run:  dart run tool/slice_trp_chars.dart
 /// Input:  tool/art_src/trp_char00..02.png  (raw demo sheets)
@@ -28,7 +28,7 @@ void main() {
       continue;
     }
     final img = decodePng(src.readAsBytesSync())!;
-    for (final (row, anim) in [(0, 'idle'), (1, 'walk')]) {
+    for (final (row, anim) in [(0, 'idle'), (3, 'walk')]) {
       final out = copyCrop(img,
           x: 0, y: row * cell, width: img.width, height: cell);
       _stripWhiteOutline(out);

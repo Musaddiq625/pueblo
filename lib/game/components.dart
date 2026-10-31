@@ -163,6 +163,11 @@ class SpiritComponent extends SpriteAnimationGroupComponent<SpiritAnim>
       _collapsing = false;
       current = SpiritAnim.idle;
     }
+    // Safety net — any path that ended without flipping `walking` must
+    // not leave the run cycle playing under a standing figure.
+    if (!walking && current == SpiritAnim.walk && !_collapsing) {
+      current = SpiritAnim.idle;
+    }
     // depth sort by foot y; engaged pins nothing visually
     priority = position.y.round();
     // engaged → gentle glow tint pulse

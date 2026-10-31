@@ -186,7 +186,7 @@ class OllamaClient implements LLMClient {
 
   @override
   Future<Decision?> decide(String prompt) async {
-    final j = _json(await _chat(prompt, temperature: 0.7, numPredict: 140));
+    final j = _json(await _chat(prompt, temperature: 0.45, numPredict: 140));
     if (j == null) return null;
     return Decision(
       (j['action'] ?? '').toString(),
@@ -200,7 +200,9 @@ class OllamaClient implements LLMClient {
 
   @override
   Future<ConvoTurn?> convoTurn(String prompt) async {
-    final j = _json(await _chat(prompt, temperature: 0.85, numPredict: 90));
+    // Cooler than the old 0.85 — small models at high temperature go
+    // poetic; the village needs plain speech, not verse.
+    final j = _json(await _chat(prompt, temperature: 0.5, numPredict: 90));
     if (j == null) return null;
     return ConvoTurn(
       (j['line'] ?? '').toString(),
@@ -216,7 +218,7 @@ class OllamaClient implements LLMClient {
     // Returns the raw JSON/text — the engine parses PlayerReply itself.
     // Empty on failure → the spirit silently listens rather than literally
     // saying '...' at the player.
-    final content = await _chat(prompt, temperature: 0.85, numPredict: 220);
+    final content = await _chat(prompt, temperature: 0.55, numPredict: 220);
     final line = content ?? '';
     for (var i = 0; i < line.length; i += 12) {
       yield line.substring(i, min(i + 12, line.length));

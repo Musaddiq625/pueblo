@@ -1805,7 +1805,7 @@ class SimEngine {
     if (p.id == 'ofrenda') {
       if (!_ofrendaAnnounced) {
         _ofrendaAnnounced = true;
-        _say(a, "Oh! La Golondrina's portrait — it's missing from the ofrenda!",
+        _say(a, "Oh! La Golondrina's portrait is missing from the ofrenda!",
             'shock');
         // whoever stands close enough to hear flinches with them
         for (final o in agents.values) {
@@ -2572,9 +2572,18 @@ class SimEngine {
 
   /// Small models leak JSON edge punctuation into their lines
   /// ("How's the day?\",") — strip wrapper quotes/stray commas at the
-  /// ends only; mid-line apostrophes are sacred.
-  static String _cleanLine(String s) =>
-      s.trim().replaceAll(RegExp('^[\'"]+|[\'",]+\$'), '').trim();
+  /// ends only; mid-line apostrophes are sacred. Then reject output that
+  /// reads as model noise instead of village speech: em/en dashes, stray
+  /// brackets/asterisks, or a run-on past eighteen words. A dropped line
+  /// bubbles nothing — better silence than "Dimness grows."
+  static final _badLineChars = RegExp(r'''[—–~*{}\[\]_|<>^"]''');
+  static String _cleanLine(String s) {
+    s = s.trim().replaceAll(RegExp('^[\'"]+|[\'",]+\$'), '').trim();
+    if (s.isEmpty) return '';
+    if (_badLineChars.hasMatch(s)) return '';
+    if (s.split(RegExp(r'\s+')).length > 18) return '';
+    return s;
+  }
 
   void _say(Agent a, String line, String mood) {
     _emit(a, SimEventType.say, {'agent': a.id, 'line': line, 'mood': mood});

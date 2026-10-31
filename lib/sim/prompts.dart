@@ -59,7 +59,7 @@ Choose ONE of: ${allowedActions.join(', ')}.
 - inspect(poi)/shop(poi)/stroll/idle: move or observe.
 For share() put the who in "target" and the secret_id in "subject".
 Reply ONLY JSON:
-{"thought":"≤15 tokens — inner voice tied to your errand, a rumor you carry, or who stands near; never generic filler","action":"...","target":"..|null","subject":"..|null","line":"≤12 words — what you'd say aloud, about YOUR business here","mood":"neutral|warm|curious|sad|scared"}''';
+{"thought":"≤8 plain words — your inner voice about your errand or who took the portrait; everyday words only, never poetry","action":"...","target":"..|null","subject":"..|null","line":"≤10 plain words — what you'd say aloud about YOUR business; simple everyday words, no metaphors, no dashes","mood":"neutral|warm|curious|sad|scared"}''';
   }
 
   /// ONE speaker's next turn — partner's private state never appears here.
@@ -101,8 +101,9 @@ Talking with ${partner.name} ($context). Mood: ${speaker.faded ? 'sad' : 'neutra
 Conversation so far:
 ${transcript.isEmpty ? '(no one has spoken yet)' : transcript.join('\n')}
 Secrets you know: [${_secretsBlock(speaker)}]$ask${rumors.isEmpty ? '' : '\nRumors the living one fed you (gossip, not fact): ${rumors.join(' | ')}'}
-Write YOUR next line. ≤14 words, in voice — reply to their last line, stay
-on the topic, don't start a new one.
+Write YOUR next line. Rules: ≤10 words, plain everyday English, like real
+speech between neighbors — NO poetry, NO metaphors, NO dashes or symbols,
+NO fancy words. Reply to their last line; stay on the topic.
 JSON: {"line":"...","shares_secret":"id|null","end":true|false,"mood":"neutral|warm|curious|sad|scared"}''';
   }
 
@@ -162,7 +163,7 @@ question it, doubt it, run with it. Do NOT recite your memories or secrets
 unprompted; weave them in only if they answer what was said. You may reply
 aloud OR simply react without words.${note == null ? '' : '\nNOTE: $note'}
 Reply ONLY JSON:
-{"say":"≤25 words answering their last message, in your voice — or null to stay silent",
+{"say":"≤18 words answering their last message, in plain everyday words — or null to stay silent",
  "react":"shock|curious|warm|wary|amused|none",
  "believes":true|false|null,
  "share_with":"id of the spirit you'll carry this news to — or null",
