@@ -140,7 +140,7 @@ Future<void> main() async {
     PuebloGame.personaSprite = bundle.sprites;
     PuebloGame.personaTint = bundle.tints;
     PuebloGame.personaDye = bundle.dyes;
-    runApp(PuebloApp(bundle: bundle, onNewDay: launch));
+    runApp(PuebloApp(bundle: bundle, onRestart: launch));
   }
 
   await launch();
@@ -150,8 +150,8 @@ class PuebloApp extends StatefulWidget {
   final SimBundle bundle;
 
   /// Resolution card → rebuild the whole sim + app for a fresh day.
-  final Future<void> Function()? onNewDay;
-  const PuebloApp({super.key, required this.bundle, this.onNewDay});
+  final Future<void> Function()? onRestart;
+  const PuebloApp({super.key, required this.bundle, this.onRestart});
   @override
   State<PuebloApp> createState() => _PuebloAppState();
 }
@@ -165,8 +165,7 @@ class _PuebloAppState extends State<PuebloApp> {
   Poi? shoppingAt;
   int petals = 0;
   int? remembered, fadedCount;
-  String? verdictNote; // the arc's resolution, if a verdict fired today
-  bool resolutionDismissed = false; // card hides; the festival keeps going
+  String? verdictNote; // the arc's resolution, once the verdict fires
   bool rosterOpen = false;
 
   SimEngine get engine => widget.bundle.engine;
@@ -195,7 +194,7 @@ class _PuebloAppState extends State<PuebloApp> {
     };
     PuebloGame.rosterHook = () => setState(() => rosterOpen = true);
     // DRIVER 'reset' → same fresh-world path as the resolution card.
-    PuebloGame.resetHook = widget.onNewDay;
+    PuebloGame.resetHook = widget.onRestart;
     // SHOT=<sec> → first capture delay. SHOTN=<n> frames, SHOTEACH=<ms>
     // spacing (default 1000). Files: pueblo_frame.png, pueblo_frame_1.png…
     const shotSec = int.fromEnvironment('SHOT');
@@ -466,9 +465,9 @@ class _PuebloAppState extends State<PuebloApp> {
                   ),
                 ),
 
-              // Resolution card — the arc has closed, but the festival never
-              // halts. Dismiss to keep playing, or restart for a fresh day.
-              if (remembered != null && !resolutionDismissed)
+              // Resolution card — the case is closed, the run is over.
+              // The only way forward is a fresh world.
+              if (remembered != null)
                 Center(
                   child: Container(
                     padding: const EdgeInsets.all(28),
@@ -517,33 +516,17 @@ class _PuebloAppState extends State<PuebloApp> {
                           ),
                         ),
                         const SizedBox(height: 14),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            TextButton(
-                              key: const Key('keepCelebratingButton'),
-                              onPressed: () =>
-                                  setState(() => resolutionDismissed = true),
-                              child: const Text(
-                                'keep celebrating',
-                                style: TextStyle(color: Color(0xFF8D84B0)),
-                              ),
+                        if (widget.onRestart != null)
+                          FilledButton.icon(
+                            key: const Key('playAgainButton'),
+                            icon: const Icon(Icons.replay, size: 16),
+                            label: const Text('Play again'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFEF8C1A),
+                              foregroundColor: const Color(0xFF1A1430),
                             ),
-                            if (widget.onNewDay != null) ...[
-                              const SizedBox(width: 10),
-                              FilledButton.icon(
-                                key: const Key('newDayButton'),
-                                icon: const Icon(Icons.wb_sunny, size: 16),
-                                label: const Text('New day'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFEF8C1A),
-                                  foregroundColor: const Color(0xFF1A1430),
-                                ),
-                                onPressed: () => widget.onNewDay!(),
-                              ),
-                            ],
-                          ],
-                        ),
+                            onPressed: () => widget.onRestart!(),
+                          ),
                       ],
                     ),
                   ),
@@ -788,7 +771,7 @@ class _Hud extends StatelessWidget {
   }
 }
 
-/// The living one's notebook — what the day has taught them. What they
+/// The living one's notebook — what tonight has taught them. What they
 /// know, where it might be worth a look, and the headline's empty frame.
 class _CuadernoChip extends StatelessWidget {
   final SimEngine engine;
@@ -903,8 +886,8 @@ class _CuadernoChip extends StatelessWidget {
 }
 
 /// The village roster — every spirit on a card, tap one for its dossier:
-/// persona, stat stars, what it's carrying, and whether the day has
-/// taught it anything. Data-driven off engine.agents so a bigger cast
+/// persona, stat stars, what it's carrying, and whether it has learned
+/// anything tonight. Data-driven off engine.agents so a bigger cast
 /// needs no UI changes.
 class _RosterChip extends StatelessWidget {
   final VoidCallback onOpen;
@@ -956,7 +939,7 @@ class _RosterSheetState extends State<_RosterSheet> {
               children: [
                 const Expanded(
                   child: Text(
-                    'the remembered — who walks today',
+                    'the remembered — who still walks',
                     style: TextStyle(fontSize: 14, color: Color(0xFFFFC233)),
                   ),
                 ),
@@ -1000,7 +983,7 @@ class _RosterSheetState extends State<_RosterSheet> {
                   ),
                 ),
                 Container(width: 1, color: const Color(0xFF3A2C50)),
-                // dossier — everything the day knows about this spirit
+                // dossier — everything known about this spirit
                 Expanded(
                   child: _Dossier(engine: widget.engine, id: sel),
                 ),
@@ -1141,7 +1124,7 @@ class _Dossier extends StatelessWidget {
               _line(
                 '📖 secrets',
                 '${a.knownSecrets.length} held '
-                    '(${d.initialSecrets} from the start, ${d.learnedSecrets.length} learned today)',
+                    '(${d.initialSecrets} from the start, ${d.learnedSecrets.length} learned so far)',
               ),
               if (d.heldClaims.isNotEmpty)
                 _line(
@@ -1167,7 +1150,7 @@ class _Dossier extends StatelessWidget {
               Row(
                 children: [
                   const Text(
-                    '🌱 grown today? ',
+                    '🌱 grown yet? ',
                     style: TextStyle(fontSize: 11, color: Color(0xFF8D84B0)),
                   ),
                   Text(
@@ -1255,7 +1238,7 @@ class _Dossier extends StatelessWidget {
 }
 
 /// Sim-speed toggle — cycles 1× → 2× → 4× → 8× so you can fast-forward
-/// through quiet stretches of the day.
+/// through quiet stretches.
 class _SpeedChip extends StatefulWidget {
   final SimEngine engine;
   const _SpeedChip({required this.engine});

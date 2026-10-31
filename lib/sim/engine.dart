@@ -1226,7 +1226,7 @@ class SimEngine {
       );
       return;
     }
-    // 4. schedule — the persona's authored routine for this hour of the day
+    // 4. schedule — the persona's authored routine for this hour
     // festival; falls back to their home patch.
     var schedPoi = a.home;
     for (final s in a.schedule) {
@@ -1257,7 +1257,7 @@ class SimEngine {
             ? 'the living one asked you to reach ${agents[e.targetId]?.name ?? e.targetId} — go'
             : agents[e.targetId]?.faded == true
             ? '${agents[e.targetId]!.name} is fading and you hold their name — reach them'
-            : 'you feel dim — find company before the day takes you',
+            : 'you feel dim — find company before you fade away',
       _ => 'your routine — check on ${pois[e.targetId]?.name ?? e.targetId}',
     };
   }
@@ -1486,11 +1486,11 @@ class SimEngine {
         .where((a) => a.hook != null)
         .map((a) => '${a.id}: ${a.hook}')
         .join('; ');
-    return 'Town (day ${_clock()}):\n$parts\n'
+    return 'Town (t=${_clock()}):\n$parts\n'
         'Secrets spreading: $know\n'
         '${_headlineDigest()}'
         'Hooks: $hooks\n'
-        'Recent: ${_recentNotes.isEmpty ? 'the day is still young' : _recentNotes.join('; ')}';
+        'Recent: ${_recentNotes.isEmpty ? 'the night is still young' : _recentNotes.join('; ')}';
   }
 
   void _applyBeat(Map<String, dynamic>? beat) {

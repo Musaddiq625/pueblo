@@ -500,7 +500,7 @@ class BubbleComponent extends PositionComponent {
 
   void _draw(Canvas canvas) {
     final style = TextStyle(
-      color: isThought ? const Color(0x99DCD4F0) : const Color(0xFFFFF4DC),
+      color: isThought ? const Color(0xCCDCD4F0) : const Color(0xFFFFF4DC),
       fontSize: isEmote ? 22 : (isThought ? 11 : 12.5),
       fontStyle: isThought ? FontStyle.italic : FontStyle.normal,
       // default font for emotes — monospace lacks emoji glyphs (blank box)
@@ -518,8 +518,23 @@ class BubbleComponent extends PositionComponent {
       return;
     }
     if (isThought) {
-      // borderless — a wisp of inner voice, centered and dim
-      tp.paint(canvas, Offset((size.x - tp.width) / 2, 0));
+      // inner voice — a wisp, but it still needs a backing panel or it
+      // camouflages into whatever sprite/prop is behind it
+      final w = tp.width + 14;
+      final h = tp.height + 8;
+      final rect = RRect.fromRectAndRadius(
+        Rect.fromLTWH((size.x - w) / 2, 0, w, h),
+        const Radius.circular(8),
+      );
+      canvas.drawRRect(rect, Paint()..color = const Color(0xB32B2145));
+      canvas.drawRRect(
+        rect,
+        Paint()
+          ..color = const Color(0x66998BE0)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0,
+      );
+      tp.paint(canvas, Offset((size.x - tp.width) / 2, 4));
       return;
     }
     TextPainter? name;

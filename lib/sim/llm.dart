@@ -318,7 +318,7 @@ class MockLLMClient implements LLMClient {
     ],
     'Doña Sefa': [
       'wax on a sleeve does not lie, my friend.',
-      'half the town blames the other half today.',
+      'half the town blames the other half.',
       'her portrait was gold — someone envied that light.',
       'who profits from a stolen picture? answer me that.',
     ],
@@ -336,7 +336,7 @@ class MockLLMClient implements LLMClient {
     ],
     'Solorio': [
       'i saw someone at the frames at dusk… or did i dream it?',
-      'the edges of me keep drifting away today.',
+      'the edges of me keep drifting away.',
       'say my name — it helps me remember who i was.',
       'there was humming near the ofrenda. i think.',
     ],
@@ -527,7 +527,7 @@ class MockLLMClient implements LLMClient {
         'beat': 'rumor',
         'agent': null,
         'poi': poi,
-        'line': 'the water remembers what the day forgets',
+        'line': 'the water remembers what the town forgets',
         'why': 'a whisper for the listeners',
       };
     }

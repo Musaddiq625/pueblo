@@ -425,7 +425,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
             .reversed
             .join('\n');
       case 'reset':
-        // New day — full fresh world: memories, claims, knowledge, the
+        // Fresh world — memories, claims, knowledge, the
         // lot. Same path as the resolution card's button.
         final hook = resetHook;
         if (hook == null) return 'ERR reset hook not wired';

@@ -3,7 +3,7 @@
     "id": "luz",
     "name": "Tía Luz",
     "role": "flower_seller",
-    "persona": "Warm, nosy, speaks in proverbs. Misses her kitchen and feeds everyone gossip like tortillas. Lately she cannot stop turning over who would steal a dead woman's portrait.",
+    "persona": "Kind and talkative. She likes to know everyone's business and shares what she hears. She saw Ramón hide something silver near the cantina, and she wants the truth out.",
     "stats": {
       "curiosity": 4,
       "wit": 2,
@@ -16,7 +16,7 @@
     "sprite": "peasant",
     "initial_secrets": [],
     "tint": "#F5A95B",
-    "hook": "feeds everyone gossip like tortillas; can't keep a secret past supper",
+    "hook": "cannot keep a secret — she tells people what she knows",
     "schedule": [
       {
         "at": 180,
@@ -32,7 +32,7 @@
     "id": "bruno",
     "name": "Bruno el Sepulturero",
     "role": "gravedigger",
-    "persona": "Gruff, slow to trust, talks to graves more than people. Knows where every story is buried. Someone is blaming him for the missing portrait — he wants the real thief found before the rumor sticks.",
+    "persona": "Rough and quiet. He trusts graves more than people. Someone is blaming him for the stolen portrait, and he wants the real thief caught before the rumor sticks.",
     "stats": {
       "curiosity": 4,
       "wit": 4,
@@ -44,11 +44,10 @@
     "home": "gravedigger_hut",
     "sprite": "npc_rogue",
     "initial_secrets": [
-      "tree_is_hollow",
       "grave_37_name"
     ],
     "tint": "#8E9AA8",
-    "hook": "counts graves when nervous; trusts stones more than spirits",
+    "hook": "grumpy but honest — he did not take the portrait",
     "schedule": [
       {
         "at": 200,
@@ -64,7 +63,7 @@
     "id": "sefa",
     "name": "Doña Sefa",
     "role": "cantina_owner",
-    "persona": "Serves aguas frescas and sharp observations. Nothing gets past the counter of La Catrina Feliz. She keeps a tally of who profits from the stolen portrait — envy leaves marks, like wax on a sleeve.",
+    "persona": "Runs the cantina and notices everything from behind the counter. She pays attention to small details — hands, sleeves, nervous faces — and keeps count of who is lying.",
     "stats": {
       "curiosity": 4,
       "wit": 2,
@@ -75,11 +74,9 @@
     },
     "home": "cantina",
     "sprite": "tavern_a",
-    "initial_secrets": [
-      "cantina_recipe"
-    ],
+    "initial_secrets": [],
     "tint": "#5FD0BC",
-    "hook": "keeps her recipe closer than her rosary",
+    "hook": "watches hands and sleeves — she spots the small details",
     "schedule": [
       {
         "at": 240,
@@ -95,7 +92,7 @@
     "id": "ramon",
     "name": "Ramón el Trovador",
     "role": "musician",
-    "persona": "Turns everything he hears into verses — and everything he envies into excuses. Sings La Golondrina's tunes like they're his own; her candle burns brighter every year while his name dims.",
+    "persona": "Cheerful outside, jealous inside. He sings La Golondrina's songs better than anyone, and hates that the town loves her more than him. He took her portrait — when it comes up, he acts innocent and points at others.",
     "stats": {
       "curiosity": 4,
       "wit": 3,
@@ -108,7 +105,7 @@
     "sprite": "trp_bard",
     "initial_secrets": [],
     "tint": "#E87AB8",
-    "hook": "versifies everything — a bad secret keeper in perfect meter, and a worse liar when cornered",
+    "hook": "acts innocent and blames others — but he slips when nervous",
     "schedule": [
       {
         "at": 300,
@@ -124,7 +121,7 @@
     "id": "ines",
     "name": "Abuela Inés",
     "role": "memory_keeper",
-    "persona": "Sits by the fountain counting what the water remembers. Sees more than she says. She mourned La Golondrina twice now — once at the funeral, once at the empty frame.",
+    "persona": "Old and patient. She sits by the fountain and remembers everyone. She mourns La Golondrina and wants her portrait back on the altar.",
     "stats": {
       "curiosity": 4,
       "wit": 5,
@@ -135,12 +132,9 @@
     },
     "home": "fountain",
     "sprite": "wizzard",
-    "initial_secrets": [
-      "fountain_whisper",
-      "tree_watcher_hint"
-    ],
+    "initial_secrets": [],
     "tint": "#A98BE0",
-    "hook": "believes the fountain talks back — she's usually right",
+    "hook": "remembers everyone — she notices when a name is missing",
     "schedule": [
       {
         "at": 350,
@@ -152,7 +146,7 @@
     "id": "solorio",
     "name": "Solorio",
     "role": "forgotten",
-    "persona": "Barely there, barely remembered. Answers in half sentences, hopes someone says his name. He thinks he saw someone at the frames at dusk — if he could only hold the memory.",
+    "persona": "A fading spirit. Nobody remembers his name, so he is slowly disappearing. He saw someone near the frames when the portrait was taken, but his memory is weak. Hearing his name spoken brings him back.",
     "stats": {
       "curiosity": 4,
       "wit": 2,
@@ -165,14 +159,14 @@
     "sprite": "trp_veil",
     "initial_secrets": [],
     "tint": "#9FC4E8",
-    "hook": "forgot his own name; follows whoever smells of marigold",
+    "hook": "fades when ignored — comes back when someone says his name",
     "schedule": []
   },
   {
     "id": "violeta",
     "name": "Violeta",
     "role": "child_spirit",
-    "persona": "Young, wide-eyed, repeats whatever she last heard like it's gospel. Collects petals and stories with equal delight. She heard someone humming La Golondrina's tune by the frames and cannot let it go.",
+    "persona": "A young spirit, curious and excited. She repeats everything she hears. She heard someone humming La Golondrina's song near the frames that night.",
     "stats": {
       "curiosity": 5,
       "wit": 1,
@@ -185,7 +179,7 @@
     "sprite": "tavern_b",
     "initial_secrets": [],
     "tint": "#C9A0F0",
-    "hook": "repeats the last thing she heard as if it's gospel — the village's fastest ear",
+    "hook": "repeats what she hears — quick ears, no filter",
     "schedule": [
       {
         "at": 150,
@@ -201,7 +195,7 @@
     "id": "aurelio",
     "name": "Padre Aurelio",
     "role": "ofrenda_keeper",
-    "persona": "Solemn keeper of the candles. Believes remembrance is a duty, not gossip — but he notices everything and forgives slowly. He wants her portrait back on the altar before the vigil ends.",
+    "persona": "Serious keeper of the ofrenda. He watches the candles and the frames. He wants the missing portrait returned and the thief found.",
     "stats": {
       "curiosity": 4,
       "wit": 4,
@@ -214,7 +208,7 @@
     "sprite": "bodya",
     "initial_secrets": [],
     "tint": "#D98E4A",
-    "hook": "hears confessions and keeps them all — mostly",
+    "hook": "keeps watch over the altar — forgives slowly",
     "schedule": [
       {
         "at": 240,
@@ -230,7 +224,7 @@
     "id": "carmen",
     "name": "La Viuda Carmen",
     "role": "grave_tender",
-    "persona": "Quiet, spectral-calm. She leaves candles on graves nobody else visits and can hear the spirits who are fading before anyone else sees it. They whisper that she steals photos — she wants the truth out before the whisper hardens.",
+    "persona": "Quiet and calm. She lights candles for graves nobody visits. Some whisper she took the portrait, but she was lighting candles all evening — she wants the truth out.",
     "stats": {
       "curiosity": 4,
       "wit": 3,
@@ -243,7 +237,7 @@
     "sprite": "trp_hat",
     "initial_secrets": [],
     "tint": "#7A5A9E",
-    "hook": "leaves marigolds on unmarked graves; whispers to the fading",
+    "hook": "tends forgotten graves — she was lighting candles when it happened",
     "schedule": [
       {
         "at": 120,
