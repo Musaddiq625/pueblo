@@ -158,6 +158,7 @@ class PuebloApp extends StatefulWidget {
 class _PuebloAppState extends State<PuebloApp> {
   late final PuebloGame game;
   final _rb = GlobalKey();
+  final _navKey = GlobalKey<NavigatorState>();
   String? inspecting;
   bool inspectIsDeep = false;
   Poi? shoppingAt;
@@ -209,16 +210,21 @@ class _PuebloAppState extends State<PuebloApp> {
     }
     // The theft — the opening beats the whole case hangs on. A popup
     // crop of the ofrenda, not a video: same tiles, same sprites.
-    if (!const bool.fromEnvironment('SKIP_INTRO') &&
-        !const bool.fromEnvironment('DRIVER')) {
+    // SKIP_INTRO disables it — DRIVER runs get it too (driver commands
+    // ride the VM service, not taps; the dialog never blocks them).
+    if (!const bool.fromEnvironment('SKIP_INTRO')) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _showIntro());
     }
   }
 
   void _showIntro() {
     if (!mounted) return;
+    // The state's own context sits ABOVE MaterialApp — dialogs opened on
+    // it find no Navigator/Localizations and throw. Go through the key.
+    final ctx = _navKey.currentContext;
+    if (ctx == null) return;
     showDialog<void>(
-      context: context,
+      context: ctx,
       barrierDismissible: false,
       barrierColor: const Color(0xE6080612),
       builder: (ctx) {
@@ -328,14 +334,16 @@ class _PuebloAppState extends State<PuebloApp> {
     final engaged = engine.engagedId;
     game.sheetOpen = engaged != null;
     return MaterialApp(
+      navigatorKey: _navKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark(),
+      // Boundary above the Navigator — driver 'shot' captures the whole
+      // scene including dialogs (the intro plays in a route overlay).
+      builder: (_, child) => RepaintBoundary(key: _rb, child: child!),
       home: Scaffold(
         backgroundColor: const Color(0xFF120E20),
-        body: RepaintBoundary(
-          key: _rb,
-          child: Stack(
-            children: [
+        body: Stack(
+          children: [
               // Trackpad pinch → PointerPanZoom events (Flame lacks a
               // PanZoomDetector) — forward scale + pan to the camera.
               Listener(
@@ -528,7 +536,6 @@ class _PuebloAppState extends State<PuebloApp> {
             ],
           ),
         ),
-      ),
     );
   }
 }

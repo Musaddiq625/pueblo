@@ -406,7 +406,9 @@ class BubbleComponent extends PositionComponent {
     this.isEmote = false,
     this.isThought = false,
     Vector2? size,
-  }) : _ttl = isEmote ? 1.8 : (isThought ? 2.6 : 3.6),
+  }) : _ttl = isEmote
+           ? kBubbleLifeEmote
+           : (isThought ? kBubbleLifeThought : kBubbleLifeSay),
        super(
          size: size ?? Vector2(220, 44),
          anchor: Anchor.bottomCenter,

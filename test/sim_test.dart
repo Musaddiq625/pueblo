@@ -849,6 +849,30 @@ void main() {
     );
   });
 
+  test('a finished convo lingers for the bubble, then releases both', () async {
+    final b = await bootRumor();
+    final e = b.engine;
+    e.startConversation('a', 'c');
+    expect(e.agents['a']!.inConvo && e.agents['c']!.inConvo, isTrue);
+    final convo = e.conversations.values.first;
+    convo.done = true;
+    // first sweep sees done — marks the linger, does NOT release yet
+    e.simTs += 5;
+    await _pump(e, ticks: 1);
+    expect(
+      e.agents['a']!.inConvo && e.agents['c']!.inConvo,
+      isTrue,
+      reason: 'the pair stays parked while the last bubble is readable',
+    );
+    // the linger is ~4 real-s ≈ 4 sim-s at 1× — a few more sweeps must
+    // clear both flags together, never one before the other
+    await _pump(e, ticks: 30);
+    expect(e.conversations, isEmpty);
+    expect(e.agents['a']!.inConvo, isFalse);
+    expect(e.agents['c']!.inConvo, isFalse,
+        reason: 'no orphan inConvo — both release on the same sweep');
+  });
+
   test('the whisper dies at the festival mark when no one engaged', () async {
     // 1 mouth — the ledger can never complete, so the epilogue is the
     // only resolution this run can reach

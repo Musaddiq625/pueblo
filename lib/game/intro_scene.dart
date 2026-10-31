@@ -148,7 +148,7 @@ class IntroScene extends FlameGame {
       anchor: Anchor.bottomCenter,
       priority: _ofrenda.y.round() + 40,
     )..paint.colorFilter =
-        const ColorFilter.mode(Color(0xFF07050E), BlendMode.srcIn);
+        const ColorFilter.mode(Color(0xFF171130), BlendMode.srcIn);
     await world.add(_shadow);
 
     final defA = chars['tavern_a']!, defB = chars['tavern_b']!;

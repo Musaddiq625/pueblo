@@ -6,6 +6,14 @@ library;
 /// two never diverge — no teleport-on-arrival.
 const kSpiritSpeed = 55.0;
 
+/// Speech-bubble lifetime in REAL seconds (the renderer's `_ttl`, not sim
+/// time). The sim lingers a finished conversation for ~this long so nobody
+/// walks off while their last line is still readable — at 8× speed that is
+/// ~29 sim-seconds, not 3.
+const kBubbleLifeSay = 3.6;
+const kBubbleLifeThought = 2.6;
+const kBubbleLifeEmote = 1.8;
+
 class Stats {
   final int curiosity;
   final int wit;

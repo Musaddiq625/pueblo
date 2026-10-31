@@ -64,6 +64,10 @@ class Conversation {
   /// and deflect; when the convo ends he counter-accuses.
   bool deny = false;
 
+  /// sim_ts the pair is actually released — a done convo lingers a few
+  /// sim-seconds so the last spoken line lands before anyone walks off.
+  int? releaseAt;
+
   Conversation(this.id, this.aId, this.bId, {this.askedAbout, this.purpose})
     : nextSpeaker = aId;
 }
@@ -335,6 +339,7 @@ class SimEngine {
       _whisperDied();
     }
     _tickWhispers();
+    _tickCaseCuriosity();
     _maybeConfront();
     _tickNudge();
     if (_batteryTimer >= batteryEvery) {
@@ -400,6 +405,10 @@ class SimEngine {
     _walks.remove(bId);
     _arrivals.remove(aId);
     _arrivals.remove(bId);
+    // sim and renderer are separate walkers — clear the components'
+    // residual paths too, or a pulled-in spirit keeps lerping mid-popup
+    _stopVisual(a);
+    _stopVisual(b);
     // A convo just stole their legs — if either was carrying out the
     // living one's order, queue it back so it survives the small talk.
     for (final id in [aId, bId]) {
@@ -437,7 +446,16 @@ class SimEngine {
     final finished = <Conversation>[];
     for (final c in conversations.values) {
       if (c.done) {
-        finished.add(c);
+        if (c.releaseAt == null) {
+          // The words are out — bookkeeping lands now even though the
+          // pair lingers for the last bubble's real-time life (~3.6s).
+          // Bubbles live in real seconds, the sweep in sim seconds —
+          // scale by timeScale so 8× doesn't release mid-sentence.
+          c.releaseAt =
+              simTs + ((kBubbleLifeSay + 0.4) * timeScale).ceil();
+          _endConversation(c);
+        }
+        if (simTs >= c.releaseAt!) finished.add(c);
         continue;
       }
       if (!c.pendingJob) _requestTurn(c);
@@ -448,36 +466,42 @@ class SimEngine {
       a.inConvo = b.inConvo = false;
       a.bumpVersion();
       b.bumpVersion();
-      // relationships — every completed convo warms the pair a little
-      a.warmth[b.id] = (a.warmth[b.id] ?? 0) + 2;
-      b.warmth[a.id] = (b.warmth[a.id] ?? 0) + 2;
-      unawaited(store.setWorld('warmth.${a.id}', jsonEncode(a.warmth)));
-      unawaited(store.setWorld('warmth.${b.id}', jsonEncode(b.warmth)));
-      _events.add(SimEvent(SimEventType.pairEnd, {'a': c.aId, 'b': c.bId}));
-      // Cornered but not caught — the culprit answers an accusation by
-      // planting a fresh lie in the accuser's ear. Deterministic: the
-      // lie is an authored accusation secret, never invented on the fly.
-      if (c.deny) {
-        final confronter = agents[c.aId]!;
-        final lie = secrets.values
-            .where(
-              (s) =>
-                  s.accuses != null &&
-                  !confronter.knownSecrets.contains(s.id),
-            )
-            .firstOrNull;
-        if (lie != null) {
-          confronter.knownSecrets.add(lie.id);
-          confronter.bumpVersion();
-          unawaited(
-            store.simLog(
-              simTs,
-              c.bId,
-              'counter-accuse',
-              '${lie.id} -> ${confronter.id}',
-            ),
-          );
-        }
+    }
+  }
+
+  // End-of-convo consequences — run once, when the last turn lands.
+  // The pair itself stays parked until releaseAt (the linger above).
+  void _endConversation(Conversation c) {
+    final a = agents[c.aId]!, b = agents[c.bId]!;
+    // relationships — every completed convo warms the pair a little
+    a.warmth[b.id] = (a.warmth[b.id] ?? 0) + 2;
+    b.warmth[a.id] = (b.warmth[a.id] ?? 0) + 2;
+    unawaited(store.setWorld('warmth.${a.id}', jsonEncode(a.warmth)));
+    unawaited(store.setWorld('warmth.${b.id}', jsonEncode(b.warmth)));
+    _events.add(SimEvent(SimEventType.pairEnd, {'a': c.aId, 'b': c.bId}));
+    // Cornered but not caught — the culprit answers an accusation by
+    // planting a fresh lie in the accuser's ear. Deterministic: the
+    // lie is an authored accusation secret, never invented on the fly.
+    if (c.deny) {
+      final confronter = agents[c.aId]!;
+      final lie = secrets.values
+          .where(
+            (s) =>
+                s.accuses != null &&
+                !confronter.knownSecrets.contains(s.id),
+          )
+          .firstOrNull;
+      if (lie != null) {
+        confronter.knownSecrets.add(lie.id);
+        confronter.bumpVersion();
+        unawaited(
+          store.simLog(
+            simTs,
+            c.bId,
+            'counter-accuse',
+            '${lie.id} -> ${confronter.id}',
+          ),
+        );
       }
     }
   }
@@ -744,7 +768,7 @@ class SimEngine {
     if (p != null && speaker.id == p.holder) c.holderSpoke = true;
     c.nextSpeaker = partner.id;
     if ((turn.end && (p == null || c.holderSpoke)) ||
-        c.transcript.length >= 4) {
+        c.transcript.length >= (c.purpose != null ? 8 : 6)) {
       c.done = true;
     }
     // The slot opens only once the commit is fully landed — the next turn
@@ -2096,7 +2120,7 @@ class SimEngine {
     for (final id in _walks.keys.toList()) {
       final a = agents[id];
       final path = _walks[id];
-      if (a == null || path == null || a.engaged) {
+      if (a == null || path == null || a.engaged || a.inConvo) {
         _walks.remove(id);
         continue;
       }
@@ -2378,6 +2402,38 @@ class SimEngine {
       culprit,
       onNear: (ag, tt) => startConversation(ag.id, tt.id),
     );
+  }
+
+  /// The town woke to a bare frame — the curious keep drifting back to
+  /// the ofrenda to look again. Looking is what finds things: each
+  /// visit is an inspect, and inspect is what uncovers the pick.
+  int _lastCuriosityAt = -999;
+  void _tickCaseCuriosity() {
+    if (simTs - _lastCuriosityAt < 45) return;
+    for (final a in agents.values) {
+      if (a.faded ||
+          a.engaged ||
+          a.inConvo ||
+          a.heldBy != null ||
+          a.errand != null ||
+          _walks.containsKey(a.id)) {
+        continue;
+      }
+      if (!a.knownSecrets.contains('frame_empty')) continue;
+      if (a.verifiedPois.contains('ofrenda')) continue;
+      if (a.stats.curiosity < 2 && rng.nextDouble() > 0.4) continue;
+      _lastCuriosityAt = simTs;
+      a.errand = (
+        kind: 'verify',
+        targetId: 'ofrenda',
+        claim: false,
+        subject: null,
+      );
+      unawaited(
+        store.simLog(simTs, a.id, 'curious', 'goes to look at the bare frame'),
+      );
+      return; // one spirit per window — the altar draws them one by one
+    }
   }
 
   /// A village that hasn't heard the living one in a while wonders
