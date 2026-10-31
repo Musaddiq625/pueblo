@@ -27,7 +27,7 @@ enum SimEventType {
   poiGlow, // {poi, on}
   petalSpawn,
   endRun, // {remembered, faded, verdict} — the one-shot resolution report
-  verdict, // {secret, passed, text} — the arc's deterministic resolution
+  verdict, // {culprit, passed, text} — the case's deterministic resolution
   thought, // {agent, text} — Decision.thought, a fading float over the head
   log,
 }
@@ -60,6 +60,10 @@ class Conversation {
   /// transfer before the holder ever speaks.
   bool holderSpoke = false;
 
+  /// A proof-holder cornered the culprit — the prompt tells him to deny
+  /// and deflect; when the convo ends he counter-accuses.
+  bool deny = false;
+
   Conversation(this.id, this.aId, this.bId, {this.askedAbout, this.purpose})
     : nextSpeaker = aId;
 }
@@ -67,6 +71,20 @@ class Conversation {
 // ---------------------------------------------------------------------------
 
 typedef _Arrival = void Function(SimEngine engine, Agent agent);
+
+/// One scripted whisper beat — a private mutter (to: null) or a
+/// friend-only confidence (to: confidant). `canon` tokens are what the
+/// living one's relay must hit for the whisper to become admissible
+/// proof; `grants` is the canonical secret it unlocks.
+typedef WhisperBeat = ({
+  String id,
+  String speaker,
+  String? to,
+  String line,
+  String? grants,
+  List<String> canon,
+  int at,
+});
 
 class SimEngine {
   final SimStore store;
@@ -78,6 +96,31 @@ class SimEngine {
   final Random rng;
   double timeScale; // 1.0 normal; demo mode higher — HUD-adjustable
   final int festivalAt; // sim_ts of run end
+
+  /// The authored culprit — fixed in v1 (La Golondrina case: 'ramon').
+  /// Tests override with a fixture id.
+  final String culpritId;
+
+  /// Authored private whispers (assets/data/whispers.json) — beats the
+  /// player can overhear but the ledger never sees. A beat fires when
+  /// its speaker is free at `at` sim-s, and proof beats re-fire until
+  /// the living one relays them into circulation.
+  final List<WhisperBeat> whispers;
+
+  /// Beat id -> last sim_ts it was emitted (loop-until-relayed spacing).
+  final Map<String, int> _whisperFiredAt = {};
+
+  /// Beat ids the player has overheard — the case-file's job board.
+  final Set<String> overheardWhispers = {};
+
+  /// sim_ts of the last player message — drives the stall nudges and
+  /// which "whisper died" epilogue the case closes on.
+  int lastPlayerMsgTs = -1;
+
+  /// Per-agent stall-nudge cooldown, plus a global throttle so the
+  /// village doesn't chorus "give me a thought" at once.
+  final Map<String, int> _lastNudgeAt = {};
+  int _lastNudgeAny = -999;
 
   late final PromptBuilder prompts;
   late final InferenceBroker broker;
@@ -216,6 +259,8 @@ class SimEngine {
     Random? rng,
     this.timeScale = 1.0,
     this.festivalAt = 900, // 15 sim-minutes
+    this.culpritId = 'ramon',
+    this.whispers = const [],
   }) : nav = nav ?? NavGrid.build(),
        rng = rng ?? Random() {
     prompts = PromptBuilder(secrets)..cast = _buildCast();
@@ -279,12 +324,13 @@ class SimEngine {
       _nextDirectorAt = simTs + directorEvery;
       _maybeDirect();
     }
-    // Soft fail: the festival moment arrives with the truth still trapped —
-    // the arc closes unresolved. Fast gossip resolves it long before this.
-    if (simTs >= festivalAt && !_verdictFired) {
-      _verdictFired = true;
-      _verdict();
+    // Soft fail: the festival moment arrives with the case still cold —
+    // the epilogue names whether a living voice ever tried.
+    if (simTs >= festivalAt && !_caseResolved) {
+      _whisperDied();
     }
+    _tickWhispers();
+    _tickNudge();
     if (_batteryTimer >= batteryEvery) {
       _batteryTimer = 0;
       _drainBatteries();
@@ -319,6 +365,13 @@ class SimEngine {
         (b.heldBy != null && b.heldBy != aId)) {
       return;
     }
+    // The case: someone came to face the culprit. An established ledger
+    // means he breaks instead of talking; below that, a proof in the
+    // confronter's hand makes this an accusation — deny, then deflect.
+    if (bId == culpritId && !_caseResolved && caseProgress >= 3) {
+      _confess(b);
+      return;
+    }
     final convo = Conversation(
       'c${simTs}_${aId}_$bId',
       aId,
@@ -326,6 +379,9 @@ class SimEngine {
       askedAbout: askedAbout,
       purpose: purpose,
     );
+    convo.deny =
+        bId == culpritId &&
+        a.knownSecrets.any((sid) => secrets[sid]?.proofFor == culpritId);
     conversations[convo.id] = convo;
     _pairLastTalked[_pairKey(aId, bId)] = simTs;
     // errand satisfied — the initiator was carrying a reason to reach them
@@ -392,6 +448,31 @@ class SimEngine {
       unawaited(store.setWorld('warmth.${a.id}', jsonEncode(a.warmth)));
       unawaited(store.setWorld('warmth.${b.id}', jsonEncode(b.warmth)));
       _events.add(SimEvent(SimEventType.pairEnd, {'a': c.aId, 'b': c.bId}));
+      // Cornered but not caught — the culprit answers an accusation by
+      // planting a fresh lie in the accuser's ear. Deterministic: the
+      // lie is an authored accusation secret, never invented on the fly.
+      if (c.deny) {
+        final confronter = agents[c.aId]!;
+        final lie = secrets.values
+            .where(
+              (s) =>
+                  s.accuses != null &&
+                  !confronter.knownSecrets.contains(s.id),
+            )
+            .firstOrNull;
+        if (lie != null) {
+          confronter.knownSecrets.add(lie.id);
+          confronter.bumpVersion();
+          unawaited(
+            store.simLog(
+              simTs,
+              c.bId,
+              'counter-accuse',
+              '${lie.id} -> ${confronter.id}',
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -408,7 +489,9 @@ class SimEngine {
       speaker,
       partner,
       transcript: c.transcript,
-      context: 'near ${nearestPoiName(speaker.x, speaker.y)}',
+      context:
+          'near ${nearestPoiName(speaker.x, speaker.y)}'
+          '${c.deny && speaker.id == culpritId ? ' — cornered about the stolen portrait: DENY it, stay in voice, deflect onto someone else' : ''}',
       askedAbout: c.askedAbout,
       role: p == null
           ? null
@@ -541,7 +624,6 @@ class SimEngine {
       if (learned) {
         partner.knownSecrets.add(shared);
         partner.bumpVersion();
-        _checkVerdict(); // the truth may have just reached its fourth mouth
         // a secret received deepens the bond — more than any small talk
         partner.warmth[speaker.id] = (partner.warmth[speaker.id] ?? 0) + 5;
         // …and leaves a 💡 over their head so the player can spot news
@@ -587,6 +669,17 @@ class SimEngine {
       partner.newsUntil = simTs + 90; // the 💡 cue — fresh gossip to follow
       _emit(partner, SimEventType.emote, {'agent': partner.id, 'glyph': '💡'});
       partner.bumpVersion();
+      // A relayed proof carries its canonical secret into every new
+      // mouth — the living one's whisper becomes real evidence.
+      final gs = cl.grantsSecret;
+      if (gs != null &&
+          !partner.knownSecrets.contains(gs) &&
+          secrets.containsKey(gs)) {
+        partner.knownSecrets.add(gs);
+        unawaited(
+          store.simLog(simTs, partner.id, 'proof', '$gs via claim $sharedClaim'),
+        );
+      }
       final aboutYou = cl.about.contains(partner.id);
       unawaited(
         store.simLog(
@@ -1106,77 +1199,78 @@ class SimEngine {
     return 'Headline rumor — the ofrenda scandal: $line\n';
   }
 
-  /// The authored consequence — deterministic, never LLM. Whether Genero's
-  /// photo goes back up depends on how far the truth actually traveled:
-  /// if the village knows why Sefa did it (≥4 know the deep secret),
-  /// forgiveness wins; if the scandal stayed whispers, the frame stays
-  /// bare. The player tips it only by learning and spreading the truth
-  /// themselves.
-  bool _verdictFired = false;
-  String? _verdictNote; // surfaced in the resolution card (endRun event)
+  /// The authored consequence — deterministic, never LLM. The La
+  /// Golondrina case closes by PROOF, not by spread: when three distinct
+  /// proofs naming the culprit are each held by ≥2 different spirits,
+  /// the next spirit to confront him hears a confession. Confidences
+  /// (`private`) never count until the living one carries them into
+  /// circulation — the village can suspect; only the player completes
+  /// the ledger.
+  bool _caseResolved = false;
+  String? _caseNote; // surfaced in the resolution card (endRun event)
 
-  /// Mouths holding the deepest truth — HUD progress toward the earned
-  /// resolution (the festival clock is only the fallback fail).
-  int get truthCount {
+  /// Proof ids the living one personally carried into the world — the
+  /// flag that makes a confidence admissible as evidence.
+  final _relayedSecrets = <String>{};
+
+  /// Distinct established proofs fingering [culpritId]: each held by ≥2
+  /// non-culprit mouths (one mouth is just a rumor) and — for private
+  /// confidences — relayed by the player first.
+  int get caseProgress {
     var n = 0;
-    for (final s in secrets.values.where((s) => s.verdictOf != null)) {
-      final k = agents.values
-          .where((a) => a.knownSecrets.contains(s.id))
+    for (final s in secrets.values) {
+      if (s.proofFor != culpritId) continue;
+      if (s.private && !_relayedSecrets.contains(s.id)) continue;
+      final holders = agents.values
+          .where((a) => a.id != culpritId && a.knownSecrets.contains(s.id))
           .length;
-      if (k > n) n = k;
+      if (holders >= 2) n++;
     }
     return n;
   }
 
-  bool get verdictResolved => _verdictFired;
+  bool get caseResolved => _caseResolved;
 
-  void _verdict() {
-    for (final s in secrets.values.where((s) => s.verdictOf != null)) {
-      final knowers = agents.values
-          .where((a) => a.knownSecrets.contains(s.id))
-          .length;
-      final passed = knowers >= 4;
-      final text = passed
-          ? (s.verdictPass ?? 'the truth traveled far enough today')
-          : (s.verdictFail ?? 'the whisper died in the dark');
-      _note(text);
-      _verdictNote = text;
-      _events.add(
-        SimEvent(SimEventType.verdict, {
-          'secret': s.id,
-          'passed': passed,
-          'text': text,
-        }),
-      );
-      if (passed) {
-        final head = secrets[s.verdictOf];
-        if (head?.unlocksPoiLore != null) {
-          _events.add(
-            SimEvent(SimEventType.poiGlow, {
-              'poi': head!.unlocksPoiLore,
-              'on': true,
-            }),
-          );
-        }
-      }
-    }
-    _resolution(); // one report — the festival keeps going behind the card
+  /// The thief breaks — an established ledger plus a voice in his face.
+  /// Deterministic: the LLM gets no vote on whether the proof held.
+  void _confess(Agent culprit) {
+    _caseResolved = true;
+    const text =
+        'The proofs were spoken aloud — the frame goes back to its candle.';
+    _note(text);
+    _caseNote = text;
+    _emit(culprit, SimEventType.thought, {
+      'agent': culprit.id,
+      'text': 'they know. they all know — it was me.',
+    });
+    _events.add(
+      SimEvent(SimEventType.verdict, {
+        'culprit': culpritId,
+        'passed': true,
+        'text': text,
+      }),
+    );
+    _events.add(SimEvent(SimEventType.poiGlow, {'poi': 'ofrenda', 'on': true}));
+    _resolution();
   }
 
-  /// Earned resolution: every secret learn checks whether the deep truth has
-  /// reached enough mouths. The festival clock is only the fallback fail —
-  /// fast gossip closes the arc early.
-  void _checkVerdict() {
-    if (_verdictFired) return;
-    final earned = secrets.values.any(
-      (s) =>
-          s.verdictOf != null &&
-          agents.values.where((a) => a.knownSecrets.contains(s.id)).length >= 4,
+  /// Soft fail — the festival's moment passed with the case still cold.
+  /// The epilogue names why: no living voice carried the whispers.
+  void _whisperDied() {
+    _caseResolved = true;
+    final text = lastPlayerMsgTs < 0
+        ? 'The whisper died in the dark — no living voice ever carried it.'
+        : 'The whisper died in the dark — the proofs never met.';
+    _note(text);
+    _caseNote = text;
+    _events.add(
+      SimEvent(SimEventType.verdict, {
+        'culprit': culpritId,
+        'passed': false,
+        'text': text,
+      }),
     );
-    if (earned) {
-      _verdictFired = true;
-      _verdict();
-    }
+    _resolution();
   }
 
   void _maybeDirect() {
@@ -1662,6 +1756,17 @@ class SimEngine {
   _Arrival _doInspect(Poi p, String line) => (e, a) {
     _sayOrNote(a, line.isEmpty ? p.surfaceText : line, 'curious');
     a.verifiedPois.add(p.id);
+    // Physical evidence — looking closely uncovers whatever was left
+    // behind here (a pick under a frame), no whisper required.
+    for (final s in secrets.values) {
+      if (s.foundAt == p.id && !a.knownSecrets.contains(s.id)) {
+        a.knownSecrets.add(s.id);
+        a.bumpVersion();
+        unawaited(
+          store.simLog(simTs, a.id, 'found', '${s.id} at ${p.id}'),
+        );
+      }
+    }
     if (a.errand?.targetId == p.id) {
       final wasClaim = a.errand?.claim == true;
       a.errand = null;
@@ -2113,6 +2218,107 @@ class SimEngine {
     );
   }
 
+  /// Authored private whispers — the beats only the living one sees.
+  /// A mutter becomes a floating thought; a confidence is spoken to one
+  /// friend and trapped there (private secrets never re-share). Proof
+  /// beats loop until the player relays them — nothing is lost forever.
+  void _tickWhispers() {
+    for (final w in whispers) {
+      final sp = agents[w.speaker];
+      if (sp == null || sp.faded || sp.engaged || sp.inConvo) continue;
+      // already turned into evidence — the whisper has nothing left to say
+      if (w.grants != null && _relayedSecrets.contains(w.grants)) continue;
+      final last = _whisperFiredAt[w.id] ?? -999;
+      if (simTs < w.at || simTs < last + 240) continue;
+      final t = w.to == null ? null : agents[w.to];
+      if (w.to != null &&
+          (t == null || t.faded || t.engaged || t.inConvo)) {
+        continue; // the friend isn't ready — try again next tick
+      }
+      _whisperFiredAt[w.id] = simTs;
+      overheardWhispers.add(w.id);
+      if (t == null) {
+        _emit(sp, SimEventType.thought, {'agent': sp.id, 'text': w.line});
+      } else {
+        _emit(
+          sp,
+          SimEventType.say,
+          {'agent': sp.id, 'line': w.line, 'mood': 'whisper'},
+        );
+        // The confidence lands in exactly one ear — and dies there.
+        final gs = w.grants;
+        if (gs != null &&
+            !t.knownSecrets.contains(gs) &&
+            secrets.containsKey(gs)) {
+          t.knownSecrets.add(gs);
+          t.bumpVersion();
+        }
+      }
+      unawaited(store.simLog(simTs, sp.id, 'whisper', w.id));
+    }
+  }
+
+  /// A village that hasn't heard the living one in a while wonders
+  /// aloud — the nudge that says the sim wants input.
+  void _tickNudge() {
+    if (simTs - lastPlayerMsgTs < 240) return;
+    if (simTs - _lastNudgeAny < 90) return;
+    for (final a in agents.values) {
+      if (a.faded || a.engaged || a.inConvo || a.heldBy != null) continue;
+      if (simTs - (_lastNudgeAt[a.id] ?? -999) < 180) continue;
+      _lastNudgeAt[a.id] = simTs;
+      _lastNudgeAny = simTs;
+      _emit(a, SimEventType.thought, {
+        'agent': a.id,
+        'text': '…if a thought came to me about the missing frame, I\'d follow it.',
+      });
+      return; // one nudge per window
+    }
+  }
+
+  /// Case file — every authored proof, its reach, and whether the living
+  /// one has made it admissible (relayed). The sheet veils the text.
+  List<({String id, String text, int mouths, bool relayed, bool private})>
+  get caseProofs => [
+    for (final s in secrets.values)
+      if (s.proofFor != null)
+        (
+          id: s.id,
+          text: s.shareText,
+          mouths: agents.values
+              .where((a) => a.knownSecrets.contains(s.id))
+              .length,
+          relayed: !s.private || _relayedSecrets.contains(s.id),
+          private: s.private,
+        ),
+  ];
+
+  /// Accusations afloat — authored blame secrets + player-planted ones.
+  List<({String text, int mouths, String? about})> get caseAccusations => [
+    for (final s in secrets.values)
+      if (s.accuses != null)
+        (
+          text: s.shareText,
+          mouths: agents.values
+              .where((a) => a.knownSecrets.contains(s.id))
+              .length,
+          about: s.accuses,
+        ),
+    for (final c in claims.values)
+      if (c.kind == 'accusation')
+        (text: c.text, mouths: c.version.length, about: c.pointsTo),
+  ];
+
+  /// Whispers the player has overheard — relayed vs still trapped.
+  List<({String line, bool relayed})> get caseWhispers => [
+    for (final w in whispers)
+      if (overheardWhispers.contains(w.id))
+        (
+          line: w.line,
+          relayed: w.grants == null || _relayedSecrets.contains(w.grants),
+        ),
+  ];
+
   /// Small models leak JSON edge punctuation into their lines
   /// ("How's the day?\",") — strip wrapper quotes/stray commas at the
   /// ends only; mid-line apostrophes are sacred.
@@ -2205,6 +2411,11 @@ class SimEngine {
         'faded': a.faded,
       }),
     );
+    // The living one came to face him — and the ledger is full. He breaks
+    // the moment the engagement opens, same as a spirit's accusation.
+    if (agentId == culpritId && !_caseResolved && caseProgress >= 3) {
+      _confess(a);
+    }
   }
 
   /// Release — user-driven only (End / engage another spirit).
@@ -2231,6 +2442,7 @@ class SimEngine {
     final a = agents[engagedId];
     if (a == null || _playerBusy) return;
     _playerBusy = true;
+    lastPlayerMsgTs = simTs; // a living voice was heard — the stall clock resets
     try {
       final hist = _hist(a.id);
       hist.add(ChatMsg(true, text));
@@ -2705,7 +2917,6 @@ class SimEngine {
     a.knownSecrets.add(s.id);
     a.newsUntil = simTs + 90;
     a.bumpVersion();
-    _checkVerdict();
     _checkSolidify();
     _emit(a, SimEventType.emote, {'agent': a.id, 'glyph': '✨'});
     _events.add(
@@ -2781,6 +2992,37 @@ class SimEngine {
     );
     cl.version[a.id] = t;
     claims[cl.id] = cl;
+    // The living one relayed an overheard whisper — canon tokens make it
+    // admissible proof: the claim now carries the real secret into every
+    // mouth it reaches.
+    for (final w in whispers) {
+      if (w.grants == null) continue;
+      if (w.canon.every((tok) => norm.contains(_normId(tok)))) {
+        cl.kind = 'proof';
+        cl.grantsSecret = w.grants;
+        cl.pointsTo = secrets[w.grants]?.proofFor;
+        _relayedSecrets.add(w.grants!);
+        overheardWhispers.add(w.id);
+        unawaited(
+          store.simLog(simTs, a.id, 'relay', 'whisper ${w.id} → ${w.grants}'),
+        );
+        break;
+      }
+    }
+    // An accusation — blame without proof. Fingers whoever it names.
+    if (cl.kind == 'rumor' &&
+        RegExp(
+          r'\b(took|stole|stolen|thief|culprit|rob|blame|did it|robó|fue)\b',
+          caseSensitive: false,
+        ).hasMatch(text)) {
+      for (final o in cl.about) {
+        if (o != a.id && agents.containsKey(o)) {
+          cl.kind = 'accusation';
+          cl.pointsTo = o;
+          break;
+        }
+      }
+    }
     _persistClaims();
     unawaited(store.simLog(simTs, a.id, 'claim', 'the living one planted: $t'));
     return cl;
@@ -2817,6 +3059,7 @@ class SimEngine {
   /// gate — gossip travels easier than confession. A rumor about yourself
   /// only crosses to someone you trust deeply.
   bool _canPassClaim(Agent teller, Agent hearer, Claim c) {
+    if (c.private) return false; // a confidence reaches one ear and dies
     if (c.about.contains(teller.id)) {
       return (teller.warmth[hearer.id] ?? 0) >= 4;
     }
@@ -3226,6 +3469,15 @@ class SimEngine {
   /// the same rumor travels differently through every persona.
   bool _canShareRumor(Agent a, Agent b, Secret? s) {
     if (s == null || s.tier != 'rumor') return true;
+    if (s.private) return false; // confidences don't travel — ever
+    // An accusation dies in the ear of whoever holds the alibi — Carmen
+    // doesn't pass on a blame she can disprove.
+    if (s.accuses != null &&
+        b.knownSecrets.any(
+          (id) => secrets[id]?.alibiFor == s.accuses,
+        )) {
+      return false;
+    }
     if (s.aboutAgent == a.id) return (a.warmth[b.id] ?? 0) >= 4;
     return (a.warmth[b.id] ?? 0) >= 2 ||
         a.stats.mischief >= 3 ||
@@ -3237,7 +3489,7 @@ class SimEngine {
   /// version instead: they gain the lie as knowledge (ownership must exist
   /// for the transfer to commit), the receiver learns only the variant.
   /// Nobody embellishes their own scandal. The lie and the truth then
-  /// compete in the knowledge graph — verdicts count truth-knowers only.
+  /// compete in the knowledge graph — the ledger counts proof-mouths only.
   String _distorted(Agent teller, Agent receiver, String sid) {
     if (teller.stats.mischief < 4) return sid;
     final v = secrets.values.where((x) => x.variantOf == sid).firstOrNull;
@@ -3248,7 +3500,6 @@ class SimEngine {
     }
     teller.knownSecrets.add(v.id);
     teller.bumpVersion();
-    _checkVerdict();
     unawaited(store.simLog(simTs, teller.id, 'embellished', '$sid -> ${v.id}'));
     return v.id;
   }
@@ -3371,7 +3622,7 @@ class SimEngine {
       SimEvent(SimEventType.endRun, {
         'remembered': remembered,
         'faded': agents.length - remembered,
-        'verdict': _verdictNote,
+        'verdict': _caseNote,
       }),
     );
   }

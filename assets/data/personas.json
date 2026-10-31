@@ -96,7 +96,7 @@
   "id": "ramon",
   "name": "Ramón el Trovador",
   "role": "musician",
-  "persona": "Turns everything he hears into verses. Would sing his own epitaph if it rhymed.",
+  "persona": "Turns everything he hears into verses — and everything he envies into excuses. Sings La Golondrina's tunes like they're his own; her candle burns brighter every year while his name dims.",
   "stats": {
    "curiosity": 4,
    "wit": 3,
@@ -109,7 +109,7 @@
   "sprite": "tavern_a",
   "initial_secrets": [],
   "tint": "#E87AB8",
-  "hook": "versifies everything — a bad secret keeper in perfect meter",
+  "hook": "versifies everything — a bad secret keeper in perfect meter, and a worse liar when cornered",
   "schedule": [
    {
     "at": 300,

@@ -657,7 +657,7 @@ void main() {
 ''';
 
   String rumorSecrets({int deepKnowers = 4}) {
-    final all = ['b', 'c', 'd', 'e'];
+    final all = ['a', 'c', 'd', 'e']; // 'b' is the culprit — not a mouth
     final knowers =
         all.take(deepKnowers).map((id) => '"$id"').join(',');
     return '''
@@ -666,8 +666,15 @@ void main() {
  {"id":"own","surface":"a glances","truth":"a did it","share_text":"a took it down herself",
   "initially_known_by":["a"],"about_agent":"a","tier":"rumor"},
  {"id":"deep","surface":"name goes quiet","truth":"the betrayal","share_text":"the deep truth",
-  "initially_known_by":[$knowers],"about_agent":"b","verdict_of":"head",
-  "verdict_pass":"the photo returns","verdict_fail":"stays dark","tier":"rumor"},
+  "initially_known_by":[$knowers],"about_agent":"b","proof_for":"b","tier":"rumor"},
+ {"id":"p2","surface":"wax on a cuff","truth":"his sleeve","share_text":"candle wax on his cuff",
+  "initially_known_by":["c","d"],"proof_for":"b","tier":"rumor"},
+ {"id":"p3","surface":"a tune at dusk","truth":"the tune","share_text":"he hummed her tune at dusk",
+  "initially_known_by":["d","e"],"proof_for":"b","tier":"rumor"},
+ {"id":"p4","surface":"a silver flash","truth":"the flash","share_text":"a silver flash by the frame",
+  "initially_known_by":["e"],"proof_for":"b","private":true,"tier":"rumor"},
+ {"id":"blame_c","surface":"a whispered name","truth":"b's lie","share_text":"c was seen by the frame",
+  "initially_known_by":[],"accuses":"c","tier":"rumor"},
  {"id":"head_lie","surface":"empty frame","truth":"she sold it too","share_text":"b stole the photo outright",
   "initially_known_by":[],"about_agent":"b","variant_of":"head","tier":"rumor"}]
 ''';
@@ -675,7 +682,10 @@ void main() {
 
   Future<SimBundle> bootRumor({
     LLMClient? llm,
-    int deepKnowers = 4,
+    // 0 mouths by default — the ledger stays at 2/3 so convos with the
+    // culprit run normally. Case tests opt in with explicit knowers.
+    int deepKnowers = 0,
+    String whispersJson = '[]',
   }) async {
     TestWidgetsFlutterBinding.ensureInitialized();
     sqfliteFfiInit();
@@ -684,6 +694,7 @@ void main() {
     return bootstrap(
       personasJson: rumorPersonas,
       secretsJson: rumorSecrets(deepKnowers: deepKnowers),
+      whispersJson: whispersJson,
       pois: const [
         Poi(id: 'p1', name: 'P1', surfaceText: 'just a lane', x: 0, y: 0),
         Poi(id: 'p2', name: 'P2', surfaceText: 'just a stall', x: 10, y: 10),
@@ -694,6 +705,7 @@ void main() {
       rng: Random(1),
       freshDb: true,
       dbPath: '${dir.path}/t.db',
+      culpritId: 'b',
     );
   }
 
@@ -770,59 +782,95 @@ void main() {
     expect(e.agents['b']!.knownSecrets, isNot(contains('head')));
   });
 
-  test('verdict resolves the moment a fourth mouth learns the truth', () async {
-    // earned path — no festival clock needed: the fourth learn fires it
-    final b = await bootRumor(deepKnowers: 3);
-    final e = b.engine;
-    final events = <SimEvent>[];
-    final sub = e.events.listen(events.add);
-    e.playerKnown.add('deep');
-    e.playerChatCount['a'] = 3; // warmth gate — a believes the living one
-    await e.teachSpirit('a', 'deep');
-    await Future<void>.delayed(Duration.zero); // flush the event broadcast
-    await sub.cancel();
-    expect(events.any((ev) =>
-        ev.type == SimEventType.verdict && ev.data['passed'] == true), isTrue);
-    expect(
-      events.any((ev) =>
-          ev.type == SimEventType.poiGlow && ev.data['poi'] == 'ofrenda'),
-      isTrue,
-    );
-    // …and the world never halted
-    expect(events.any((ev) => ev.type == SimEventType.endRun), isTrue);
-  });
-
-  test('verdict passes at the festival mark when ≥4 spirits know', () async {
-    final b = await bootRumor(deepKnowers: 4);
-    final e = b.engine;
-    final events = <SimEvent>[];
-    final sub = e.events.listen(events.add);
-    e.simTs = e.festivalAt - 1; // clock fallback only fires at festivalAt
-    await _pump(e, ticks: 10);
-    await sub.cancel();
-    expect(events.any((ev) => ev.type == SimEventType.log &&
-        (ev.data['text'] as String).contains('photo returns')), isTrue);
-    expect(
-      events.any((ev) =>
-          ev.type == SimEventType.poiGlow && ev.data['poi'] == 'ofrenda'),
-      isTrue,
-    );
-  });
-
-  test('verdict fails when the truth stayed whispers', () async {
+  test('a full ledger plus a confrontation makes the culprit break', () async {
+    // p2 + p3 are always established; 'deep' reaching 2 mouths completes 3
     final b = await bootRumor(deepKnowers: 2);
+    final e = b.engine;
+    expect(e.caseProgress, 3);
+    final events = <SimEvent>[];
+    final sub = e.events.listen(events.add);
+    e.startConversation('a', 'b'); // 'a' goes to face the culprit
+    await Future<void>.delayed(Duration.zero);
+    await sub.cancel();
+    expect(
+      events.any((ev) =>
+          ev.type == SimEventType.verdict && ev.data['passed'] == true),
+      isTrue,
+      reason: 'the ledger is established — he breaks instead of talking',
+    );
+    expect(e.caseResolved, isTrue);
+    expect(
+      events.any((ev) =>
+          ev.type == SimEventType.poiGlow && ev.data['poi'] == 'ofrenda'),
+      isTrue,
+    );
+    expect(events.any((ev) => ev.type == SimEventType.endRun), isTrue);
+    // no conversation actually started — confession replaced it
+    expect(e.conversations, isEmpty);
+  });
+
+  test('the living one can land the blow — engaging him breaks him', () async {
+    final b = await bootRumor(deepKnowers: 2); // ledger full: 3 proofs
+    final e = b.engine;
+    expect(e.caseProgress, 3);
+    final events = <SimEvent>[];
+    final sub = e.events.listen(events.add);
+    e.engage('b'); // the player walks up to the thief with proof enough
+    await Future<void>.delayed(Duration.zero);
+    await sub.cancel();
+    expect(e.caseResolved, isTrue);
+    expect(
+      events.any((ev) =>
+          ev.type == SimEventType.verdict && ev.data['passed'] == true),
+      isTrue,
+    );
+  });
+
+  test('below the ledger, facing the culprit is an accusation he denies',
+      () async {
+    final b = await bootRumor(deepKnowers: 1); // deep has 1 mouth — 2 proofs
+    final e = b.engine;
+    expect(e.caseProgress, 2);
+    e.agents['a']!.knownSecrets.add('p2'); // 'a' carries one proof
+    e.startConversation('a', 'b');
+    expect(e.conversations, isNotEmpty,
+        reason: 'he does not break — he lies');
+    final convo = e.conversations.values.first;
+    expect(convo.deny, isTrue,
+        reason: 'a proof in the confronter\'s hand marks this an accusation');
+    expect(e.caseResolved, isFalse);
+    // the convo ends — the cornered culprit plants a fresh lie in 'a's ear
+    convo.done = true;
+    await _pump(e, ticks: 12); // the pairEnd sweep runs every 5 sim-s
+    expect(
+      e.agents['a']!.knownSecrets,
+      contains('blame_c'),
+      reason: 'counter-accuse: the only authored lie reaches the accuser',
+    );
+  });
+
+  test('the whisper dies at the festival mark when no one engaged', () async {
+    // 1 mouth — the ledger can never complete, so the epilogue is the
+    // only resolution this run can reach
+    final b = await bootRumor(deepKnowers: 1);
     final e = b.engine;
     final events = <SimEvent>[];
     final sub = e.events.listen(events.add);
     e.simTs = e.festivalAt - 1;
     await _pump(e, ticks: 10);
     await sub.cancel();
-    expect(events.any((ev) => ev.type == SimEventType.log &&
-        (ev.data['text'] as String).contains('stays dark')), isTrue);
+    final v = events.where((ev) => ev.type == SimEventType.verdict);
+    expect(v, isNotEmpty);
+    expect(v.first.data['passed'], isFalse);
+    expect(
+      (v.first.data['text'] as String).contains('whisper died'),
+      isTrue,
+    );
+    expect(events.any((ev) => ev.type == SimEventType.endRun), isTrue);
   });
 
-  test('the world keeps running after the resolution report', () async {
-    final b = await bootRumor(deepKnowers: 2);
+  test('the world keeps running after the epilogue', () async {
+    final b = await bootRumor(deepKnowers: 1);
     final e = b.engine;
     final events = <SimEvent>[];
     final sub = e.events.listen(events.add);
@@ -837,8 +885,47 @@ void main() {
     expect(
       events.where((ev) => ev.type == SimEventType.endRun).length,
       1,
-      reason: 'the resolution report is one-shot',
+      reason: 'the epilogue is one-shot',
     );
+  });
+
+  test('private confidences never travel on their own', () async {
+    final b = await bootRumor(deepKnowers: 1);
+    final e = b.engine;
+    // 'e' holds p4 — a private proof. Share attempts must refuse it.
+    expect(
+      e.secrets['p4']!.private,
+      isTrue,
+      reason: 'fixture sanity — p4 is a trapped confidence',
+    );
+    // the private proof can never count until the living one relays it
+    expect(e.caseProgress, 2,
+        reason: 'p4 has a mouth but no relay — it does not weigh');
+  });
+
+  test('an authored whisper beat fires for a free speaker', () async {
+    final b = await bootRumor(
+      deepKnowers: 1,
+      whispersJson: '''
+      [{"id":"w1","speaker":"c","line":"a silver flash by the frame","grants":"p4",
+        "canon":["silver flash"],"at":1}]
+      ''',
+    );
+    final e = b.engine;
+    final events = <SimEvent>[];
+    final sub = e.events.listen(events.add);
+    e.simTs = 1;
+    e.tick(0.5);
+    await Future<void>.delayed(Duration.zero); // flush the event broadcast
+    await sub.cancel();
+    expect(
+      events.any((ev) =>
+          ev.type == SimEventType.thought &&
+          (ev.data['text'] as String).contains('silver flash')),
+      isTrue,
+      reason: 'the mutter surfaces as a thought bubble',
+    );
+    expect(e.overheardWhispers, contains('w1'));
   });
 
   // ============ reply hygiene, curiosity aliases, directives ============
@@ -1118,7 +1205,8 @@ void main() {
   test('mischievous teller passes the embellished variant, not the truth',
       () async {
     final llm = _ScriptedLLM()
-      ..forcedDecision = Decision('share', 'b', 'have you heard?');
+      ..forcedDecision =
+          Decision('share', 'b', 'have you heard?', subject: 'head');
     final b = await bootRumor(llm: llm);
     final e = b.engine;
     e.agents['c']!.knownSecrets.add('head'); // Che knows the truth…

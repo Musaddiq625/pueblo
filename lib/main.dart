@@ -51,6 +51,9 @@ Future<void> main() async {
   }
   final personasJson = await rootBundle.loadString('assets/data/personas.json');
   final secretsJson = await rootBundle.loadString('assets/data/secrets.json');
+  final whispersJson = await rootBundle.loadString(
+    'assets/data/whispers.json',
+  );
 
   // --dart-define switches: SIM_SEED, SIM_TIME_SCALE, LLM=model, DEMO=true
   const seed = int.fromEnvironment('SIM_SEED', defaultValue: 7);
@@ -73,6 +76,7 @@ Future<void> main() async {
             final bundle = await bootstrap(
               personasJson: personasJson,
               secretsJson: secretsJson,
+              whispersJson: whispersJson,
               pois: poiDefs,
               homePos: homePositions({for (final p in poiDefs) p.id: p}),
               llm: GemmaLocalClient(rng: Random(seed)),
@@ -118,6 +122,7 @@ Future<void> main() async {
   Future<SimBundle> mkBundle() => bootstrap(
     personasJson: personasJson,
     secretsJson: secretsJson,
+    whispersJson: whispersJson,
     pois: poiDefs,
     homePos: homePositions({for (final p in poiDefs) p.id: p}),
     llm: llm,
@@ -493,15 +498,15 @@ class _Hud extends StatelessWidget {
           ValueListenableBuilder<int>(
             valueListenable: _clockListenable(engine),
             builder: (_, _, _) => GestureDetector(
-              onTap: () => _showTruths(context, engine),
+              onTap: () => _showCaseFile(context, engine),
               child: Text(
-                engine.verdictResolved
-                    ? 'truth told'
-                    : 'truth ${engine.truthCount}/4',
+                engine.caseResolved
+                    ? 'case closed'
+                    : 'case ${engine.caseProgress}/3',
                 key: const Key('truthChip'),
                 style: TextStyle(
                   fontSize: 12,
-                  color: engine.verdictResolved
+                  color: engine.caseResolved
                       ? const Color(0xFFFFC233)
                       : const Color(0xFF8D84B0),
                 ),
@@ -556,11 +561,13 @@ class _Hud extends StatelessWidget {
   ValueNotifier<int> _clockListenable(SimEngine e) =>
       _ClockHolder.instance.notifier(e);
 
-  /// The truth ledger — which whispers are out and how far each has
-  /// traveled. Secrets the living one hasn't learned yet stay veiled;
-  /// the deep one shows its march toward the four mouths it needs.
-  void _showTruths(BuildContext context, SimEngine engine) {
-    final arc = engine.secrets.values.where((s) => s.tier == 'rumor');
+  /// The case file — three ledgers. Admissible proofs and their reach;
+  /// accusations afloat and who they finger; whispers the living one
+  /// overheard, relayed or still trapped in a single mouth.
+  void _showCaseFile(BuildContext context, SimEngine engine) {
+    final proofs = engine.caseProofs;
+    final accusations = engine.caseAccusations;
+    final whispers = engine.caseWhispers;
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1A1430),
@@ -575,34 +582,40 @@ class _Hud extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'the uninvited dead — how far the truth has traveled',
+                'el cuadro robado — the case file',
                 style: TextStyle(fontSize: 14, color: Color(0xFFFFC233)),
               ),
+              const SizedBox(height: 4),
+              Text(
+                '${engine.caseProgress}/3 proofs weigh against the thief',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Color(0xFF8D84B0),
+                ),
+              ),
               const SizedBox(height: 10),
-              for (final s in arc)
+              for (final p in proofs)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        engine.playerKnown.contains(s.id)
-                            ? s.shareText
-                            : 'an unheard whisper — the spirits still keep it',
-                        key: Key('truth_row_${s.id}'),
+                        p.private && !p.relayed &&
+                                !engine.playerKnown.contains(p.id)
+                            ? '🔒 a whisper trapped in one mouth — overhear it, carry it'
+                            : p.relayed
+                            ? '🕯 ${p.text}'
+                            : p.text,
+                        key: Key('case_row_${p.id}'),
                         style: const TextStyle(
                           fontSize: 12,
                           color: Color(0xFFDCD4F0),
                         ),
                       ),
                       Text(
-                        () {
-                          final n = engine.agents.values
-                              .where((a) => a.knownSecrets.contains(s.id))
-                              .length;
-                          return 'carried by $n mouth${n == 1 ? '' : 's'}'
-                              '${s.verdictOf != null ? ' — the frame needs 4' : ''}';
-                        }(),
+                        'carried by ${p.mouths} mouth${p.mouths == 1 ? '' : 's'}'
+                        '${p.relayed ? ' — weighs on the ledger' : ''}',
                         style: const TextStyle(
                           fontSize: 10.5,
                           color: Color(0xFF6A6088),
@@ -611,23 +624,54 @@ class _Hud extends StatelessWidget {
                     ],
                   ),
                 ),
+              if (accusations.isNotEmpty) ...[
+                const Divider(color: Color(0xFF3A2C50), height: 14),
+                const Text(
+                  'accusations — blame without proof',
+                  style: TextStyle(fontSize: 11, color: Color(0xFFB0A6D8)),
+                ),
+                const SizedBox(height: 6),
+                for (final a in accusations)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '“${a.text}”'
+                      '${a.about != null ? ' — fingers ${engine.agents[a.about]?.name ?? a.about}' : ''}'
+                      ' · ${a.mouths} mouth${a.mouths == 1 ? '' : 's'}',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF9C8FC0),
+                      ),
+                    ),
+                  ),
+              ],
+              if (whispers.isNotEmpty) ...[
+                const Divider(color: Color(0xFF3A2C50), height: 14),
+                const Text(
+                  'overheard whispers — yours to carry',
+                  style: TextStyle(fontSize: 11, color: Color(0xFFB0A6D8)),
+                ),
+                const SizedBox(height: 6),
+                for (final w in whispers)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '${w.relayed ? '✓' : '…'} “${w.line}”',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF9C8FC0),
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+              ],
               const SizedBox(height: 4),
               const Divider(color: Color(0xFF3A2C50), height: 14),
               Text(
-                engine.verdictResolved
-                    ? () {
-                        for (final s in arc) {
-                          if (s.verdictOf != null) {
-                            return (engine.truthCount >= 4
-                                    ? s.verdictPass
-                                    : s.verdictFail) ??
-                                'the day has spoken';
-                          }
-                        }
-                        return 'the day has spoken';
-                      }()
-                    : 'to fill the frame: the deepest truth must reach 4 mouths — '
-                        'learn it, then make it travel',
+                engine.caseResolved
+                    ? 'the thief confessed — the portrait is home'
+                    : 'overhear what the spirits keep to themselves — '
+                        'speak it to another, and it becomes proof',
                 style: const TextStyle(
                   fontSize: 11.5,
                   color: Color(0xFFB0A6D8),

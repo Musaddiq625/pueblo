@@ -1,0 +1,38 @@
+[
+  {
+    "id": "w_hum",
+    "speaker": "violeta",
+    "to": null,
+    "line": "…someone was humming by the big frames. La Golondrina's tune — I know that tune.",
+    "grants": "humming_heard",
+    "canon": ["humming", "golondrina"],
+    "at": 90
+  },
+  {
+    "id": "w_crack",
+    "speaker": "ramon",
+    "to": null,
+    "line": "…the crack ran down the left side. Nobody saw it but me.",
+    "grants": "frame_crack_slip",
+    "canon": ["crack", "left"],
+    "at": 240
+  },
+  {
+    "id": "w_silver",
+    "speaker": "luz",
+    "to": "sefa",
+    "line": "Ramón pocketed something silver by the cantina — I saw the flash, I swear it.",
+    "grants": "silver_flash",
+    "canon": ["silver", "cantina"],
+    "at": 300
+  },
+  {
+    "id": "w_dream",
+    "speaker": "solorio",
+    "to": null,
+    "line": "…I saw someone at the frames at dusk, humming — or did I dream it?",
+    "grants": "humming_heard",
+    "canon": ["dusk", "frames", "saw"],
+    "at": 420
+  }
+]

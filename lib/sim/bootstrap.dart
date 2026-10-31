@@ -22,6 +22,7 @@ class SimBundle {
 Future<SimBundle> bootstrap({
   required String personasJson,
   required String secretsJson,
+  String whispersJson = '[]',
   required List<Poi> pois,
   required Map<String, List<double>> homePos,
   LLMClient? llm,
@@ -30,10 +31,27 @@ Future<SimBundle> bootstrap({
   int festivalAt = 900,
   bool freshDb = true,
   String dbPath = 'pueblo_sim.db',
+  String culpritId = 'ramon',
 }) async {
   final r = rng ?? Random(7);
   final personas = jsonDecode(personasJson) as List<dynamic>;
   final secretsList = jsonDecode(secretsJson) as List<dynamic>;
+  final whispersList = jsonDecode(whispersJson) as List<dynamic>;
+
+  final whisperBeats = [
+    for (final w in whispersList)
+      (
+        id: '${w['id']}',
+        speaker: '${w['speaker']}',
+        to: w['to'] == null ? null : '${w['to']}',
+        line: '${w['line']}',
+        grants: w['grants'] == null ? null : '${w['grants']}',
+        canon: [
+          for (final c in (w['canon'] as List? ?? const [])) '$c',
+        ],
+        at: w['at'] is int ? w['at'] as int : 0,
+      ),
+  ];
 
   final secrets = <String, Secret>{
     for (final s in secretsList) (s['id'] as String): Secret.fromJson(s),
@@ -90,6 +108,8 @@ Future<SimBundle> bootstrap({
     rng: r,
     timeScale: timeScale,
     festivalAt: festivalAt,
+    culpritId: culpritId,
+    whispers: whisperBeats,
   );
   // Resume path — planted rumors survive a restart (freshDb wipes them,
   // which is correct: a new day, new whispers).

@@ -137,14 +137,26 @@ class Secret {
   /// The festival's headline — the director reports on its spread.
   final bool headline;
 
-  /// Arc resolution: when set, this secret IS the deep truth of the arc
-  /// named by [verdictOf] — when four mouths hold it the engine narrates
-  /// knowers and narrates [verdictPass] (≥4 spirits know) or
-  /// [verdictFail]. The headline's unlocks_poi_lore is the POI that
-  /// glows on a pass. Deterministic consequence; the LLM never decides.
-  final String? verdictOf;
-  final String? verdictPass;
-  final String? verdictFail;
+  /// Case model — who this secret incriminates. A secret with [proofFor]
+  /// is evidence: it only counts toward the case when ≥2 different
+  /// spirits hold it (one mouth is just a rumor). Deterministic.
+  final String? proofFor;
+
+  /// Case model — who this secret *clears*. An alibi held in the right
+  /// ear kills an accusation at the moment of transfer.
+  final String? alibiFor;
+
+  /// An accusation — a blame, not a fact. Spreads like gossip, dies when
+  /// it reaches a mouth that holds the matching [alibiFor].
+  final String? accuses;
+
+  /// Confidences — never shared in conversation and never count toward
+  /// the case until the living one carries them into circulation.
+  final bool private;
+
+  /// Found by inspecting: the POI id where a curious spirit physically
+  /// uncovers this secret (a pick under a frame, wax on a candle).
+  final String? foundAt;
 
   /// A distorted telling of another secret — authored lies that travel as
   /// knowledge. When a teller with mischief≥4 passes the base secret, the
@@ -164,9 +176,11 @@ class Secret {
     this.wakesAgent,
     this.aboutAgent,
     this.headline = false,
-    this.verdictOf,
-    this.verdictPass,
-    this.verdictFail,
+    this.proofFor,
+    this.alibiFor,
+    this.accuses,
+    this.private = false,
+    this.foundAt,
     this.variantOf,
     this.tier = 'town',
   });
@@ -181,9 +195,11 @@ class Secret {
         wakesAgent: j['wakes_agent'],
         aboutAgent: j['about_agent'],
         headline: j['headline'] == true,
-        verdictOf: j['verdict_of'],
-        verdictPass: j['verdict_pass'],
-        verdictFail: j['verdict_fail'],
+        proofFor: j['proof_for'],
+        alibiFor: j['alibi_for'],
+        accuses: j['accuses'],
+        private: j['private'] == true,
+        foundAt: j['found_at'],
         variantOf: j['variant_of'],
         tier: j['tier'] ?? 'town',
       );
@@ -227,13 +243,37 @@ class Claim {
   final List<String> about; // agent / about_agent ids mentioned
   final int bornTs;
 
+  /// 'rumor' (default) — free gossip. 'accusation' — fingers a spirit
+  /// ([pointsTo]); debunked by alibis. 'proof' — a relayed whisper that
+  /// grants its canonical secret ([grantsSecret]) to every new mouth.
+  String kind;
+
+  /// The spirit an accusation/proof fingers (agent id, validated).
+  String? pointsTo;
+
+  /// Canonical proof id — set when the living one's words match an
+  /// authored whisper. Each new mouth learns that secret for real.
+  String? grantsSecret;
+
+  /// Friend-only — reaches its confidant and dies there.
+  bool private;
+
   /// holderId -> the version they heard (and will pass on). Keys = holders.
   final Map<String, String> version = {};
 
   /// Holders who said they believe it — the rest repeat it as gossip.
   final Set<String> believers = {};
 
-  Claim({required this.id, required this.text, required this.bornTs, this.about = const []});
+  Claim({
+    required this.id,
+    required this.text,
+    required this.bornTs,
+    this.about = const [],
+    this.kind = 'rumor',
+    this.pointsTo,
+    this.grantsSecret,
+    this.private = false,
+  });
 
   Set<String> get holders => version.keys.toSet();
 
@@ -244,6 +284,10 @@ class Claim {
         'text': text,
         'about': about,
         'born_ts': bornTs,
+        'kind': kind,
+        'points_to': pointsTo,
+        'grants_secret': grantsSecret,
+        'private': private,
         'version': version,
         'believers': believers.toList(),
       };
@@ -254,6 +298,10 @@ class Claim {
       text: j['text'],
       bornTs: j['born_ts'] ?? 0,
       about: List<String>.from(j['about'] ?? const []),
+      kind: j['kind'] ?? 'rumor',
+      pointsTo: j['points_to'],
+      grantsSecret: j['grants_secret'],
+      private: j['private'] == true,
     );
     (j['version'] as Map?)?.forEach((k, v) => c.version['$k'] = '$v');
     c.believers.addAll(List<String>.from(j['believers'] ?? const []));
