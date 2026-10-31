@@ -67,6 +67,31 @@ const spec = <String, Map<String, List<int>>>{
     'idle': [4, 32, 32],
     'run': [6, 64, 64],
   },
+  'peasant': {
+    'idle': [4, 64, 64],
+    'walk': [6, 64, 64],
+  },
+  'npc_rogue': {
+    'idle': [4, 32, 32],
+    'run': [6, 64, 64],
+  },
+  'bodya': {
+    'idle': [4, 64, 64],
+    'walk': [6, 64, 64],
+  },
+  // tiopalada Tiny RPG CC0 demo — sliced by tool/slice_trp_chars.dart
+  'trp_hat': {
+    'idle': [6, 48, 48],
+    'walk': [6, 48, 48],
+  },
+  'trp_bard': {
+    'idle': [6, 48, 48],
+    'walk': [6, 48, 48],
+  },
+  'trp_veil': {
+    'idle': [6, 48, 48],
+    'walk': [6, 48, 48],
+  },
 };
 
 const stepTimes = {'idle': 0.22, 'run': 0.12, 'walk': 0.12, 'death': 0.14};

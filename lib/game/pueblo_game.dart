@@ -479,6 +479,13 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     }
   }
 
+  /// Wheel scroll — dy>0 scrolls down → zoom out; dy<0 → zoom in.
+  /// Exponential factor keeps multi-notch trackpad scrolls smooth.
+  void scrollZoom(double scrollDy) {
+    camera.viewfinder.zoom =
+        (camera.viewfinder.zoom * pow(0.998, scrollDy)).clamp(0.8, 2.5);
+  }
+
   // Trackpad pinch arrives as PointerPanZoom events at the widget layer —
   // Flame 1.38 has no PanZoomDetector, so main.dart's Listener forwards here.
   void trackpadPinch(double scale, Offset panDelta) {

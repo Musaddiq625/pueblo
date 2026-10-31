@@ -33,7 +33,16 @@ class IntroScene extends FlameGame {
   late final SpriteAnimationComponent _shadow;
   late final SpriteAnimationComponent _walkA;
   late final SpriteAnimationComponent _walkB;
-  late final RectangleComponent _frame;
+
+  /// The altar's portrait wall — a row of framed dead, one of them hers.
+  /// Each entry: outer wood frame → lit panel → face disc.
+  final _portraits = <_Portrait>[];
+  _Portrait? _golondrina;
+  RectangleComponent? _emptySlot;
+  bool _portraitTaken = false;
+  bool? _grabbing;
+  late final CircleComponent _glow;
+  late final RectangleComponent _groundShadow;
   final _bubbles = <PositionComponent>[];
 
   Future<SpriteAnimation> _anim(SheetDef s) async {
@@ -78,7 +87,7 @@ class IntroScene extends FlameGame {
       priority: pos.y.round(),
     )
       ..paint.colorFilter = silhouette != null
-          ? ColorFilter.mode(silhouette, BlendMode.srcIn)
+          ? ColorFilter.mode(silhouette, BlendMode.modulate)
           : (dye != null ? ColorFilter.mode(dye, BlendMode.modulate) : null);
   }
 
@@ -128,35 +137,75 @@ class IntroScene extends FlameGame {
       CandleFlickerComponent(Vector2(tileX(19), tileY(22))),
     );
 
-    // The portrait that will go missing — a warm lit panel hung on the
-    // altar's middle tier.
-    _frame = RectangleComponent(
-      position: _ofrenda + Vector2(-26, -40),
-      size: Vector2(15, 19),
-      priority: _ofrenda.y.round() + 1,
-      paint: Paint()..color = const Color(0xFFEBD9A8),
+    // The portrait wall — five framed dead hung in a row on the altar's
+    // face. La Golondrina's is the middle one: bigger, golden, the one
+    // that will go missing. The rest keep burning — witnesses that
+    // stayed behind.
+    for (var i = 0; i < 5; i++) {
+      final isHer = i == 2;
+      final p = _Portrait(
+        _ofrenda +
+            Vector2(-52.0 + i * 21, isHer ? -22.0 : -18.0),
+        isHer ? Vector2(17, 21) : Vector2(13, 17),
+        panel: isHer ? const Color(0xFFFFD96A) : const Color(0xFFEBD9A8),
+        baseY: _ofrenda.y.round() + 5,
+      );
+      _portraits.add(p);
+      await world.addAll(p.parts);
+      if (isHer) _golondrina = p;
+    }
+    // The dark socket the stolen frame leaves behind — visible the
+    // moment it's gone, because an empty rectangle says "theft" louder
+    // than a missing sprite ever could.
+    _emptySlot = RectangleComponent(
+      position: _golondrina!.frame.position.clone(),
+      size: _golondrina!.frame.size.clone(),
+      priority: _ofrenda.y.round() + 4,
+      paint: Paint()..color = const Color(0xFF140F1E),
     );
-    await world.add(_frame);
 
     // The shadow — a silhouette that keeps every pixel of animation but
     // gives away nothing of who it is.
     final shadowDef = chars['sk_rogue']!;
+    // The shadow rides a FIXED high priority — the cinematic choreographs
+    // its own depth, and a foreground garden bed must never swallow him
+    // mid-theft (the "walking under the tiles" bug this used to cause).
+    // A warm back-glow rides with him: a near-black sprite on a dark
+    // altar reads as NOTHING — the glow is what makes the figure a
+    // silhouette instead of a hole in the frame.
     _shadow = SpriteAnimationComponent(
       animation: await _anim(shadowDef.walk),
-      position: _ofrenda + Vector2(230, 26),
+      position: _ofrenda + Vector2(230, 56),
       size: Vector2(shadowDef.displayW, shadowDef.displayH),
       anchor: Anchor.bottomCenter,
-      priority: _ofrenda.y.round() + 40,
+      priority: 5000,
     )..paint.colorFilter =
-        const ColorFilter.mode(Color(0xFF171130), BlendMode.srcIn);
+        const ColorFilter.mode(Color(0xFF241A44), BlendMode.modulate);
     await world.add(_shadow);
+    _glow = CircleComponent(
+      radius: 34,
+      position: _ofrenda + Vector2(230, 30),
+      anchor: Anchor.center,
+      priority: 4999,
+      paint: Paint()..color = const Color(0x40FFB35A),
+    );
+    _groundShadow = RectangleComponent(
+      size: Vector2(40, 12),
+      position: _ofrenda + Vector2(230, 50),
+      anchor: Anchor.center,
+      priority: 4998,
+      paint: Paint()..color = const Color(0x66000000),
+    );
+    await world.add(_glow);
+    await world.add(_groundShadow);
 
-    final defA = chars['tavern_a']!, defB = chars['tavern_b']!;
-    _walkA = _actor('tavern_a', _ofrenda + Vector2(300, 60),
-        dye: const Color(0xFF9C6FC9));
+    // The pair who find it — the flower woman and the fountain crone.
+    // Off the right crop edge; they walk in during the thief's exit and
+    // literally pass him on screen — the night nobody looked.
+    final defA = chars['peasant']!, defB = chars['wizzard']!;
+    _walkA = _actor('peasant', _ofrenda + Vector2(280, 60));
     _walkA.animation = await _anim(defA.walk);
-    _walkB = _actor('tavern_b', _ofrenda + Vector2(340, 84),
-        dye: const Color(0xFFC9863C));
+    _walkB = _actor('wizzard', _ofrenda + Vector2(310, 84));
     _walkB.animation = await _anim(defB.walk);
     await world.add(_walkA);
     await world.add(_walkB);
@@ -171,47 +220,67 @@ class IntroScene extends FlameGame {
     if (_done) return;
     _t += dt;
     final t = _t;
+    final g = _golondrina!;
+
+    // Depth — the villagers sort by feet among the props; the shadow's
+    // priority is fixed above them all (a silhouette in a scripted beat).
+    _walkA.priority = _walkA.position.y.round();
+    _walkB.priority = _walkB.position.y.round();
+    // glow + ground shadow ride the thief — he owns the frame wherever
+    // he goes, the way a lantern owns the dark
+    _glow.position = _shadow.position - Vector2(0, 26);
+    _groundShadow.position = _shadow.position - Vector2(0, 6);
 
     // 0→2.6s: the shadow crosses to the altar (walking, facing left).
     if (t < 2.6) {
       _shadow.position.x -= 86 * dt;
       _shadow.scale.x = -1;
-      _frame.paint.color = Color.lerp(
-        const Color(0xFFEBD9A8),
+      // her portrait flickers — the only light that knows what's coming
+      g.panel.paint.color = Color.lerp(
+        const Color(0xFFFFD96A),
         const Color(0xFFFFF6D8),
         (sin(t * 6) + 1) / 2,
       )!;
     } else if (t < 4.0) {
-      // 2.6→4.0s: at the altar — the light of one frame dies.
-      _shadow.animation = null;
+      // 2.6→4.0s: at the altar — hands on the golden frame. It dims,
+      // then comes off the wall.
+      if (_grabbing == null) {
+        _grabbing = true;
+        _anim(chars['sk_rogue']!.idle).then((a) => _shadow.animation = a);
+      }
       final k = ((t - 2.6) / 1.4).clamp(0.0, 1.0);
-      _frame.paint.color = Color.lerp(
-        const Color(0xFFEBD9A8),
-        const Color(0xFF2A2038),
+      g.panel.paint.color = Color.lerp(
+        const Color(0xFFFFD96A),
+        const Color(0xFF8A7A55),
         k,
       )!;
-    } else if (t < 6.4) {
-      // 4.0→6.4s: it leaves the way it came, portrait in hand.
-      if (_shadow.animation == null) {
-        final def = chars['sk_rogue']!;
-        _anim(def.walk).then((a) => _shadow.animation = a);
+      if (t > 3.4 && !_portraitTaken) {
+        _portraitTaken = true;
+        world.add(_emptySlot!);
+        _golondrina!.carriedBy = _shadow;
+      }
+    }
+    // 4.0→6.4s: the thief leaves the way he came, portrait in hand.
+    if (t >= 4.0 && t < 6.4) {
+      if (_grabbing == true) {
+        _grabbing = false;
+        _anim(chars['sk_rogue']!.walk).then((a) => _shadow.animation = a);
       }
       _shadow.position.x += 96 * dt;
       _shadow.scale.x = 1;
-      _frame.position.y += 14 * dt; // carried off — the empty glow follows
-      _frame.paint.color = const Color(
-        0xFFEBD9A8,
-      ).withValues(alpha: (1 - (t - 4.0) / 2).clamp(0.0, 1.0));
-    } else if (t < 8.2) {
-      // 6.4→8.2s: villagers arrive, notice.
+    }
+    // 4.8→8.6s: the villagers walk in from the right and pass him on the
+    // path — both looking the wrong way as the frame goes by.
+    if (t >= 4.8 && t < 8.6) {
       if (_walkA.position.x > _ofrenda.x + 66) _walkA.position.x -= 70 * dt;
       if (_walkB.position.x > _ofrenda.x + 96) _walkB.position.x -= 70 * dt;
       _walkA.scale.x = -1;
       _walkB.scale.x = -1;
-    } else if (_bubbles.isEmpty) {
-      // 8.2s+: the discovery, in their voices.
+    }
+    if (t >= 8.6 && _bubbles.isEmpty) {
+      // 8.6s+: the discovery, in their voices.
       _bubbles.addAll([
-        _bubble('¡Ay! — a portrait is missing', _ofrenda + Vector2(-58, -70)),
+        _bubble('Oh — a portrait is missing!', _ofrenda + Vector2(-58, -70)),
         _bubble(
           'La Golondrina… her frame is bare.',
           _ofrenda + Vector2(6, -54),
@@ -221,9 +290,51 @@ class IntroScene extends FlameGame {
         world.add(b);
       }
     }
+    // A stolen portrait rides in the thief's hands — follow his body,
+    // not the wall it used to hang on.
+    if (g.carriedBy != null) {
+      final s = g.carriedBy!;
+      g.frame.position =
+          Vector2(s.position.x - g.frame.size.x / 2, s.position.y - 34);
+      g.frame.priority = 5001; // rides just over the thief's head
+    }
     if (t > 10.6) {
       _done = true;
       onDone();
     }
   }
+}
+
+/// One framed portrait — outer wood, lit panel, a face. When carried,
+/// the frame's inner contents ride along as a single rect (the theft
+/// reads as a glowing rectangle in the thief's hands at this crop).
+class _Portrait {
+  final RectangleComponent frame;
+  final RectangleComponent panel;
+  SpriteAnimationComponent? carriedBy;
+
+  _Portrait(Vector2 pos, Vector2 size, {required Color panel, int baseY = 0})
+      : frame = RectangleComponent(
+          position: pos.clone(),
+          size: size.clone(),
+          priority: baseY,
+          paint: Paint()..color = const Color(0xFF4A2E18),
+        ),
+        panel = RectangleComponent(
+          position: Vector2.all(2),
+          size: size - Vector2.all(4),
+          paint: Paint()..color = panel,
+        ) {
+    frame.add(this.panel);
+    // the tiny face — a dot of portrait inside every lit panel
+    frame.add(
+      RectangleComponent(
+        position: Vector2(size.x / 2 - 2, size.y * 0.35),
+        size: Vector2(4, 4),
+        paint: Paint()..color = const Color(0xFF8A6A4A),
+      ),
+    );
+  }
+
+  List<PositionComponent> get parts => [frame];
 }

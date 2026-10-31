@@ -47,4 +47,28 @@ const normChars = <String, NormChar>{
     'idle': NormSheet('chars_norm/wizzard_idle.png', 4, 28, 37, stepTime: 0.22),
     'run': NormSheet('chars_norm/wizzard_run.png', 6, 28, 37, stepTime: 0.12),
   }),
+  'peasant': NormChar(18, 33, {
+    'idle': NormSheet('chars_norm/peasant_idle.png', 4, 18, 33, stepTime: 0.22),
+    'walk': NormSheet('chars_norm/peasant_walk.png', 6, 18, 33, stepTime: 0.12),
+  }),
+  'npc_rogue': NormChar(26, 34, {
+    'idle': NormSheet('chars_norm/npc_rogue_idle.png', 4, 26, 34, stepTime: 0.22),
+    'run': NormSheet('chars_norm/npc_rogue_run.png', 6, 26, 34, stepTime: 0.12),
+  }),
+  'bodya': NormChar(18, 32, {
+    'idle': NormSheet('chars_norm/bodya_idle.png', 4, 18, 32, stepTime: 0.22),
+    'walk': NormSheet('chars_norm/bodya_walk.png', 6, 18, 32, stepTime: 0.12),
+  }),
+  'trp_hat': NormChar(32, 43, {
+    'idle': NormSheet('chars_norm/trp_hat_idle.png', 6, 32, 43, stepTime: 0.22),
+    'walk': NormSheet('chars_norm/trp_hat_walk.png', 6, 32, 43, stepTime: 0.12),
+  }),
+  'trp_bard': NormChar(34, 40, {
+    'idle': NormSheet('chars_norm/trp_bard_idle.png', 6, 34, 40, stepTime: 0.22),
+    'walk': NormSheet('chars_norm/trp_bard_walk.png', 6, 34, 40, stepTime: 0.12),
+  }),
+  'trp_veil': NormChar(27, 41, {
+    'idle': NormSheet('chars_norm/trp_veil_idle.png', 6, 27, 41, stepTime: 0.22),
+    'walk': NormSheet('chars_norm/trp_veil_walk.png', 6, 27, 41, stepTime: 0.12),
+  }),
 };

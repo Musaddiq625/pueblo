@@ -6,6 +6,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flame/game.dart';
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -248,7 +249,7 @@ class _PuebloAppState extends State<PuebloApp> {
                 const Padding(
                   padding: EdgeInsets.fromLTRB(14, 10, 14, 6),
                   child: Text(
-                    'día de los muertos — the night the frame went bare',
+                    'day of the dead — the night the frame went bare',
                     style: TextStyle(
                       fontSize: 11.5,
                       color: Color(0xFF8D84B0),
@@ -268,7 +269,7 @@ class _PuebloAppState extends State<PuebloApp> {
                     key: const Key('introSkip'),
                     onPressed: () => Navigator.of(ctx).pop(),
                     child: const Text(
-                      'comenzar →',
+                      'begin →',
                       style: TextStyle(
                         fontSize: 12,
                         color: Color(0xFFFFC233),
@@ -345,10 +346,16 @@ class _PuebloAppState extends State<PuebloApp> {
         body: Stack(
           children: [
               // Trackpad pinch → PointerPanZoom events (Flame lacks a
-              // PanZoomDetector) — forward scale + pan to the camera.
+              // PanZoomDetector); wheel scroll → PointerScrollEvent —
+              // both feed the camera zoom.
               Listener(
                 onPointerPanZoomUpdate: (e) =>
                     game.trackpadPinch(e.scale, e.panDelta),
+                onPointerSignal: (e) {
+                  if (e is PointerScrollEvent) {
+                    game.scrollZoom(e.scrollDelta.dy);
+                  }
+                },
                 child: GameWidget(game: game),
               ),
 

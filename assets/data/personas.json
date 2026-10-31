@@ -13,7 +13,7 @@
    "grump": 1
   },
   "home": "flower_stall",
-  "sprite": "tavern_b",
+  "sprite": "peasant",
   "initial_secrets": [],
   "tint": "#F5A95B",
   "hook": "feeds everyone gossip like tortillas; can't keep a secret past supper",
@@ -42,7 +42,7 @@
    "grump": 4
   },
   "home": "gravedigger_hut",
-  "sprite": "tavern_a",
+  "sprite": "npc_rogue",
   "initial_secrets": [
    "tree_is_hollow",
    "grave_37_name"
@@ -74,7 +74,7 @@
    "grump": 2
   },
   "home": "cantina",
-  "sprite": "tavern_b",
+  "sprite": "tavern_a",
   "initial_secrets": [
    "cantina_recipe"
   ],
@@ -89,8 +89,7 @@
     "at": 480,
     "poi": "cantina"
    }
-  ],
-  "dye": "#5FD0BC"
+  ]
  },
  {
   "id": "ramon",
@@ -106,7 +105,7 @@
    "grump": 1
   },
   "home": "plaza",
-  "sprite": "tavern_a",
+  "sprite": "trp_bard",
   "initial_secrets": [],
   "tint": "#E87AB8",
   "hook": "versifies everything — a bad secret keeper in perfect meter, and a worse liar when cornered",
@@ -119,8 +118,7 @@
     "at": 500,
     "poi": "plaza"
    }
-  ],
-  "dye": "#E87AB8"
+  ]
  },
  {
   "id": "ines",
@@ -164,12 +162,11 @@
    "grump": 2
   },
   "home": "cemetery_lane",
-  "sprite": "wizzard",
+  "sprite": "trp_veil",
   "initial_secrets": [],
   "tint": "#9FC4E8",
   "hook": "forgot his own name; follows whoever smells of marigold",
-  "schedule": [],
-  "dye": "#9FC4E8"
+  "schedule": []
  },
  {
   "id": "violeta",
@@ -186,7 +183,6 @@
   },
   "home": "curiosity_shop",
   "sprite": "tavern_b",
-  "dye": "#B57EDC",
   "initial_secrets": [],
   "tint": "#C9A0F0",
   "hook": "repeats the last thing she heard as if it's gospel — the village's fastest ear",
@@ -215,8 +211,7 @@
    "grump": 3
   },
   "home": "ofrenda",
-  "sprite": "wizzard",
-  "dye": "#8A5A2B",
+  "sprite": "bodya",
   "initial_secrets": [],
   "tint": "#D98E4A",
   "hook": "hears confessions and keeps them all — mostly",
@@ -245,8 +240,7 @@
    "grump": 2
   },
   "home": "cemetery_lane",
-  "sprite": "tavern_b",
-  "dye": "#5A3A6E",
+  "sprite": "trp_hat",
   "initial_secrets": [],
   "tint": "#7A5A9E",
   "hook": "leaves marigolds on unmarked graves; whispers to the fading",
