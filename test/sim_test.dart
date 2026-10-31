@@ -55,6 +55,8 @@ class _ScriptedLLM extends MockLLMClient {
   bool endNow = true;
   Decision? forcedDecision;
   Map<String, dynamic>? forcedBeat;
+  Map<String, dynamic>?
+      forcedClassify; // returned for player-intent classification calls
   String? forcedReply; // raw playerChat output — may be JSON or plain text
 
   @override
@@ -72,6 +74,9 @@ class _ScriptedLLM extends MockLLMClient {
   @override
   Future<Map<String, dynamic>?> direct(String prompt) async {
     prompts.add(prompt);
+    if (forcedClassify != null && prompt.contains('living visitor')) {
+      return forcedClassify;
+    }
     return forcedBeat ?? {'beat': 'none'};
   }
 
@@ -888,6 +893,50 @@ void main() {
     final h = e.playerHistoryFor('anita');
     expect(h.any((m) => m.isUser && m.text.contains('fountain')), isTrue,
         reason: 'anita remembers what the living one told her earlier');
+  });
+
+  test('the model parses intent — any phrasing plants the rumor + orders the ask',
+      () async {
+    // The classifier path: no keyword shape needed — the model extracts
+    // rumor + order from phrasing the regexes could never pattern-match.
+    final llm = _ScriptedLLM()
+      ..forcedClassify = {
+        'intent': 'order',
+        'claimText': 'bruno hides a secret near grave 37',
+        'about': 'Bruno, grave 37',
+        'orderKind': 'ask',
+        'orderTarget': 'Bruno',
+      }
+      ..forcedReply = '{"say":"hm?","react":"curious","believes":true}';
+    final b = await bootNamed(llm: llm);
+    final e = b.engine;
+    e.agents['anita']!.x = 0; e.agents['anita']!.y = 0;
+    e.agents['bruno']!.x = 40; e.agents['bruno']!.y = 0;
+    e.engage('anita');
+    await for (final _ in e.sendPlayerMessage(
+        'i heard whispers about that gravedigger, go see what folks know')) {}
+    expect(e.claims, isNotEmpty,
+        reason: 'the classifier extracted the rumor the regexes could not see');
+    expect(e.claims.values.first.about, contains('bruno'));
+    expect(e.agents['anita']!.errand?.kind, 'verify',
+        reason: 'the named place lands as go-look curiosity');
+    e.disengage();
+    for (var i = 0;
+        i < 160 &&
+            !e.agents['anita']!.knownSecrets.contains('s1') &&
+            e.conversations.isEmpty;
+        i++) {
+      e.tick(0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 3));
+    }
+    expect(
+      e.agents['anita']!.knownSecrets.contains('s1') ||
+          e.conversations.values.any((c) =>
+              (c.aId == 'anita' && c.bId == 'bruno') ||
+              (c.aId == 'bruno' && c.bId == 'anita')),
+      isTrue,
+      reason: 'the classified order walks anita to bruno to question him',
+    );
   });
 
   test('a directive walk interrupted by another convo re-queues and lands',

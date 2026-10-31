@@ -104,6 +104,20 @@ on the topic, don't start a new one.
 JSON: {"line":"...","shares_secret":"id|null","end":true|false,"mood":"neutral|warm|curious|sad|scared"}''';
   }
 
+  /// Classify the living one's message BEFORE replying — the model parses
+  /// messy phrasing into intent + entities the deterministic engine can
+  /// act on. Regex heuristics stay only as the offline fallback; a small
+  /// model parses natural language far better than keyword soup does.
+  String playerIntentPrompt(Agent a, String text) => '''
+A living visitor says to ${a.name}, a dead villager: "$text"
+The village: $cast
+What does the living one mean? Reply ONLY JSON:
+{"intent":"rumor|order|question|chat",
+ "claimText":"the rumor's content with any commands stripped out — or null",
+ "about":"comma list of village names or places it concerns — or null",
+ "orderKind":"ask|tell|null — ask = question/investigate, tell = carry a message to someone",
+ "orderTarget":"the villager or place the order points at — or null"}''';
+
   /// Player chat — the spirit may SPEAK or simply REACT (a gasp, a lean-in)
   /// — not every message earns words. It also decides what it does with a
   /// claim the living one plants: believe it or not, who to tell, and —

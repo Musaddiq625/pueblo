@@ -2196,9 +2196,40 @@ class SimEngine {
         }
         break;
       }
+      // Let the MODEL parse the message first — natural language intent
+      // is its job; regexes only fill in when the model is unreachable
+      // (mock/offline) or answers garbage. Every proposed effect still
+      // passes the deterministic gates below.
+      Map<String, dynamic>? cls;
+      try {
+        cls = await llm.direct(prompts.playerIntentPrompt(a, text));
+      } catch (_) {}
+      final clsIntent = cls?['intent'];
+      final clsClaim = () {
+        final v = cls?['claimText'];
+        return v is String && v.trim().isNotEmpty ? v.trim() : null;
+      }();
+      final clsTarget = () {
+        final v = cls?['orderTarget'];
+        return v is String ? _agentByRef(v, exclude: a.id) : null;
+      }();
+      final clsAsk = '${cls?['orderKind']}'.toLowerCase() == 'ask';
+      final clsAbout = <String>[
+        for (final n in '${cls?['about'] ?? ''}'.split(','))
+          if (n.trim().isNotEmpty) n.trim(),
+      ];
       // Claims move the world — naming a place sends the curious to look;
       // naming a spirit becomes a question to carry (D2).
       _claimCuriosityFromText(a, text);
+      for (final ref in clsAbout) {
+        final p = _poiByRef(ref);
+        if (p != null) {
+          _claimCuriosity(a, p.id);
+          continue;
+        }
+        final o = _agentByRef(ref, exclude: a.id);
+        if (o != null) a.goal ??= 'askAbout:${o.id}';
+      }
       // The living one's imperative is an order, not a suggestion — "ask
       // Bruno", "tell Sefa", "go see Ramón" sets the spirit walking NOW.
       // 'ask' verbs open a convo where the named spirit shares; anything
@@ -2234,6 +2265,13 @@ class SimEngine {
         ).hasMatch(text);
         directiveTo = directiveTarget != null;
       }
+      // The model's parse wins over the regex guess — it understood the
+      // sentence, the regex only pattern-matched it.
+      if (clsTarget != null && clsIntent == 'order') {
+        directiveTarget = clsTarget;
+        directiveTo = true;
+        asking = clsAsk;
+      }
       // A declarative message plants a Claim — free text that circulates
       // mouth-to-mouth. Only true question shapes ask instead of seeding:
       // a '?' mark, an interrogative opener, or an outright demand
@@ -2252,7 +2290,11 @@ class SimEngine {
       // carrying. Bare "find out"/"you have to find out" leaves nothing
       // a rumor could hang on, so it plants nothing.
       var rumorText = text;
-      if (asking && imperative != null) {
+      // The classifier's stripped claim beats the regex surgery — it can
+      // tell the rumor from the order instead of cutting at a keyword.
+      if (clsClaim != null && _mentionsEntity(clsClaim)) {
+        rumorText = clsClaim;
+      } else if (asking && imperative != null) {
         rumorText = text
             .substring(0, imperative.start)
             .replaceAll(RegExp(r'[,\s]+$'), '')
@@ -2262,7 +2304,8 @@ class SimEngine {
         }
       }
       final planted =
-          ((directiveTo || !isAsk) && _normId(rumorText).length >= 6)
+          ((directiveTo || !isAsk || clsIntent == 'rumor') &&
+                  _normId(rumorText).length >= 6)
               ? (rumorText.isEmpty ? null : _plantClaim(a, rumorText))
               : null;
       final t = directiveTarget;
@@ -2309,13 +2352,14 @@ class SimEngine {
       // reaction to the rumor itself; an order demands acknowledgment.
       // Keep it terse: a small model follows a short imperative, not a
       // lecture. The text itself is already the last line of history.
-      final note = planted != null
+      final note = planted != null || clsIntent == 'rumor'
           ? 'Fresh rumor'
-                '${planted.about.isNotEmpty ? ' about ${planted.about.map((e) => agents[e]?.name.split(' ').first ?? e).join(', ')}' : ''}'
+                '${(planted?.about.isNotEmpty ?? false) ? ' about ${planted!.about.map((e) => agents[e]?.name.split(' ').first ?? e).join(', ')}' : ''}'
                 ' — weigh it: believe, doubt, or want more. Not your stories.'
-          : t != null
+          : t != null || clsIntent == 'order'
           ? 'An order: ${asking ? 'go question' : 'carry word to'} '
-                '${t.name}. Acknowledge it your way — accept, balk, or bargain.'
+                '${t?.name ?? 'someone nearby'}. Acknowledge it your way — '
+                'accept, balk, or bargain.'
           : null;
       final prompt = prompts.playerChatPrompt(
         a,
@@ -2875,6 +2919,34 @@ class SimEngine {
         return;
       }
     }
+  }
+
+  /// Resolve a name/id the model produced to an agent — exact, first
+  /// name, or fuzzy ("solors" → solorio). null when it points at nobody.
+  Agent? _agentByRef(String ref, {String? exclude}) {
+    final norm = _normId(ref);
+    if (norm.isEmpty) return null;
+    for (final o in agents.values) {
+      if (o.id == exclude) continue;
+      if (_normId(o.id) == norm ||
+          _normId(o.name) == norm ||
+          _normId(o.name.split(' ').first) == norm) {
+        return o;
+      }
+    }
+    final fuzzy = _fuzzyId(ref, agents.keys.toSet());
+    return fuzzy != null && fuzzy != exclude ? agents[fuzzy] : null;
+  }
+
+  /// Same for places — "grave 37" → grave_37, "the fountain" → fountain.
+  Poi? _poiByRef(String ref) {
+    final norm = _normId(ref);
+    if (norm.isEmpty) return null;
+    for (final p in pois.values) {
+      if (_normId(p.id) == norm || _normId(p.name) == norm) return p;
+    }
+    final fuzzy = _fuzzyId(ref, pois.keys.toSet());
+    return fuzzy != null ? pois[fuzzy] : null;
   }
 
   /// Does this text name anyone or anywhere the village knows? The gate
