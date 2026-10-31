@@ -303,6 +303,11 @@ class PlayerComponent extends SpriteAnimationGroupComponent<SpiritAnim> {
         if (faceLeft != scale.x.isNegative) flipHorizontallyAroundCenter();
       }
     }
+    // Same safety net as the spirits — a path that ends without flipping
+    // `walking` must not leave the run cycle under a standing figure.
+    if (!walking && current == SpiritAnim.walk) {
+      current = SpiritAnim.idle;
+    }
     priority = position.y.round();
   }
 }

@@ -46,6 +46,7 @@ class IntroScene extends FlameGame {
   late final CircleComponent _glow;
   late final RectangleComponent _groundShadow;
   final _bubbles = <PositionComponent>[];
+  bool _reacted = false;
 
   Future<SpriteAnimation> _anim(SheetDef s) async {
     final img = await images.load(s.path);
@@ -98,7 +99,7 @@ class IntroScene extends FlameGame {
       text: line,
       textRenderer: TextPaint(
         style: const TextStyle(
-          fontSize: 7,
+          fontSize: 8,
           color: Color(0xFFEDE6D6),
           fontFamily: 'monospace',
         ),
@@ -273,10 +274,13 @@ class IntroScene extends FlameGame {
       _shadow.position.x += 96 * dt;
       _shadow.scale.x = 1;
     }
-    // 4.8→8.6s: the villagers walk in from the right and pass him on the
-    // path — both looking the wrong way as the frame goes by. Idle while
-    // standing, walk while moving, idle when they arrive.
-    if (t >= 4.8 && t < 8.6) {
+    // 4.8s→arrival: the villagers walk in from the right and pass him on
+    // the path — both looking the wrong way as the frame goes by. Idle
+    // while standing, walk while moving, idle when they arrive. The gate
+    // only opens the stroll; it never CLOSES on a straggler — a villager
+    // still mid-path after 8.6s keeps walking until she lands, else she
+    // would freeze mid-stride forever (the "standing but walking" bug).
+    if (t >= 4.8 && t < 12.0) {
       void stroll(SpriteAnimationComponent v, CharDef def, double tx,
           int flagSlot) {
         final moving = v.position.x > tx;
@@ -296,18 +300,25 @@ class IntroScene extends FlameGame {
       stroll(_walkA, _defA, _ofrenda.x + 66, 0);
       stroll(_walkB, _defB, _ofrenda.x + 96, 1);
     }
-    if (t >= 8.2 && _bubbles.isEmpty) {
-      // 8.6s+: the discovery, in their voices.
-      _bubbles.addAll([
-        _bubble('Oh — a portrait is missing!', _ofrenda + Vector2(-58, -70)),
-        _bubble(
-          'La Golondrina… her frame is bare.',
-          _ofrenda + Vector2(6, -54),
-        ),
-      ]);
-      for (final b in _bubbles) {
-        world.add(b);
-      }
+    // The discovery — call, then response. Each bubble rides just above
+    // its speaker's head (she lands at +66, the crone at +96), staggered
+    // so it reads as one spirit answering the other.
+    if (t >= 8.4 && _bubbles.isEmpty) {
+      final b = _bubble(
+        "Oh! La Golondrina's picture is gone!",
+        _ofrenda + Vector2(-48, -8),
+      );
+      _bubbles.add(b);
+      world.add(b);
+    }
+    if (t >= 9.8 && !_reacted) {
+      _reacted = true;
+      final b = _bubble(
+        'Who would take her face?',
+        _ofrenda + Vector2(0, 14),
+      );
+      _bubbles.add(b);
+      world.add(b);
     }
     // A stolen portrait rides in the thief's hands — follow his body,
     // not the wall it used to hang on.
