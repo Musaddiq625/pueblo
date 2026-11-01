@@ -479,8 +479,11 @@ class BubbleComponent extends PositionComponent {
        super(
          size: size ?? Vector2(220, 44),
          anchor: Anchor.bottomCenter,
-         // above nameplates (3000000) — nothing in the world occludes speech
-         priority: 3000001,
+         // above nameplates (3000000); speech outranks emotes, which
+         // outrank thoughts — words are the content, the rest is garnish
+         priority: isEmote
+             ? 3000002
+             : (isThought ? 3000001 : 3000003),
        );
 
   @override

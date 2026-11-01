@@ -276,6 +276,9 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       'simTs': engine.simTs,
       'petals': engine.playerPetals,
       'engaged': engine.engagedId,
+      'storeDead': engine.store.isDead,
+      'dbIsOpen': engine.store.db.isOpen,
+      'engineDisposed': engine.disposed,
       'caseProgress': engine.caseProgress,
       'caseResolved': engine.caseResolved,
       'llm': engine.llm.name,
@@ -727,9 +730,15 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     }
   }
 
+  /// A spoken bubble owns the head while it shows — emotes and inner
+  /// voices yield rather than fight it for the same space.
+  bool _headBusy(PositionComponent c) => world.children
+      .whereType<BubbleComponent>()
+      .any((b) => b.track == c && !b.isThought && !b.isEmote);
+
   void _emote(String agentId, String glyph) {
     final c = spirits[agentId];
-    if (c == null) return;
+    if (c == null || _headBusy(c)) return;
     world.add(
       BubbleComponent(glyph, isEmote: true, track: c, gap: 4, size: Vector2(60, 40))
         ..position = Vector2(c.position.x, c.position.y - c.size.y - 4),
@@ -740,7 +749,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   /// untouched), sits below the name cue so they never overlap.
   void _thought(String agentId, String text) {
     final c = spirits[agentId];
-    if (c == null || text.isEmpty) return;
+    if (c == null || text.isEmpty || _headBusy(c)) return;
     for (final b in world.children.whereType<BubbleComponent>()) {
       if (b.track == c && b.isThought) b.removeFromParent();
     }
@@ -771,6 +780,8 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   @override
   void onRemove() {
     _simPump?.cancel();
+    engine.dispose();
+    if (activeGame == this) activeGame = null;
     super.onRemove();
   }
 

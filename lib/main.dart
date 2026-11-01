@@ -136,11 +136,18 @@ Future<void> main() async {
   );
 
   Future<void> launch() async {
+    // Kill the previous world before bootstrap deletes its database —
+    // otherwise its pump and in-flight futures write into a doomed file.
+    PuebloGame.activeGame?.engine.dispose();
     final bundle = await mkBundle();
     PuebloGame.personaSprite = bundle.sprites;
     PuebloGame.personaTint = bundle.tints;
     PuebloGame.personaDye = bundle.dyes;
-    runApp(PuebloApp(bundle: bundle, onRestart: launch));
+    // UniqueKey forces a real remount — runApp on the same widget type
+    // reuses the old State, whose `late final game` would keep the dead
+    // engine forever.
+    runApp(PuebloApp(
+        key: UniqueKey(), bundle: bundle, onRestart: launch));
   }
 
   await launch();

@@ -289,7 +289,17 @@ class SimEngine {
 
   // ============================ world clock ================================
 
+  /// Set when the world is torn down (Play again / app teardown) — the old
+  /// engine goes inert so a surviving pump or pending future can't keep a
+  /// ghost simulation writing into the next world's store.
+  bool disposed = false;
+  void dispose() {
+    disposed = true;
+    store.dispose();
+  }
+
   void tick(double dt) {
+    if (disposed) return;
     _advanceWalks(dt); // real-time locomotion — matches render lerp speed
     for (final a in agents.values) {
       if (a.heldBy != null && simTs >= a.heldUntil) {
@@ -496,8 +506,26 @@ class SimEngine {
         'purpose': purpose != null,
       }),
     );
+    // The call lands — the callee's small authored ack shows they heard
+    // it while the model composes the real first line.
+    _say(b, _ackFor(b), 'neutral');
     _requestTurn(convo);
   }
+
+  /// The called spirit's first reaction — persona-shaped, instant, and
+  /// deterministic so the call always visibly lands.
+  static const _acks = <String, String>{
+    'luz': 'mm? tell me.',
+    'bruno': '…what is it?',
+    'sefa': "I'm listening.",
+    'ramon': 'ah — speak, friend.',
+    'ines': 'go on, mijo.',
+    'solorio': '…you see me?',
+    'violeta': 'ooh — what?',
+    'aurelio': 'speak.',
+    'carmen': '…yes?',
+  };
+  String _ackFor(Agent a) => _acks[a.id] ?? 'mm?';
 
   void _advanceConversations() {
     final finished = <Conversation>[];
