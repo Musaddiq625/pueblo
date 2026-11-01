@@ -10,9 +10,9 @@ const kSpiritSpeed = 55.0;
 /// time). The sim lingers a finished conversation for ~this long so nobody
 /// walks off while their last line is still readable — at 8× speed that is
 /// ~29 sim-seconds, not 3.
-const kBubbleLifeSay = 3.6;
-const kBubbleLifeThought = 2.6;
-const kBubbleLifeEmote = 1.8;
+const kBubbleLifeSay = 4.6;
+const kBubbleLifeThought = 3.6;
+const kBubbleLifeEmote = 2.8;
 
 class Stats {
   final int curiosity;

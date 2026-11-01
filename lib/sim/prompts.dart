@@ -51,7 +51,7 @@ Now: $simClock. You stand at $place. Nearby: $nearbyEntities.${a.mood == null ? 
 You remember: ${memories.isEmpty ? 'nothing recent' : memories.join(' | ')}.${reflection == null ? '' : '\nYou\'ve been thinking: $reflection'}
 Secrets you know: [${_secretsBlock(a)}]${rumors.isEmpty ? '' : '\nRumors you carry (gossip, not fact): ${rumors.join(' | ')}'}${errand == null ? '' : '\nYour errand: $errand.'}
 Choose ONE of: ${allowedActions.join(', ')}.
-- share(who,secret_id): tell them a secret they haven't heard — knowledge passes mouth to ear.
+- share(who,secret_id): pass one of your known secrets to that person — knowledge moves mouth to ear.
 - ask(who): draw out something they know that you don't.
 - askAbout(who): ask about your current question.
 - greet(who): say hello — a name spoken can wake a fading spirit.

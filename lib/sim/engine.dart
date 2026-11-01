@@ -375,6 +375,24 @@ class SimEngine {
       _resolutionAt = null;
       _resolution();
     }
+    // The staged gather — between visits she resumes when her mark's
+    // reply lands; a doorstep fumbled in silence (teller tapped away,
+    // poached) must not freeze the scene, so an idle sleuth retries.
+    final gacc = _gatherAcc;
+    if (gacc != null) {
+      if (gacc.faded || gacc.engaged || gacc.inConvo || _caseResolved) {
+        _endGather();
+      } else if (_gatherResumeAt >= 0 && simTs >= _gatherResumeAt) {
+        _gatherResumeAt = -1;
+        _gatherNext();
+      } else if (_gatherResumeAt < 0 &&
+          !_walks.containsKey(gacc.id) &&
+          !_deferredWalks.containsKey(gacc.id)) {
+        if (++_gatherStall > 30) _gatherNext();
+      } else {
+        _gatherStall = 0;
+      }
+    }
 
     if (_convoTimer >= convoEvery) {
       _convoTimer = 0;
@@ -1451,12 +1469,73 @@ class SimEngine {
   /// the popup lands after the dialogue, not on top of it.
   int? _resolutionAt;
 
-  /// DRIVER-ONLY director cut — plants the ledger so the march is
-  /// filmable: each authored proof lands on fitting carriers, private
-  /// ones count as already-leaked, and the next tick launches an
-  /// accuser. Real play resumes the moment he breaks.
+  /// DRIVER-ONLY director cut — stages the evidence-gathering so the
+  /// march is earned on camera: the sleuth walks to the witnesses,
+  /// hears their statements aloud, collects the proofs one by one —
+  /// THEN the ledger fills and the confrontation launches the usual
+  /// way. "She just knew" never appears in the footage.
   String directorSolve() {
     if (_caseResolved) return 'already resolved';
+    if (_gatherAcc != null) return 'the gathering is already walking';
+    final acc = agents['luz']; // the town's natural sleuth
+    if (acc == null || acc.faded || acc.engaged || acc.inConvo) {
+      _seedLedger();
+      _maybeConfront();
+      return 'accuser unavailable — ledger seeded; caseProgress=$caseProgress';
+    }
+    // (witness, the proof she swears, her statement, the sleuth's reply)
+    const interviews = [
+      (
+        'sefa',
+        'wax_on_sleeve',
+        'melted candle wax — on HIS sleeve. i saw it with my own eyes.',
+        'wax that should not be there. one piece of the night.',
+      ),
+      (
+        'solorio',
+        'humming_heard',
+        'someone was humming her tune by the frames… i swear it.',
+        'her song on another\'s lips. thank you, old friend.',
+      ),
+      (
+        'ines',
+        'guitar_pick',
+        'a guitar pick beneath her frame — his initials on the back.',
+        'the strings remember who played that night.',
+      ),
+    ];
+    _gatherQ.clear();
+    for (final iv in interviews) {
+      final t = agents[iv.$1];
+      if (t == null || t.faded || t.id == culpritId) continue;
+      _gatherQ.add((
+        tellerId: iv.$1,
+        secretId: iv.$2,
+        tellerLine: iv.$3,
+        accLine: iv.$4,
+      ));
+      if (_gatherQ.length == 2) break;
+    }
+    if (_gatherQ.isEmpty) {
+      _seedLedger();
+      _maybeConfront();
+      return 'no witnesses left — ledger seeded; caseProgress=$caseProgress';
+    }
+    _gatherAcc = acc;
+    _marchers.add(acc.id); // staged — as unpoachable as the charge itself
+    _emit(acc, SimEventType.emote, {'agent': acc.id, 'glyph': '🕯'});
+    _say(acc, 'The pieces are out there. Time to gather them.', 'certain');
+    unawaited(
+      store.simLog(simTs, acc.id, 'case', 'begins gathering the ledger'),
+    );
+    final n = _gatherQ.length;
+    _gatherNext();
+    return 'gathering staged — ${acc.name} collects $n statements';
+  }
+
+  /// Plants the full ledger instantly — used when the staged gathering
+  /// can't run (sleuth gone, no witnesses). The film path's fallback.
+  void _seedLedger() {
     const seed = {
       'guitar_pick': ['ines', 'violeta', 'sefa'],
       'wax_on_sleeve': ['sefa', 'carmen'],
@@ -1476,8 +1555,80 @@ class SimEngine {
       _relayedSecrets.add(e.key);
       _leakedSecrets.add(e.key);
     }
+  }
+
+  /// The staged walk — the sleuth visiting witnesses one by one.
+  /// [_gatherAcc] rides in [_marchers] so ambient gossip can't poach
+  /// her mid-scene; [_gatherTeller] is the one doorway she's allowed.
+  Agent? _gatherAcc;
+  Agent? _gatherTeller;
+  final _gatherQ =
+      <({String tellerId, String secretId, String tellerLine, String accLine})>[];
+  int _gatherResumeAt = -1;
+  int _gatherStall = 0;
+
+  void _gatherNext() {
+    final acc = _gatherAcc;
+    if (acc == null || acc.faded) {
+      _endGather();
+      return;
+    }
+    if (_gatherQ.isEmpty) {
+      _endGather();
+      return;
+    }
+    final iv = _gatherQ.removeAt(0);
+    final teller = agents[iv.tellerId];
+    if (teller == null || teller.faded) {
+      _gatherNext();
+      return;
+    }
+    _gatherTeller = teller;
+    unawaited(
+      store.simLog(simTs, acc.id, 'case', 'goes to hear ${teller.id}'),
+    );
+    _approachForConvo(
+      acc,
+      teller,
+      onNear: (ag, tt) {
+        // The statement lands, the sleuth marks it — proof in hand and
+        // on camera, one exchange per witness.
+        _say(tt, iv.tellerLine, 'earnest');
+        _queuedSays.add((
+          a: ag,
+          line: iv.accLine,
+          mood: 'certain',
+          at: simTs + 3,
+        ));
+        if (!ag.knownSecrets.contains(iv.secretId)) {
+          ag.knownSecrets.add(iv.secretId);
+          ag.bumpVersion();
+          _emit(ag, SimEventType.emote, {'agent': ag.id, 'glyph': '💡'});
+          unawaited(
+            store.simLog(
+              simTs,
+              ag.id,
+              'proof',
+              '${iv.secretId} sworn by ${tt.id}',
+            ),
+          );
+        }
+        _gatherResumeAt = simTs + 6;
+      },
+      onFail: (_) => _gatherNext(), // witness unreachable — try the next
+    );
+  }
+
+  void _endGather() {
+    _marchers.remove(_gatherAcc?.id ?? '');
+    _gatherAcc = null;
+    _gatherTeller = null;
+    _gatherQ.clear();
+    _gatherResumeAt = -1;
+    _seedLedger();
+    // The ledger is full — the announced march to the culprit launches
+    // on this tick, the same as an organically-solved case.
     _maybeConfront();
-    return 'caseProgress=$caseProgress';
   }
 
   /// Soft fail — the festival's moment passed with the case still cold.
@@ -1680,8 +1831,16 @@ class SimEngine {
     final (job, d) = rec;
     final a = agents[job.agentId];
     if (a == null) return;
-    // Stale check — drop if the agent's state moved on.
-    if (job.stateVersion != a.stateVersion || a.engaged || a.inConvo) return;
+    // Stale check — drop if the agent's state moved on. Marchers and the
+    // staged gather's sleuth answer only to the case, never to a fresh
+    // decide that would retask their legs mid-scene.
+    if (job.stateVersion != a.stateVersion ||
+        a.engaged ||
+        a.inConvo ||
+        _marchers.contains(a.id) ||
+        a.id == _gatherAcc?.id) {
+      return;
+    }
     if (d == null) {
       _emit(a, SimEventType.emote, {'agent': a.id, 'glyph': '·'});
       return;
@@ -2147,7 +2306,10 @@ class SimEngine {
     }
     // A marcher's only destination is the culprit's doorstep — ambient
     // errands and gossip approaches can't retask the charge mid-walk.
-    if (_marchers.contains(a.id) && t.id != culpritId) {
+    // The staged gather carves out its current witness the same way.
+    if (_marchers.contains(a.id) &&
+        t.id != culpritId &&
+        t.id != _gatherTeller?.id) {
       fail();
       return;
     }
@@ -2461,6 +2623,21 @@ class SimEngine {
     );
   };
 
+  /// Arrival musings when no carried whisper gives the thought context —
+  /// a pool of plain case-flavored lines rotated per spirit so the town
+  /// doesn't chant one static sentence. Authored, not model: an errand
+  /// glance isn't worth an inference round-trip.
+  static const _musings = [
+    'the ofrenda looks wrong tonight.',
+    'someone touched the altar — i can feel it.',
+    'her frame should not be bare.',
+    'who would steal from the dead?',
+    'something happened here. i know it.',
+    'i keep thinking about her picture.',
+    'somebody knows more than they say.',
+    'this place feels watched tonight.',
+  ];
+
   /// The visible beat of investigation — 💭 first, a floating thought a
   /// breath later — so arriving on an errand or a carried whisper reads
   /// as the spirit actually LOOKING, not silently standing on the tile.
@@ -2478,7 +2655,7 @@ class SimEngine {
     _emit(a, SimEventType.emote, {'agent': a.id, 'glyph': '💭'});
     final musing = whisper != null
         ? '"${whisper.text}" — let me look.'
-        : 'something here. I can feel it.';
+        : _musings[(a.id.hashCode + simTs ~/ 20).abs() % _musings.length];
     unawaited(
       Future.delayed(
         const Duration(milliseconds: 1200),
