@@ -152,6 +152,10 @@ flutter_gemma · pixel art from CC0 packs (see
 MIT for code — see [LICENSE](LICENSE). Third-party art is CC0, credited in
 `assets/sprites/village/LICENSES.md`.
 
+*Challenge note: this repo was started and built within the Week 4 window
+(Oct 27–31). Commits after the submission deadline are documentation and
+media only (README, poster, trailer) — no game logic changed.*
+
 ---
 
 *Built during Hacktoberfest 2026 (Week 4) — powered by MLH and DEV, presented
