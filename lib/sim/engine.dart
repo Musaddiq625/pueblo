@@ -68,6 +68,10 @@ class Conversation {
   /// sim-seconds so the last spoken line lands before anyone walks off.
   int? releaseAt;
 
+  /// Normalized lines already spoken this convo — small models loop on long
+  /// transcripts ("I saw the same person too." ×5); a repeat ends the convo.
+  final Set<String> linesSeen = {};
+
   Conversation(this.id, this.aId, this.bId, {this.askedAbout, this.purpose})
     : nextSpeaker = aId;
 }
@@ -674,6 +678,10 @@ class SimEngine {
       c.done = true;
       return;
     }
+    // Echo detection: a repeated line still commits (a purpose-bound share
+    // must not be lost to model degeneration) but flags the convo to end.
+    final norm = line.toLowerCase().replaceAll(RegExp(r'[^a-z0-9 ]'), '');
+    final echo = !c.linesSeen.add(norm);
 
     // Commit rule: a secret moves ONLY if the speaker owns it AND the
     // partner doesn't already know it. Two paths:
@@ -857,13 +865,11 @@ class SimEngine {
       partner.battery = min(100, partner.battery + 6);
     }
 
-    _events.add(
-      SimEvent(SimEventType.say, {
-        'agent': speaker.id,
-        'line': line,
-        'mood': turn.mood,
-      }),
-    );
+    _emit(speaker, SimEventType.say, {
+      'agent': speaker.id,
+      'line': line,
+      'mood': turn.mood,
+    });
 
     // Next speaker / done. Purpose convos get two extra turns so the
     // listener can react after the knowledge lands — and 'end' is honored
@@ -871,6 +877,7 @@ class SimEngine {
     if (p != null && speaker.id == p.holder) c.holderSpoke = true;
     c.nextSpeaker = partner.id;
     if ((turn.end && (p == null || c.holderSpoke)) ||
+        echo ||
         c.transcript.length >= (c.purpose != null ? 8 : 6)) {
       c.done = true;
     }
