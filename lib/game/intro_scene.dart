@@ -38,10 +38,10 @@ class IntroScene extends FlameGame {
   late final CharDef _defA, _defB;
   final _villagerAnim = <int, String>{};
 
-  /// The altar's portrait wall — a row of framed dead, one of them hers.
+  /// The altar's portrait wall — a row of framed dead, one of them his.
   /// Each entry: outer wood frame → lit panel → face disc.
   final _portraits = <_Portrait>[];
-  _Portrait? _golondrina;
+  _Portrait? _victim;
   RectangleComponent? _emptySlot;
   bool _portraitTaken = false;
   bool? _grabbing;
@@ -145,28 +145,29 @@ class IntroScene extends FlameGame {
     );
 
     // The portrait wall — five framed dead hung in a row on the altar's
-    // face. La Golondrina's is the middle one: bigger, golden, the one
-    // that will go missing. The rest keep burning — witnesses that
-    // stayed behind.
+    // face. Solorio's is the middle one: bigger, golden, the one that
+    // will go missing — veiled like the spirit himself. The rest keep
+    // burning — witnesses that stayed behind.
     for (var i = 0; i < 5; i++) {
-      final isHer = i == 2;
+      final isHim = i == 2;
       final p = _Portrait(
         _ofrenda +
-            Vector2(-52.0 + i * 21, isHer ? -22.0 : -18.0),
-        isHer ? Vector2(17, 21) : Vector2(13, 17),
-        panel: isHer ? const Color(0xFFFFD96A) : const Color(0xFFEBD9A8),
+            Vector2(-52.0 + i * 21, isHim ? -22.0 : -18.0),
+        isHim ? Vector2(17, 21) : Vector2(13, 17),
+        panel: isHim ? const Color(0xFFFFD96A) : const Color(0xFFEBD9A8),
+        veil: isHim,
         baseY: _ofrenda.y.round() + 5,
       );
       _portraits.add(p);
       await world.addAll(p.parts);
-      if (isHer) _golondrina = p;
+      if (isHim) _victim = p;
     }
     // The dark socket the stolen frame leaves behind — visible the
     // moment it's gone, because an empty rectangle says "theft" louder
     // than a missing sprite ever could.
     _emptySlot = RectangleComponent(
-      position: _golondrina!.frame.position.clone(),
-      size: _golondrina!.frame.size.clone(),
+      position: _victim!.frame.position.clone(),
+      size: _victim!.frame.size.clone(),
       priority: _ofrenda.y.round() + 4,
       paint: Paint()..color = const Color(0xFF140F1E),
     );
@@ -226,7 +227,7 @@ class IntroScene extends FlameGame {
     if (_done) return;
     _t += dt;
     final t = _t;
-    final g = _golondrina!;
+    final g = _victim!;
 
     // Depth — the villagers sort by feet among the props; the thief's
     // priority is fixed above them all (a silhouette in a scripted beat).
@@ -241,7 +242,7 @@ class IntroScene extends FlameGame {
     if (t < 2.6) {
       _thief.position.x -= 86 * dt;
       _thief.scale.x = -1;
-      // her portrait flickers — the only light that knows what's coming
+      // his portrait flickers — the only light that knows what's coming
       g.panel.paint.color = Color.lerp(
         const Color(0xFFFFD96A),
         const Color(0xFFFFF6D8),
@@ -263,7 +264,7 @@ class IntroScene extends FlameGame {
       if (t > 3.4 && !_portraitTaken) {
         _portraitTaken = true;
         world.add(_emptySlot!);
-        _golondrina!.carriedBy = _thief;
+        _victim!.carriedBy = _thief;
       }
     }
     // 4.0→6.4s: the thief leaves the way he came, portrait in hand.
@@ -306,7 +307,7 @@ class IntroScene extends FlameGame {
     // so it reads as one spirit answering the other.
     if (t >= 8.4 && _bubbles.isEmpty) {
       final b = _bubble(
-        "Oh! La Golondrina's picture is gone!",
+        "Oh! Solorio's portrait is gone!",
         _ofrenda + Vector2(-48, -8),
       );
       _bubbles.add(b);
@@ -315,7 +316,7 @@ class IntroScene extends FlameGame {
     if (t >= 9.8 && !_reacted) {
       _reacted = true;
       final b = _bubble(
-        'Who would take her face?',
+        'Who would take his face?',
         _ofrenda + Vector2(0, 14),
       );
       _bubbles.add(b);
@@ -344,8 +345,13 @@ class _Portrait {
   final RectangleComponent panel;
   SpriteAnimationComponent? carriedBy;
 
-  _Portrait(Vector2 pos, Vector2 size, {required Color panel, int baseY = 0})
-      : frame = RectangleComponent(
+  _Portrait(
+    Vector2 pos,
+    Vector2 size, {
+    required Color panel,
+    bool veil = false,
+    int baseY = 0,
+  })  : frame = RectangleComponent(
           position: pos.clone(),
           size: size.clone(),
           priority: baseY,
@@ -359,10 +365,12 @@ class _Portrait {
     frame.add(this.panel);
     // the remembered — a head-and-shoulders portrait inside every lit
     // panel. Eyes + mouth make it a FACE at crop distance, not just a
-    // warm blob on a lit card.
+    // warm blob on a lit card. Solorio wears his veil — pale blue, like
+    // the spirit the player will meet fading in the cemetery.
     final iw = size.x - 4, ih = size.y - 4;
-    const skin = Color(0xFFB98A62), hair = Color(0xFF3A2416),
-        feature = Color(0xFF2A1408);
+    final skin = veil ? const Color(0xFFC9AE92) : const Color(0xFFB98A62);
+    final hair = veil ? const Color(0xFF9FC4E8) : const Color(0xFF3A2416);
+    const feature = Color(0xFF2A1408);
     final hw = iw * 0.50, hh = ih * 0.46;
     final hx = 2 + (iw - hw) / 2, hy = 2 + ih * 0.16;
     frame.add(
@@ -383,9 +391,10 @@ class _Portrait {
     );
     frame.add(
       RectangleComponent(
-        // hair cap across the top of the head
+        // hair cap across the top of the head — Solorio's veil drapes
+        // lower, covering the sides like his sprite's
         position: Vector2(hx - hw * 0.04, hy - hh * 0.06),
-        size: Vector2(hw * 1.08, hh * 0.30),
+        size: Vector2(hw * 1.08, veil ? hh * 0.52 : hh * 0.30),
         paint: Paint()..color = hair,
       ),
     );

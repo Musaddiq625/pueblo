@@ -110,7 +110,7 @@ class SimEngine {
   double timeScale; // 1.0 normal; demo mode higher — HUD-adjustable
   final int festivalAt; // sim_ts of run end
 
-  /// The authored culprit — fixed in v1 (La Golondrina case: 'ramon').
+  /// The authored culprit — fixed in v1 (Solorio portrait case: 'ramon').
   /// Tests override with a fixture id.
   final String culpritId;
 
@@ -1340,7 +1340,7 @@ class SimEngine {
   }
 
   /// The authored consequence — deterministic, never LLM. The La
-  /// Golondrina case closes by PROOF, not by spread: when three distinct
+  /// The portrait case closes by PROOF, not by spread: when three distinct
   /// proofs naming the culprit are each held by ≥2 different spirits,
   /// the next spirit to confront him hears a confession. Confidences
   /// (`private`) never count until the living one carries them into
@@ -1394,7 +1394,7 @@ class SimEngine {
     if (accuser != null) {
       _say(
         accuser,
-        'It was you, $name — the pick beneath her frame, the wax on your sleeve.',
+        'It was you, $name — the pick beneath his frame, the wax on your sleeve.',
         'certain',
       );
     }
@@ -1405,11 +1405,11 @@ class SimEngine {
       at: simTs + 3,
     ));
     // The why, said out loud — the scene carries the motive, not just
-    // the card: her light outshone his, and Bruno took the blame.
+    // the card: the fading man was still remembered, and Bruno took the blame.
     if (accuser != null) {
       _queuedSays.add((
         a: accuser,
-        line: 'Her light grew — yours dimmed. And you let us blame Bruno.',
+        line: 'He was almost gone — and still they hung his portrait. Yours, they never painted. And you let us blame Bruno.',
         mood: 'certain',
         at: simTs + 6,
       ));
@@ -1431,7 +1431,7 @@ class SimEngine {
       );
     const gasps = [
       'Ramón… all this time.',
-      'Her candle — he stole her candle.',
+      'His face — he stole a fading man\'s face.',
     ];
     for (var i = 0; i < gasps.length && i < witnesses.length; i++) {
       _queuedSays.add((
@@ -1442,8 +1442,8 @@ class SimEngine {
       ));
     }
     final text =
-        '$name stole La Golondrina\'s portrait and pointed the town at '
-        'Bruno — her candle burned brighter every year while his name dimmed.';
+        '$name stole Solorio\'s portrait and pointed the town at '
+        'Bruno — a fading man was still remembered, and Ramón could not bear it.';
     _note(text);
     _caseNote = text;
     _emit(culprit, SimEventType.thought, {
@@ -2154,7 +2154,7 @@ class SimEngine {
     if (p.id == 'ofrenda') {
       if (!_ofrendaAnnounced) {
         _ofrendaAnnounced = true;
-        _say(a, "Oh! La Golondrina's portrait is missing from the ofrenda!",
+        _say(a, "Oh! Solorio's portrait is missing from the ofrenda!",
             'shock');
         // whoever stands close enough to hear flinches with them
         for (final o in agents.values) {
@@ -2836,7 +2836,7 @@ class SimEngine {
       _confrontAnnounced = true;
       _say(
         acc,
-        'The ledger is full. I know who took her face — come, face him with me.',
+        'The ledger is full. I know who took his face — come, face him with me.',
         'certain',
       );
     }

@@ -92,7 +92,7 @@
     "id": "ramon",
     "name": "Ramón el Trovador",
     "role": "musician",
-    "persona": "Cheerful outside, jealous inside. He sings La Golondrina's songs better than anyone, and hates that the town loves her more than him. He took her portrait — when it comes up, he acts innocent and points at others.",
+    "persona": "Cheerful outside, jealous inside. He sings for the town's dead every night, yet no portrait hangs for him — and even fading Solorio had one. He took the fading man's portrait — when it comes up, he acts innocent and points at others.",
     "stats": {
       "curiosity": 4,
       "wit": 3,
@@ -121,7 +121,7 @@
     "id": "ines",
     "name": "Abuela Inés",
     "role": "memory_keeper",
-    "persona": "Old and patient. She sits by the fountain and remembers everyone. She mourns La Golondrina and wants her portrait back on the altar.",
+    "persona": "Old and patient. She sits by the fountain and remembers everyone. She mourns fading Solorio and wants his portrait back before he is gone entirely.",
     "stats": {
       "curiosity": 4,
       "wit": 5,
@@ -146,7 +146,7 @@
     "id": "solorio",
     "name": "Solorio",
     "role": "forgotten",
-    "persona": "A fading spirit. Nobody remembers his name, so he is slowly disappearing. He saw someone near the frames when the portrait was taken, but his memory is weak. Hearing his name spoken brings him back.",
+    "persona": "A fading spirit. His portrait hung on the great ofrenda — the last thing keeping him remembered — and someone took it tonight. He fades faster now. He saw someone near the frames, but his memory is weak. Hearing his name spoken brings him back.",
     "stats": {
       "curiosity": 4,
       "wit": 2,
@@ -166,7 +166,7 @@
     "id": "violeta",
     "name": "Violeta",
     "role": "child_spirit",
-    "persona": "A young spirit, curious and excited. She repeats everything she hears. She heard someone humming La Golondrina's song near the frames that night.",
+    "persona": "A young spirit, curious and excited. She repeats everything she hears. She heard someone humming near the frames that night.",
     "stats": {
       "curiosity": 5,
       "wit": 1,

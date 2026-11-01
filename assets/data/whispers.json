@@ -3,11 +3,11 @@
     "id": "w_hum",
     "speaker": "violeta",
     "to": null,
-    "line": "…I heard humming by the frames. La Golondrina's own tune.",
+    "line": "…I heard humming by the frames — a troubadour's tune.",
     "grants": "humming_heard",
     "canon": [
       "humming",
-      "golondrina"
+      "frames"
     ],
     "at": 90,
     "leak": 200
@@ -42,12 +42,12 @@
     "id": "w_dream",
     "speaker": "solorio",
     "to": null,
-    "line": "…I saw someone at the frames at dusk. Or did I dream it?",
+    "line": "…someone took a face from the wall at dusk. Was it mine? Or did I dream it?",
     "grants": "humming_heard",
     "canon": [
       "dusk",
-      "frames",
-      "saw"
+      "face",
+      "mine"
     ],
     "at": 240,
     "leak": 380

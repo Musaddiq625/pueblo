@@ -28,7 +28,8 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   final void Function(int remembered, int faded, String? verdict) onEndRun;
 
   final Map<String, SpiritComponent> spirits = {};
-  PlayerComponent? player;
+  // No player avatar — the living one is an unseen presence. You engage
+  // spirits by tapping them; the camera is a free observer.
   ChispaComponent? chispa;
   bool sheetOpen = false;
   final Set<String> _chispaSeen = {};
@@ -116,15 +117,6 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       await world.add(await _buildPoi(poi));
     }
 
-    // ---- player — spawns on the bridge landing, walking south ----
-    player = await _char(
-      kPlayerChar,
-      Vector2(tileX(21), tileY(3)),
-      PlayerComponent.new,
-    );
-    player!.speedScale = () => engine.timeScale;
-    await world.add(player!);
-
     // ---- spirits ----
     for (final agent in engine.agents.values) {
       final comp = await _spirit(agent);
@@ -134,16 +126,24 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       await world.add(SpiritLabelComponent(comp, engine));
     }
 
-    // ---- chispa guide ----
-    chispa = ChispaComponent(follow: player!);
+    // ---- chispa guide — hovers by the great ofrenda, the case's heart ----
+    final ofrenda = engine.pois['ofrenda'];
+    final anchor = PositionComponent(
+      position: ofrenda != null
+          ? Vector2(ofrenda.x, ofrenda.y)
+          : Vector2(tileX(30), tileY(22)),
+    );
+    chispa = ChispaComponent(follow: anchor);
     await world.add(chispa!);
     _chispa(
       '¡Ay — a living one! Spirits fade when forgotten. Talk to them, mijo.',
     );
 
-    // ---- camera ----
+    // ---- camera — free observer: opens on the ofrenda, pans/zooms by hand ----
     camera.viewfinder.zoom = 1.15;
-    camera.follow(player!);
+    if (ofrenda != null) {
+      camera.viewfinder.position = Vector2(ofrenda.x, ofrenda.y);
+    }
 
     // ---- sim wiring ----
     engine.events.listen(_onSimEvent);
@@ -166,34 +166,6 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
     for (var i = 0; i < 10; i++) {
       _spawnPetal();
     }
-  }
-
-  static const kPlayerChar = 'knight';
-
-  Future<PlayerComponent> _char(
-    String key,
-    Vector2 pos,
-    PlayerComponent Function({
-      required Vector2 pos,
-      required SpriteAnimation idle,
-      required SpriteAnimation walk,
-      required Vector2 displaySize,
-      SpriteAnimation? walkDown,
-      SpriteAnimation? walkUp,
-    })
-    ctor,
-  ) async {
-    final def = chars[key]!;
-    final idle = await _anim(def.idle);
-    final walk = await _anim(def.walk);
-    return ctor(
-      pos: pos,
-      idle: idle,
-      walk: walk,
-      walkDown: def.walkDown == null ? null : await _anim(def.walkDown!),
-      walkUp: def.walkUp == null ? null : await _anim(def.walkUp!),
-      displaySize: Vector2(def.displayW, def.displayH),
-    );
   }
 
   Future<SpiritComponent> _spirit(Agent a) async {
@@ -366,7 +338,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         final lc = WidgetsBinding.instance.lifecycleState;
         return 'loaded=$worldLoaded children=${world.children.length} '
             'mounts=${world.children.where((c) => c.isMounted).length} '
-            'spirits=${spirits.length} player=${player != null} '
+            'spirits=${spirits.length} '
             'paused=$paused lifecycle=$lc ticks=$_tickCount';
       case 'tap_spirit':
         final id = _agentIdFor(arg);
@@ -394,7 +366,10 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         camera.viewfinder.zoom = z.clamp(0.8, 2.5);
         return 'ok zoom ${camera.viewfinder.zoom}';
       case 'center':
-        if (player != null) camera.follow(player!);
+        final ofrenda = engine.pois['ofrenda'];
+        if (ofrenda != null) {
+          camera.viewfinder.position = Vector2(ofrenda.x, ofrenda.y);
+        }
         return 'ok centered';
       case 'look':
         // stop following + jump the viewfinder to world coords (tiles*32)
@@ -552,20 +527,26 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   @override
   void onTapUp(TapUpEvent event) {
     final p = camera.globalToLocal(event.canvasPosition);
-    // Arbitration: spirits > POIs > ground move. Sheet open blocks ground.
+    // Arbitration: spirits > petals > POIs. Sheet open blocks world taps.
     final spirit = _spiritAt(p);
     if (spirit != null) {
       onEngage(spirit.agent);
       return;
     }
     if (sheetOpen) return; // while engaged, world taps do nothing
+    for (final petal in world.children.whereType<PetalComponent>().toList()) {
+      if (petal.position.distanceToSquared(p) < 20 * 20) {
+        petal.removeFromParent();
+        engine.addPetal();
+        onPetalsChanged();
+        return;
+      }
+    }
     final poi = _poiAt(p);
     if (poi != null) {
       onPoiInspect(poi.poi);
       return;
     }
-    world.add(ClickMarker(p));
-    player?.walkTo(p);
   }
 
   SpiritComponent? _spiritAt(Vector2 p) {
@@ -630,7 +611,9 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
         if (e.data.containsKey('engaged')) {
           c.setEngaged(e.data['engaged'] as bool);
           if (e.data['engaged'] as bool) {
-            c.faceToward(player!.position.x);
+            // No avatar to face — they turn toward the viewer's gaze:
+            // the camera's world position is the nearest thing to "you".
+            c.faceToward(camera.viewfinder.position.x);
             _chispa(
               'That\'s ${a.name}. They\'ll stay as long as you listen.',
               key: 'first_engage',
@@ -839,16 +822,6 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       final line = q.removeAt(0);
       if (q.isEmpty) _speechQueue.remove(id);
       _bubble(id, line);
-    }
-    // petal pickup on walk-over
-    if (player != null) {
-      for (final petal in world.children.whereType<PetalComponent>().toList()) {
-        if (petal.position.distanceToSquared(player!.position) < 900) {
-          petal.removeFromParent();
-          engine.addPetal();
-          onPetalsChanged();
-        }
-      }
     }
   }
 }

@@ -279,82 +279,6 @@ class SpiritLabelComponent extends PositionComponent {
 
 // ---------------------------------------------------------------------------
 
-class PlayerComponent extends SpriteAnimationGroupComponent<SpiritAnim> {
-  final List<Vector2> _path = [];
-  final double _speed = 95;
-
-  /// Time-scale hook (engine.timeScale) — set post-construction by the
-  /// game; fast-forward applies to the living one's legs too.
-  double Function()? speedScale;
-  bool walking = false;
-
-  PlayerComponent({
-    required Vector2 pos,
-    required SpriteAnimation idle,
-    required SpriteAnimation walk,
-    required Vector2 displaySize,
-    SpriteAnimation? walkDown,
-    SpriteAnimation? walkUp,
-  }) : super(
-         animations: {
-           SpiritAnim.idle: idle,
-           SpiritAnim.walk: walk,
-           SpiritAnim.walkDown: ?walkDown,
-           SpiritAnim.walkUp: ?walkUp,
-         },
-         current: SpiritAnim.idle,
-         size: displaySize,
-         anchor: Anchor.bottomCenter,
-         position: pos,
-         priority: pos.y.round(),
-       );
-
-  void walkTo(Vector2 target) {
-    _path
-      ..clear()
-      ..add(target);
-    walking = true;
-  }
-
-  @override
-  void update(double dt) {
-    super.update(dt);
-    if (walking && _path.isNotEmpty) {
-      final target = _path.first;
-      final delta = target - position;
-      if (delta.length < 5) {
-        _path.removeAt(0);
-        if (_path.isEmpty) {
-          walking = false;
-          current = SpiritAnim.idle;
-        }
-      } else {
-        final vertical = delta.y.abs() > delta.x.abs();
-        final v = delta.y < 0 ? SpiritAnim.walkUp : SpiritAnim.walkDown;
-        current =
-            vertical && animations?.containsKey(v) == true ? v : SpiritAnim.walk;
-        position +=
-            delta.normalized() * _speed * (speedScale?.call() ?? 1.0) * dt;
-        if (!vertical) {
-          final faceLeft = target.x < position.x;
-          if (faceLeft != scale.x.isNegative) {
-            flipHorizontallyAroundCenter();
-          }
-        }
-      }
-    }
-    // Same safety net as the spirits — a path that ends without flipping
-    // `walking` must not leave the run cycle under a standing figure.
-    if (!walking &&
-        (current == SpiritAnim.walk ||
-            current == SpiritAnim.walkDown ||
-            current == SpiritAnim.walkUp)) {
-      current = SpiritAnim.idle;
-    }
-    priority = position.y.round();
-  }
-}
-
 // ---------------------------------------------------------------------------
 
 class PoiComponent extends PositionComponent with TapCallbacks {
@@ -404,41 +328,6 @@ class PoiComponent extends PositionComponent with TapCallbacks {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-
-/// Destination ripple — brief expanding ring where the player clicked, so a
-/// click-to-move reads as a deliberate walk order, not a wander.
-class ClickMarker extends PositionComponent {
-  double _t = 0;
-  ClickMarker(Vector2 pos)
-    : super(
-        position: pos,
-        size: Vector2.all(36),
-        anchor: Anchor.center,
-        priority: 9000,
-      );
-
-  @override
-  void update(double dt) {
-    _t += dt;
-    if (_t > 0.55) removeFromParent();
-  }
-
-  @override
-  void render(Canvas canvas) {
-    final p = _t / 0.55;
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(size.x / 2, size.y / 2),
-        width: 8 + p * 40,
-        height: 4 + p * 20,
-      ),
-      Paint()
-        ..color = Color.fromRGBO(255, 194, 51, 0.75 * (1 - p))
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6,
-    );
-  }
-}
 
 // ---------------------------------------------------------------------------
 

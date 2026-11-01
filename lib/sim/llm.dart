@@ -305,9 +305,9 @@ class MockLLMClient implements LLMClient {
   /// the name the prompt opens with ("You are NAME.").
   static const _voiceLines = {
     'Tía Luz': [
-      'someone took her picture — who would do that?',
+      'someone took his picture — who would do that?',
       'i keep thinking about that flash of silver i saw.',
-      'the ofrenda looks wrong with her frame bare.',
+      'the ofrenda looks wrong with his frame bare.',
       'tell me if you hear who touched the altar.',
     ],
     'Bruno el Sepulturero': [
@@ -319,20 +319,20 @@ class MockLLMClient implements LLMClient {
     'Doña Sefa': [
       'wax on a sleeve does not lie, my friend.',
       'half the town blames the other half.',
-      'her portrait was gold — someone envied that light.',
+      'a fading man still had a portrait — someone envied that.',
       'who profits from a stolen picture? answer me that.',
     ],
     'Ramón el Trovador': [
       'Bruno carried a sack past the altar — i saw it.',
       'Carmen collects photos for her nameless graves.',
-      'sad about the portrait. La Golondrina deserved better.',
+      'sad about the portrait. poor Solorio deserved better.',
       'i? i was tuning my guitar all evening.',
     ],
     'Abuela Inés': [
-      'La Golondrina sang for us fifty years, and this?',
-      'her candle still burns though her picture is gone.',
+      'i remembered Solorio when nobody else did — and this?',
+      'his candle still burns though his picture is gone.',
       'a name remembered lives; a picture stolen wounds.',
-      'i knew her voice when it was young. ask me.',
+      'i knew his face when it was young. ask me.',
     ],
     'Solorio': [
       'i saw someone at the frames at dusk… or did i dream it?',
@@ -341,7 +341,7 @@ class MockLLMClient implements LLMClient {
       'there was humming near the ofrenda. i think.',
     ],
     'Violeta': [
-      'someone was humming her tune by the big frames.',
+      'someone was humming a tune by the big frames.',
       'i keep the marigolds fresh — the altar feels wrong.',
       'a missing portrait… it scares me a little.',
       'who steals from the dead? that is what i ask.',
@@ -349,13 +349,13 @@ class MockLLMClient implements LLMClient {
     'Padre Aurelio': [
       'i was saying mass — many souls can vouch for me.',
       'theft from an ofrenda is a wound on the whole town.',
-      'pray with me that her picture finds its way home.',
+      'pray with me that his picture finds its way home.',
       'the culprit carries a heavy conscience tonight.',
     ],
     'La Viuda Carmen': [
       'i collect photos only for graves that have none.',
       'someone says it was me? let them say it to my face.',
-      'her frame is bare — i noticed it first thing.',
+      'his frame is bare — i noticed it first thing.',
       'we owe the dead their faces. someone broke that debt.',
     ],
   };
@@ -369,7 +369,7 @@ class MockLLMClient implements LLMClient {
 
   /// Inner-voice lines for `thought` — tied to the case, never "wander".
   static const _thoughtLines = [
-    'who took her picture?',
+    'who took his picture?',
     'the altar looked wrong',
     'someone is lying',
     'i should ask around',
