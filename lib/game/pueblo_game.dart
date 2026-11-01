@@ -494,6 +494,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
 
   @override
   void onScaleUpdate(ScaleUpdateInfo info) {
+    if (_cine) return; // ending scene owns the camera
     final s = info.scale.global;
     if (!s.isIdentity()) {
       camera.viewfinder.zoom = (_startZoom * s.y).clamp(0.8, 2.5);
@@ -508,6 +509,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   /// Wheel scroll — dy>0 scrolls down → zoom out; dy<0 → zoom in.
   /// Exponential factor keeps multi-notch trackpad scrolls smooth.
   void scrollZoom(double scrollDy) {
+    if (_cine) return;
     camera.viewfinder.zoom =
         (camera.viewfinder.zoom * pow(0.998, scrollDy)).clamp(0.8, 2.5);
   }
@@ -515,6 +517,7 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
   // Trackpad pinch arrives as PointerPanZoom events at the widget layer —
   // Flame 1.38 has no PanZoomDetector, so main.dart's Listener forwards here.
   void trackpadPinch(double scale, Offset panDelta) {
+    if (_cine) return;
     if (scale != 1.0) {
       camera.viewfinder.zoom = (camera.viewfinder.zoom * scale).clamp(0.8, 2.5);
     }
@@ -527,6 +530,13 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
 
   /// Keep the viewport inside the map — no void past the village border.
   /// (viewfinder.position is a computed getter — assign, don't mutate.)
+  /// Ending cinematic — the camera leaves the player's hands and glides
+  /// to the confrontation when the verdict fires. Set once, held until
+  /// the world remounts (Play again → fresh PuebloGame).
+  Vector2? _cineTarget;
+  double _cineZoom = 2.2;
+  bool get _cine => _cineTarget != null;
+
   void _clampCamera() {
     final r = camera.visibleWorldRect;
     final p = camera.viewfinder.position;
@@ -677,9 +687,20 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
           _chispa('Look — the town remembered. That\'s resurrection.');
         }
       case SimEventType.verdict:
-        // The arc resolves — narrate it and burst petals around the ofrenda
-        // whether the frame fills or stays bare.
+        // The arc resolves — narrate it, burst petals, and pull the
+        // camera into the confrontation: the confession exchange is the
+        // ending scene, played in the world rather than under a card.
         _chispa(e.data['text'] as String);
+        final cx = (e.data['x'] as num?)?.toDouble();
+        final cy = (e.data['y'] as num?)?.toDouble();
+        if (cx != null && cy != null) {
+          camera.stop();
+          // Aim just above the culprit's feet — the bubbles play over
+          // heads, so the scene's center of gravity sits higher than
+          // the sprite's anchor.
+          _cineTarget = Vector2(cx, cy - 30);
+          _cineZoom = 2.1;
+        }
         for (var i = 0; i < 6; i++) {
           _spawnPetal();
         }
@@ -794,6 +815,20 @@ class PuebloGame extends FlameGame with ScaleDetector, TapCallbacks {
       engine.tick(dt);
     } catch (e, st) {
       debugPrint('PUEBLO tick FAILED: $e\n$st');
+    }
+    // Cinematic ending — the verdict event moves the viewfinder onto
+    // the confrontation and player camera input stays out of the scene.
+    final cine = _cineTarget;
+    if (cine != null) {
+      final v = camera.viewfinder;
+      final d = cine - v.position;
+      if (d.length < 2 && (v.zoom - _cineZoom).abs() < 0.01) {
+        v.position = cine;
+        v.zoom = _cineZoom;
+      } else {
+        v.position = v.position + d * (dt * 3).clamp(0.0, 1.0);
+        v.zoom = v.zoom + (_cineZoom - v.zoom) * (dt * 3).clamp(0.0, 1.0);
+      }
     }
     _clampCamera();
     // deliver speech held while the spirit was walking

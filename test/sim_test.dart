@@ -791,8 +791,8 @@ void main() {
     final sub = e.events.listen(events.add);
     e.startConversation('a', 'b'); // 'a' goes to face the culprit
     // The card waits for the staged exchange — accusation, confession,
-    // witnesses — so the endRun lands sim-seconds after the verdict.
-    await _pump(e, ticks: 20);
+    // the why, witnesses — so the endRun lands sim-seconds after the verdict.
+    await _pump(e, ticks: 30);
     await sub.cancel();
     expect(
       events.any((ev) =>

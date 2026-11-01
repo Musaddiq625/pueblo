@@ -2,8 +2,9 @@
 ///
 /// Renders the REAL village: same baked ground, same props, same
 /// character sheets — the camera just crops to the Great Ofrenda and
-/// zooms in. A silhouette (hiding face and body, as it should) crosses
-/// the altar, a portrait goes dark, and two villagers find it missing.
+/// zooms in. The thief crosses the altar in plain sight — a real
+/// villager's face the audience can spot again in the plaza — a
+/// portrait goes dark, and two villagers find it missing.
 /// No video asset, no separate art — it can only ever look like the game.
 library;
 
@@ -30,7 +31,8 @@ class IntroScene extends FlameGame {
   double _t = 0;
   bool _done = false;
 
-  late final SpriteAnimationComponent _shadow;
+  late final SpriteAnimationComponent _thief;
+  late final CharDef _thiefDef;
   late final SpriteAnimationComponent _walkA;
   late final SpriteAnimationComponent _walkB;
   late final CharDef _defA, _defB;
@@ -110,7 +112,9 @@ class IntroScene extends FlameGame {
     final box = RectangleComponent(
       position: pos,
       size: Vector2(w, h),
-      priority: 9999,
+      // Above the candle glow (2000000) and every depth-sorted prop —
+      // the reveal line must read clean through the light.
+      priority: 3000005,
       paint: Paint()..color = const Color(0xE6141226),
     );
     text.position = Vector2(6, 4);
@@ -167,24 +171,21 @@ class IntroScene extends FlameGame {
       paint: Paint()..color = const Color(0xFF140F1E),
     );
 
-    // The shadow — a silhouette that keeps every pixel of animation but
-    // gives away nothing of who it is.
-    final shadowDef = chars['sk_rogue']!;
-    // The shadow rides a FIXED high priority — the cinematic choreographs
-    // its own depth, and a foreground garden bed must never swallow him
-    // mid-theft (the "walking under the tiles" bug this used to cause).
-    // A warm back-glow rides with him: a near-black sprite on a dark
-    // altar reads as NOTHING — the glow is what makes the figure a
-    // silhouette instead of a hole in the frame.
-    _shadow = SpriteAnimationComponent(
-      animation: await _anim(shadowDef.walk),
+    // The thief — Ramón himself, in full color and full face. The
+    // audience sees who did it; the villagers didn't.
+    final thiefDef = _thiefDef = chars['trp_bard']!;
+    // Fixed high priority — the cinematic choreographs its own depth,
+    // and a foreground garden bed must never swallow him mid-theft (the
+    // "walking under the tiles" bug this used to cause). A warm
+    // back-glow rides with him so he reads against the dark altar.
+    _thief = SpriteAnimationComponent(
+      animation: await _anim(_thiefDef.walk),
       position: _ofrenda + Vector2(230, 56),
-      size: Vector2(shadowDef.displayW, shadowDef.displayH),
+      size: Vector2(thiefDef.displayW, thiefDef.displayH),
       anchor: Anchor.bottomCenter,
       priority: 5000,
-    )..paint.colorFilter =
-        const ColorFilter.mode(Color(0xFF241A44), BlendMode.modulate);
-    await world.add(_shadow);
+    );
+    await world.add(_thief);
     _glow = CircleComponent(
       radius: 34,
       position: _ofrenda + Vector2(230, 30),
@@ -227,19 +228,19 @@ class IntroScene extends FlameGame {
     final t = _t;
     final g = _golondrina!;
 
-    // Depth — the villagers sort by feet among the props; the shadow's
+    // Depth — the villagers sort by feet among the props; the thief's
     // priority is fixed above them all (a silhouette in a scripted beat).
     _walkA.priority = _walkA.position.y.round();
     _walkB.priority = _walkB.position.y.round();
     // glow + ground shadow ride the thief — he owns the frame wherever
     // he goes, the way a lantern owns the dark
-    _glow.position = _shadow.position - Vector2(0, 26);
-    _groundShadow.position = _shadow.position - Vector2(0, 6);
+    _glow.position = _thief.position - Vector2(0, 26);
+    _groundShadow.position = _thief.position - Vector2(0, 6);
 
-    // 0→2.6s: the shadow crosses to the altar (walking, facing left).
+    // 0→2.6s: the thief crosses to the altar (walking, facing left).
     if (t < 2.6) {
-      _shadow.position.x -= 86 * dt;
-      _shadow.scale.x = -1;
+      _thief.position.x -= 86 * dt;
+      _thief.scale.x = -1;
       // her portrait flickers — the only light that knows what's coming
       g.panel.paint.color = Color.lerp(
         const Color(0xFFFFD96A),
@@ -251,7 +252,7 @@ class IntroScene extends FlameGame {
       // then comes off the wall.
       if (_grabbing == null) {
         _grabbing = true;
-        _anim(chars['sk_rogue']!.idle).then((a) => _shadow.animation = a);
+        _anim(_thiefDef.idle).then((a) => _thief.animation = a);
       }
       final k = ((t - 2.6) / 1.4).clamp(0.0, 1.0);
       g.panel.paint.color = Color.lerp(
@@ -262,17 +263,17 @@ class IntroScene extends FlameGame {
       if (t > 3.4 && !_portraitTaken) {
         _portraitTaken = true;
         world.add(_emptySlot!);
-        _golondrina!.carriedBy = _shadow;
+        _golondrina!.carriedBy = _thief;
       }
     }
     // 4.0→6.4s: the thief leaves the way he came, portrait in hand.
     if (t >= 4.0 && t < 6.4) {
       if (_grabbing == true) {
         _grabbing = false;
-        _anim(chars['sk_rogue']!.walk).then((a) => _shadow.animation = a);
+        _anim(_thiefDef.walk).then((a) => _thief.animation = a);
       }
-      _shadow.position.x += 96 * dt;
-      _shadow.scale.x = 1;
+      _thief.position.x += 96 * dt;
+      _thief.scale.x = 1;
     }
     // 4.8s→arrival: the villagers walk in from the right and pass him on
     // the path — both looking the wrong way as the frame goes by. Idle
@@ -357,31 +358,53 @@ class _Portrait {
         ) {
     frame.add(this.panel);
     // the remembered — a head-and-shoulders portrait inside every lit
-    // panel, so each frame reads as somebody's face, not a blank card.
+    // panel. Eyes + mouth make it a FACE at crop distance, not just a
+    // warm blob on a lit card.
     final iw = size.x - 4, ih = size.y - 4;
-    const skin = Color(0xFFB98A62), hair = Color(0xFF3A2416);
+    const skin = Color(0xFFB98A62), hair = Color(0xFF3A2416),
+        feature = Color(0xFF2A1408);
+    final hw = iw * 0.50, hh = ih * 0.46;
+    final hx = 2 + (iw - hw) / 2, hy = 2 + ih * 0.16;
     frame.add(
       RectangleComponent(
         // shoulders first — the head overlaps them like any portrait
-        position: Vector2(2 + iw * 0.18, 2 + ih * 0.62),
-        size: Vector2(iw * 0.64, ih * 0.34),
+        position: Vector2(2 + iw * 0.14, 2 + ih * 0.60),
+        size: Vector2(iw * 0.72, ih * 0.36),
         paint: Paint()..color = const Color(0xFF6A4A58),
       ),
     );
     frame.add(
       RectangleComponent(
         // head
-        position: Vector2(2 + iw * 0.28, 2 + ih * 0.22),
-        size: Vector2(iw * 0.44, ih * 0.44),
+        position: Vector2(hx, hy),
+        size: Vector2(hw, hh),
         paint: Paint()..color = skin,
       ),
     );
     frame.add(
       RectangleComponent(
         // hair cap across the top of the head
-        position: Vector2(2 + iw * 0.26, 2 + ih * 0.20),
-        size: Vector2(iw * 0.48, ih * 0.16),
+        position: Vector2(hx - hw * 0.04, hy - hh * 0.06),
+        size: Vector2(hw * 1.08, hh * 0.30),
         paint: Paint()..color = hair,
+      ),
+    );
+    // eyes — the two dark pixels that turn a block into a face
+    for (final ex in [hx + hw * 0.22, hx + hw * 0.62]) {
+      frame.add(
+        RectangleComponent(
+          position: Vector2(ex, hy + hh * 0.40),
+          size: Vector2(hw * 0.16, hh * 0.14),
+          paint: Paint()..color = feature,
+        ),
+      );
+    }
+    frame.add(
+      RectangleComponent(
+        // mouth — a thin dark line under the eyes
+        position: Vector2(hx + hw * 0.30, hy + hh * 0.72),
+        size: Vector2(hw * 0.40, (hh * 0.10).clamp(1.0, 2.0)),
+        paint: Paint()..color = feature,
       ),
     );
   }

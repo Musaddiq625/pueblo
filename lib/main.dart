@@ -496,6 +496,14 @@ class _PuebloAppState extends State<PuebloApp> {
                             color: Color(0xFFFFC233),
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'the game has ended',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Color(0xFF8D84B0),
+                          ),
+                        ),
                         const SizedBox(height: 10),
                         Text(
                           '$remembered spirits remembered · $fadedCount faded',

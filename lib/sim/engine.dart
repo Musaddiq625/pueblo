@@ -1379,6 +1379,16 @@ class SimEngine {
       mood: 'broken',
       at: simTs + 3,
     ));
+    // The why, said out loud — the scene carries the motive, not just
+    // the card: her light outshone his, and Bruno took the blame.
+    if (accuser != null) {
+      _queuedSays.add((
+        a: accuser,
+        line: 'Her light grew — yours dimmed. And you let us blame Bruno.',
+        mood: 'certain',
+        at: simTs + 6,
+      ));
+    }
     // The town heard it too — the two nearest spirits gasp a beat after
     // his words, so the reveal plays as a scene, not a silent card.
     final witnesses = agents.values
@@ -1403,7 +1413,7 @@ class SimEngine {
         a: witnesses[i],
         line: gasps[i],
         mood: 'shaken',
-        at: simTs + 5 + i * 2,
+        at: simTs + 8 + i * 2,
       ));
     }
     final text =
@@ -1420,12 +1430,16 @@ class SimEngine {
         'culprit': culpritId,
         'passed': true,
         'text': text,
+        // Where the camera should look — the confession IS the ending
+        // scene, so the game zooms into the confrontation.
+        'x': culprit.x,
+        'y': culprit.y,
       }),
     );
     _events.add(SimEvent(SimEventType.poiGlow, {'poi': 'ofrenda', 'on': true}));
     // The card waits for the scene to breathe — accusation, confession,
-    // witnesses — instead of slamming over the dialogue.
-    _resolutionAt = simTs + 9;
+    // the why, the witnesses — instead of slamming over the dialogue.
+    _resolutionAt = simTs + 12;
     _marchers.clear();
   }
 
