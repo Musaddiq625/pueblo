@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="screenshots/poster.png" alt="El Pueblo de los Muertos — pixel-art poster with the spirit cast" width="1600">
+  <img src="content/poster.png" alt="El Pueblo de los Muertos — pixel-art poster with the spirit cast" width="1600">
 </p>
 
 # El Pueblo de los Muertos 🕯️
